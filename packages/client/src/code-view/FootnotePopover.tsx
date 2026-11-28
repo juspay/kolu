@@ -15,8 +15,8 @@
 
 import { bindMarkdownLinks } from "@kolu/solid-markdown";
 import { createEventListener } from "@solid-primitives/event-listener";
-import { type Component, createMemo, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { type Component, createMemo, onCleanup, Show } from "solid-js";
+import { Portal } from "@solidjs/web";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 
@@ -37,10 +37,16 @@ export const FootnotePopover: Component<{
 }> = (props) => {
   // Captured panel element, to exclude its own scroll from the dismiss. A plain
   // `let` (not a signal) — it's only read synchronously inside the scroll
-  // listener, never in a reactive context. The body's inner-link clicks are
-  // delegated through the package's own seam (`bindMarkdownLinks`, bound on the
-  // body ref below) — see the comment there.
+  // listener, never in a reactive context.
   let panelEl: HTMLElement | undefined;
+  // The body's inner-link delegation (`bindMarkdownLinks`, bound on the body
+  // ref below) hands its unbinder back rather than registering a cleanup of
+  // its own: a `ref` callback cannot register one (CLEANUP_IN_FORBIDDEN_SCOPE).
+  // So the lifetime is kept here, in the component body, where `onCleanup` is
+  // the owner's — and the ref unbinds the previous element before binding the
+  // next one.
+  let unbindBody: (() => void) | undefined;
+  onCleanup(() => unbindBody?.());
 
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: () => props.target()?.anchor,
@@ -133,12 +139,13 @@ export const FootnotePopover: Component<{
               anchor its disambiguation menu to the clicked anchor before that
               remount. */}
           <div
-            ref={(el) =>
-              bindMarkdownLinks(el, {
+            ref={(el) => {
+              unbindBody?.();
+              unbindBody = bindMarkdownLinks(el, {
                 onNavigateRelative: props.onNavigateRelative,
                 onNavigateWikilink: props.onNavigateWikilink,
-              })
-            }
+              });
+            }}
             class="kolu-md min-h-0 flex-1 overflow-auto p-3 text-fg"
             innerHTML={body()}
           />

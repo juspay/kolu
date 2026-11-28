@@ -1,9 +1,26 @@
 /** Client-side visit MRU — "which terminal did the USER just activate?"
  *
- *  A visit is only recorded when a terminal becomes the **active tile**.
- *  Server activity clocks (agent output, etc.) do not count. The store holds
- *  host+terminal keys and timestamps only; labels are joined live from the
- *  fleet index so nothing denormalizes.
+ *  A visit is recorded when a terminal becomes the **active tile** — every
+ *  landing that moves the selection: a gesture (canvas, dock, palette,
+ *  Ctrl+Tab), the boot pick a cold boot lands on, and the survivor the focus
+ *  derivation hands the slot to when the active tile exits. Server activity
+ *  clocks (agent output, etc.) do not count, and neither does a landing that
+ *  RE-STATES the pane already focused.
+ *
+ *  That last one is a trade, not a free drop. Within one host it changes no
+ *  ranking — the tile is already this host's newest stamp — but the trail is
+ *  ONE cross-host list and ⌘K's Recent band is fleet-wide, so a stamp that is
+ *  not refreshed can be outranked by a tile visited on ANOTHER host in
+ *  between: stay on X here, visit Y there, and X ranks below Y though you
+ *  never left X. What is bought is the relay: the callers that re-land most
+ *  are effect apply arms (the canvas's placement pass, a dock row landing on
+ *  the pane it is already on), and a refresh from there is a trail write out
+ *  of an effect that had just read the census, which tears every reader of
+ *  the trail. The alternative — refreshing from a non-relaying path — buys a
+ *  rank nobody asked for at the price of a write per placement pass.
+ *
+ *  The store holds host+terminal keys and timestamps only; labels are joined
+ *  live from the fleet index so nothing denormalizes.
  *
  *  Consumers:
  *  - ⌘K Recent ranks by max(visitedAt, serverActivityAt)
@@ -85,33 +102,36 @@ export function parseVisitList(
 }
 
 /** Upsert one visit to the front of the MRU, dedupe by (hostKey, terminalId),
- *  cap length. Timestamps are forced strictly monotonic so same-ms activations
- *  still rank later-before-earlier. Pure — unit-tested without Solid. */
+ *  drop this host's `dead` ids, cap length. Timestamps are forced strictly
+ *  monotonic so same-ms activations still rank later-before-earlier. Pure —
+ *  unit-tested without Solid.
+ *
+ *  `dead` is the PRUNE, carried by the gesture that writes rather than applied
+ *  at the persistence boundary, which cannot know liveness for a host that is
+ *  offline and would throw away real history. Without it the 50 slots fill
+ *  with killed terminals — each kill leaves the most RECENT entry, which holds
+ *  a slot ahead of older live ones — and a browser's long-lived tiles lose
+ *  their stamps after about that many open-visit-kill cycles. They read as
+ *  never visited then, which is Ctrl+Tab's order, the palette's `rankOf`
+ *  tie-break, the no-query Enter target and the Recent band's reserved seat.
+ *  Host-scoped, because an id is only dead on the host that lost it. */
 export function upsertVisit(
   prev: readonly VisitEntry[],
   hostKey: string,
   terminalId: TerminalId,
   visitedAt: number,
+  dead: readonly TerminalId[] = [],
   cap: number = VISIT_MRU_CAP,
 ): VisitEntry[] {
+  const gone = new Set(dead);
   const rest = prev.filter(
-    (e) => !(e.hostKey === hostKey && e.terminalId === terminalId),
+    (e) =>
+      e.hostKey !== hostKey ||
+      (e.terminalId !== terminalId && !gone.has(e.terminalId)),
   );
   const at = monotonicStamp(rest, visitedAt, (e) => e.visitedAt);
   const next: VisitEntry = { hostKey, terminalId, visitedAt: at };
   return [next, ...rest].slice(0, cap);
-}
-
-/** Remove every entry for a terminal id on a host (tile kill). Does not
- *  restamp survivors. */
-export function removeVisit(
-  prev: readonly VisitEntry[],
-  hostKey: string,
-  terminalId: TerminalId,
-): VisitEntry[] {
-  return prev.filter(
-    (e) => !(e.hostKey === hostKey && e.terminalId === terminalId),
-  );
 }
 
 /** Drop all visits for one host (close-all / host reset). */
@@ -120,77 +140,6 @@ export function clearHostVisits(
   hostKey: string,
 ): VisitEntry[] {
   return prev.filter((e) => e.hostKey !== hostKey);
-}
-
-/**
- * Seed membership for a host that has no trail yet — Ctrl+Tab order only.
- * Stamps are tiny positive ranks (n … 1), never wall-clock times, so they
- * cannot drown real `noteVisit` stamps or server activity in max() ranking.
- */
-export function seedHostVisits(
-  hostKey: string,
-  liveIds: readonly TerminalId[],
-  _now?: number,
-): VisitEntry[] {
-  const n = liveIds.length;
-  return liveIds.map((terminalId, i) => ({
-    hostKey,
-    terminalId,
-    // First live id is most-recent for cycle order; values stay << Date.now().
-    visitedAt: n - i,
-  }));
-}
-
-/**
- * Membership reconcile for a host that already has visits:
- * drop dead, keep survivor timestamps, append missing below oldest survivor.
- */
-export function reconcileHostLiveIds(
-  hostPrev: readonly VisitEntry[],
-  hostKey: string,
-  liveIds: readonly TerminalId[],
-  now: number,
-): VisitEntry[] {
-  const liveSet = new Set(liveIds);
-  const survivors = hostPrev.filter((e) => liveSet.has(e.terminalId));
-  const survivorIds = new Set(survivors.map((e) => e.terminalId));
-  const missing = liveIds.filter((id) => !survivorIds.has(id));
-  const minSurvivor =
-    survivors.length === 0
-      ? now
-      : survivors.reduce(
-          (m, e) => Math.min(m, e.visitedAt),
-          survivors[0]!.visitedAt,
-        );
-  // Append below oldest survivor; never go negative (parse rejects < 0).
-  const appended: VisitEntry[] = missing.map((terminalId, i) => ({
-    hostKey,
-    terminalId,
-    visitedAt: Math.max(0, minSurvivor - 1 - i),
-  }));
-  return [...survivors, ...appended];
-}
-
-/**
- * Apply live top-level ids for one host: seed if empty, else membership
- * reconcile. Merges with other-host visits, sorts by true recency, caps.
- */
-export function applyHostLiveIds(
-  prev: readonly VisitEntry[],
-  hostKey: string,
-  liveIds: readonly TerminalId[],
-  now: number,
-  cap: number = VISIT_MRU_CAP,
-): VisitEntry[] {
-  const others = prev.filter((e) => e.hostKey !== hostKey);
-  const hostPrev = prev.filter((e) => e.hostKey === hostKey);
-  const hostNext =
-    hostPrev.length === 0
-      ? seedHostVisits(hostKey, liveIds, now)
-      : reconcileHostLiveIds(hostPrev, hostKey, liveIds, now);
-  return [...hostNext, ...others]
-    .sort((a, b) => b.visitedAt - a.visitedAt)
-    .slice(0, cap);
 }
 
 /** Active-host visit ids (most-recent first) for Ctrl+Tab / WebGL budget. */
@@ -220,13 +169,29 @@ export function visitLiveKey(hostKey: string, terminalId: TerminalId): string {
 
 const STORAGE_KEY = "kolu-visit-recency";
 
-type VisitRecencyApi = {
+/** What one activation writes: when it happened, and which of this host's
+ *  trailed ids are gone. The caller samples `dead` — it is the only layer
+ *  that can ask the live census without subscribing a write verb to it. */
+export type NoteVisitOptions = {
+  at?: number;
+  dead?: readonly TerminalId[];
+};
+
+export type VisitRecencyApi = {
+  /** The cross-host trail of GESTURES — an activation, and a close-all's
+   *  clear. A kill writes nothing of its own: a dead id is dropped where the
+   *  trail is READ (`hostScope/createViewState.mruOrder` narrows it to the
+   *  host's live census), and PRUNED from storage by the next activation on
+   *  that host, which carries the dead ids it saw ({@link upsertVisit}'s
+   *  `dead`) — so the {@link VISIT_MRU_CAP} slots hold live history rather
+   *  than the last 50 terminals to die. */
   visits: Accessor<VisitEntry[]>;
-  noteVisit: (host: HostKey, terminalId: TerminalId, at?: number) => void;
-  forgetVisit: (host: HostKey, terminalId: TerminalId) => void;
+  noteVisit: (
+    host: HostKey,
+    terminalId: TerminalId,
+    opts?: NoteVisitOptions,
+  ) => void;
   clearHost: (host: HostKey) => void;
-  /** Seed empty host trail, or reconcile live membership without restamping. */
-  applyLiveIds: (host: HostKey, liveIds: readonly TerminalId[]) => void;
   mruForHost: (host: HostKey) => TerminalId[];
 };
 
@@ -243,23 +208,21 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
   function noteVisit(
     host: HostKey,
     terminalId: TerminalId,
-    at: number = Date.now(),
+    opts: NoteVisitOptions = {},
   ): void {
-    setVisits((prev) => upsertVisit(prev, encodeHostKey(host), terminalId, at));
-  }
-
-  function forgetVisit(host: HostKey, terminalId: TerminalId): void {
-    setVisits((prev) => removeVisit(prev, encodeHostKey(host), terminalId));
+    setVisits((prev) =>
+      upsertVisit(
+        prev,
+        encodeHostKey(host),
+        terminalId,
+        opts.at ?? Date.now(),
+        opts.dead,
+      ),
+    );
   }
 
   function clearHost(host: HostKey): void {
     setVisits((prev) => clearHostVisits(prev, encodeHostKey(host)));
-  }
-
-  function applyLiveIds(host: HostKey, liveIds: readonly TerminalId[]): void {
-    setVisits((prev) =>
-      applyHostLiveIds(prev, encodeHostKey(host), liveIds, Date.now()),
-    );
   }
 
   function mruForHost(host: HostKey): TerminalId[] {
@@ -269,9 +232,7 @@ export const useVisitRecency = createSharedRoot((): VisitRecencyApi => {
   return {
     visits,
     noteVisit,
-    forgetVisit,
     clearHost,
-    applyLiveIds,
     mruForHost,
   };
 });

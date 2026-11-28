@@ -17,7 +17,8 @@
  * is none.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cell = vi.hoisted(() => ({ waiting: 0 }));
@@ -94,12 +95,14 @@ describe("the conductor's tab", () => {
     expect(entry.getAttribute("aria-current")).toBeNull();
 
     entry.click();
+    flush();
     expect(conductorMode()).toBe(true);
     expect(entry.dataset.active).toBe("");
     expect(entry.getAttribute("aria-current")).toBe("page");
 
     // A tab, not a toggle: a host tab is the way back.
     entry.click();
+    flush();
     expect(conductorMode()).toBe(true);
   });
 
@@ -131,6 +134,7 @@ describe("the conductor's tab", () => {
   it("never writes a host key — the selection is its own value", () => {
     const entry = entryOf(mount());
     entry.click();
+    flush();
     // The host tab the user left is untouched: the row's two halves are
     // separate values, which is what makes leaving a RETURN.
     expect(sessionStorage.getItem("kolu-active-host")).toBeNull();

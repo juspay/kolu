@@ -1,4 +1,3 @@
-import { batch } from "solid-js";
 import type { PaletteAction, PaletteGroup } from "./CommandPalette";
 
 export interface ThemePaletteDeps {
@@ -27,13 +26,16 @@ export function themePaletteGroup(
           (name): PaletteAction => ({
             kind: "action",
             name,
+            // Highlighting a theme row paints the active terminal in it, and
+            // the terminal is BEHIND the palette: the dialog drops its
+            // backdrop while this row is highlighted.
+            previewsBehind: true,
             onHighlight: () => deps.setPreviewThemeName(name),
             onCancel: restore,
-            onSelect: () =>
-              batch(() => {
-                restore();
-                deps.handleSetTheme(name);
-              }),
+            onSelect: () => {
+              restore();
+              deps.handleSetTheme(name);
+            },
           }),
         ),
   };

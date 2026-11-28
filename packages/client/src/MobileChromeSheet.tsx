@@ -12,7 +12,7 @@
  *  chrome bar owns global controls.
  *
  *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is
- *  owned by `MobileTileView` via `@corvu/drawer`. This component only
+ *  owned by `MobileTileView` via `@corvu-next/drawer`. This component only
  *  renders the sheet's contents; `onClose` is called after a user
  *  action so the parent can close the drawer. */
 
@@ -87,12 +87,14 @@ const MobileChromeSheet: Component<{
           data-testid="conductor-tab"
           data-active={conductorMode() ? "" : undefined}
           aria-current={conductorMode() ? "page" : undefined}
-          class="relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-          classList={{
-            "border-accent/60 bg-accent/12 text-accent": conductorMode(),
-            "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
-              !conductorMode(),
-          }}
+          class={[
+            "relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+            {
+              "border-accent/60 bg-accent/12 text-accent": conductorMode(),
+              "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
+                !conductorMode(),
+            },
+          ]}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
             enterConductorMode();
@@ -102,10 +104,7 @@ const MobileChromeSheet: Component<{
         >
           {/* The mark carries the accent at rest here too — one destination,
               one hue, whichever layout you reach it from. */}
-          <span
-            aria-hidden="true"
-            classList={{ "text-accent": !conductorMode() }}
-          >
+          <span aria-hidden="true" class={{ "text-accent": !conductorMode() }}>
             ◆
           </span>
           <span>Conductor</span>
@@ -196,10 +195,10 @@ const MobileChromeSheet: Component<{
           <button
             type="button"
             data-testid="inspector-toggle"
-            class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
-            classList={{
-              "bg-surface-3 text-fg": rightPanel.drawerOpen(),
-            }}
+            class={[
+              "h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3",
+              { "bg-surface-3 text-fg": rightPanel.drawerOpen() },
+            ]}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               // Mobile drawer is session-local — do NOT call togglePanel,

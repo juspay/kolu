@@ -4,7 +4,7 @@
  *  This is the pan/zoom the viewport machinery reads and writes for the ACTIVE
  *  host (`canvas/viewport/useCanvasViewport.ts` redirects every read/write onto
  *  `hostScopes.active().camera`). It USED to be three module-scope signals shared
- *  by every host and bridged to per-host storage by a `on(activeHost)` swap
+ *  by every host and bridged to per-host storage by an `activeHost` swap
  *  effect (`useCanvasCameraSwap`, now deleted) — the bridge between two
  *  independently-timed lifecycles the W7 post-mortem showed a defer-guard can
  *  never close. Owned per host, there is no bridge: a host's pose lives WITH the

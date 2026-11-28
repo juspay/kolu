@@ -40,14 +40,21 @@ import { createAttentionIndex } from "./createAttentionIndex";
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  mapArray,
+  onCleanup,
+  onSettled,
+} from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import {
   emptyByClass,
   type FrameClass,
-  frameByClass,
   type TerminalAttention,
+  urgencyListOf,
 } from "@kolu/padi-client/attention";
 import {
   forgetHostIndex,
@@ -58,6 +65,11 @@ import {
   writeHostMarks,
 } from "./attentionMarks";
 import { forgetAttentionRecord } from "./savedAttention";
+
+/** The empty source a copy reads when there is nothing to copy — one frozen
+ *  array, so an empty tick hands `mapArray` the same reference and it has
+ *  nothing to diff. */
+const NO_IDS: readonly TerminalId[] = Object.freeze([]);
 
 export const useAttentionFacts = createSharedRoot(() => {
   // One eager root per host, holding BOTH of that host's attention members.
@@ -97,37 +109,79 @@ export const useAttentionFacts = createSharedRoot(() => {
         () => entry.state().kind === "connected" && !sub.error() && !complete(),
       );
 
-      // The class lists — the ONE wire→frame translation in the app, which is
-      // also where the wire's positional `awaitingIds` name becomes the class
-      // name every reader speaks — `frameByClass`, in `@kolu/padi-client/attention`,
-      // beside the cell it reads, so this mirror and any other consumer of the
-      // same surface translate the wire identically (it also owns the copies that
-      // fence the `reconcile` proxy `.use()` hands back, which mutates in place
-      // across ticks).
+      // Has padi finished looking? Only a SETTLED frame moves the reading
+      // below. An unsettled one is padi saying it has not looked yet (a
+      // redeploy's fresh padi, a kaval recycle), so its empty lists are no
+      // news: the reading stays at what padi last said it saw, and the marks
+      // and counts it drives do not blink to idle and back.
+      const settled = createMemo(() => urgency()?.settled === true);
+
+      // ONE CLASS LIST, COPIED OFF THE WIRE. The wire→class rename is
+      // `urgencyListOf`, in `@kolu/padi-client/attention` beside the cell it
+      // reads, so this mirror and any other consumer of the same surface
+      // translate the wire identically.
       //
-      // Only a SETTLED frame moves it. An unsettled one is padi saying it has
-      // not looked yet (a redeploy's fresh padi, a kaval recycle), so its empty
-      // lists are no news: the reading stays at what padi last said it saw, and
-      // the marks and counts it drives do not blink to idle and back.
+      // Copied with `mapArray`, never a spread. `.use()` hands back a
+      // `reconcile` proxy that mutates in place across ticks, so the copy is
+      // what makes a held reading hold still — and the SHAPE of the copy is
+      // what keeps this scope narrow: spreading a store array subscribes the
+      // scope to a leaf per id, so four classes plus the live set put this
+      // mirror past Solid's 200-source `WIDE_SCOPE_DEPS` judge at about 190
+      // terminals on one host. `mapArray` reads the array's container node and
+      // walks its raw slots untracked — a flat handful of sources at any fleet
+      // size — and hands back a plain array.
+      const copyOf = (klass: FrameClass): Accessor<TerminalId[]> =>
+        mapArray(
+          () => {
+            const value = urgency();
+            return value?.settled === true
+              ? urgencyListOf(value, klass)
+              : NO_IDS;
+          },
+          (id) => id,
+          { name: `attentionFacts.${klass}` },
+        );
+      // Spelled out per class rather than folded over `FRAME_CLASSES`: the
+      // record type makes a sixth class a compile error here instead of a
+      // silently missing list.
+      const copies: Record<FrameClass, Accessor<TerminalId[]>> = {
+        asking: copyOf("asking"),
+        working: copyOf("working"),
+        linger: copyOf("linger"),
+        finished: copyOf("finished"),
+      };
       const byClass = createMemo(
-        (previous: Record<FrameClass, TerminalId[]>) => {
-          const value = urgency();
-          return value?.settled === true ? frameByClass(value) : previous;
-        },
-        emptyByClass(),
+        (previous: Record<FrameClass, TerminalId[]> = emptyByClass()) =>
+          settled()
+            ? {
+                asking: copies.asking(),
+                working: copies.working(),
+                linger: copies.linger(),
+                finished: copies.finished(),
+              }
+            : previous,
+        { name: "attentionFacts.byClass" },
       );
-      const liveIds = createMemo<readonly TerminalId[]>(
-        (previous) => (activity.pending() ? previous : [...(activity() ?? [])]),
-        [],
+      // The live set is a store array too, so it is copied the same way and
+      // for the same two reasons.
+      const liveCopy = mapArray(
+        () => activity() ?? NO_IDS,
+        (id) => id,
+        {
+          name: "attentionFacts.liveCopy",
+        },
+      );
+      const liveIds = createMemo(
+        (previous: readonly TerminalId[] = []): readonly TerminalId[] =>
+          activity.pending() ? previous : liveCopy(),
+        { name: "attentionFacts.liveIds" },
       );
       // Has padi said what it SAW? Once it has, the held reading above is
       // its word, so this stays true across a later unsettled frame.
       const reported = createMemo(
-        (previous: boolean) =>
-          activity.pending()
-            ? previous
-            : previous || urgency()?.settled === true,
-        false,
+        (previous: boolean = false) =>
+          activity.pending() ? previous : previous || settled(),
+        { name: "attentionFacts.reported" },
       );
       registerHostFacts(encHost, () => ({
         get reported() {
@@ -143,8 +197,12 @@ export const useAttentionFacts = createSharedRoot(() => {
           return live();
         },
       }));
-      // Publish membership, independent of the live facts above.
-      writeHostMarks(encHost, {});
+      // Publish membership, independent of the live facts above. A store write
+      // cannot happen in this mapper's own computation, so it lands in the
+      // settled (imperative) phase of this host's owner.
+      onSettled(() => {
+        writeHostMarks(encHost, {});
+      });
       registerHostIndex(encHost, createAttentionIndex(byClass, liveIds));
       // Host left the pool — drop its whole record, the index whose memos
       // are disposed with this owner, and what this browser saved about its
@@ -157,8 +215,9 @@ export const useAttentionFacts = createSharedRoot(() => {
       return null;
     },
   );
-  // Instantiate the roots (mapArray is lazy until read).
-  createEffect(() => void roots());
+  // Instantiate the roots (mapArray is lazy until read): the compute phase is
+  // that read, and there is nothing imperative to do with the result.
+  createEffect(roots, () => {});
 
   return {
     /** A terminal's class WITHOUT its live flag — the dock's rank/paint read.

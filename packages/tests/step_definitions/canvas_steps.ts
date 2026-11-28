@@ -1662,7 +1662,7 @@ Then(
 When(
   "I tag canvas tile {int}'s xterm element",
   async function (this: KoluWorld, index: number) {
-    // xterm.js's `onMount` awaits `document.fonts.load` before creating
+    // xterm.js's mount awaits `document.fonts.load` before creating
     // the `.xterm` DOM node, so on a slow host the element may not exist
     // when this step first fires. Poll until it does, then tag it.
     //

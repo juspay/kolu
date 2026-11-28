@@ -133,45 +133,38 @@ function buildIdLabel(
 /** A STANDING degraded-bind banner — so a convergence anomaly the (remote) binder hit is a
  *  VISIBLE state in the dialog, never swallowed into server logs (the whole point of the
  *  dialog). Shows typed evidence from the anomaly arms (never parses `detail`). */
-const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
+export const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (
+  props,
+) => {
   const p = (): { title: string; tone: "warn" | "down" } =>
     CONVERGENCE_PRESENTATION[props.conv.kind];
   return (
     <div
-      classList={{
-        "rounded-md border px-2.5 py-1.5 text-[11px] leading-relaxed": true,
-        "border-warning/40 bg-warning/10 text-warning": p().tone === "warn",
-        "border-danger/40 bg-danger/15 text-danger": p().tone === "down",
-      }}
+      class={[
+        "rounded-md border px-2.5 py-1.5 text-[11px] leading-relaxed",
+        {
+          "border-warning/40 bg-warning/10 text-warning": p().tone === "warn",
+          "border-danger/40 bg-danger/15 text-danger": p().tone === "down",
+        },
+      ]}
       role="status"
     >
       <div class="font-medium">{p().title}</div>
-      <Show
-        when={
-          props.conv.kind === "adopted-stale" ||
-          props.conv.kind === "skew-refused"
-            ? props.conv
-            : false
-        }
-      >
-        {(conv) => {
-          const c = conv();
-          return (
-            <div class="mt-0.5 font-mono text-[10px] text-fg-3">
-              {c.kind === "adopted-stale" ? (
-                <>
-                  running {buildIdLabel(c.running.build)} · expected{" "}
-                  {buildIdLabel(c.expected.build)}
-                </>
-              ) : (
-                <>
-                  running contract {c.running.contractVersion} · expected{" "}
-                  {c.expected.contractVersion}
-                </>
-              )}
-            </div>
-          );
-        }}
+      <Show when={props.conv.kind === "adopted-stale" ? props.conv : false}>
+        {(conv) => (
+          <div class="mt-0.5 font-mono text-[10px] text-fg-3">
+            running {buildIdLabel(conv().running.build)} · expected{" "}
+            {buildIdLabel(conv().expected.build)}
+          </div>
+        )}
+      </Show>
+      <Show when={props.conv.kind === "skew-refused" ? props.conv : false}>
+        {(conv) => (
+          <div class="mt-0.5 font-mono text-[10px] text-fg-3">
+            running contract {conv().running.contractVersion} · expected{" "}
+            {conv().expected.contractVersion}
+          </div>
+        )}
       </Show>
       <Show when={props.conv.kind === "cross-supervisor" ? props.conv : false}>
         {(conv) => (

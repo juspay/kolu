@@ -22,7 +22,7 @@ import { type Accessor, createEffect, mapArray } from "solid-js";
 
 export function useTerminalExits(deps: {
   /** The live terminal id set (top-level and sub-terminals). */
-  ids: Accessor<TerminalId[]>;
+  ids: Accessor<readonly TerminalId[]>;
   /** Open one terminal's exit subscription. Runs inside the per-id reactive
    *  owner `mapArray` creates, so the subscription's own `onCleanup` (the
    *  wire event's `useEvent`) is disposed when the id leaves the list. */
@@ -31,9 +31,11 @@ export function useTerminalExits(deps: {
   // `mapArray` is lazy — it only reconciles (creating new owners, disposing
   // departed ones) when its accessor is read in a tracking scope. There is no
   // value consumer here (the subscriptions are pure side effects), so drive it
-  // from an effect to keep the per-id owners instantiated and reconciled.
+  // from an effect's COMPUTE, which is the tracking scope; the effect phase has
+  // nothing left to do, because the per-id owners (and their subscriptions) are
+  // what the read itself creates.
   const reconcile = mapArray(deps.ids, (id) => {
     deps.subscribe(id);
   });
-  createEffect(reconcile);
+  createEffect(reconcile, () => {});
 }

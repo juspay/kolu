@@ -5,7 +5,9 @@
  *     `app.entry(host).state().kind` (warming / connected / failed). One dead
  *     box = one honest `failed` chip, the rest keep serving.
  *   - `app.useEntry(activeHost)` → the canvas re-keys on switch; the old host's
- *     subscriptions dispose and the new host's populate synchronously.
+ *     subscriptions dispose in the switch's own flush, and the new host's open in
+ *     that flush's effect phase (their first frames land as they arrive, with
+ *     `pending()` true until then).
  */
 
 import { Effect } from "effect";
@@ -16,8 +18,14 @@ import { app } from "./wire";
 export default function App() {
   // #region mapped
   const entries = app.entries.use();
+  // The selected host, as a writable DERIVED signal (`createSignal(fn)`): the
+  // roster read belongs in a computation, not in the component body, where reading
+  // a signal at top level is a dev diagnostic. `prev` is what makes it a default
+  // rather than a rule — the derivation answers only until something is chosen (a
+  // chip click, or its own first answer), after which a roster change re-runs it
+  // and it keeps `prev`.
   const [activeHost, setActiveHost] = createSignal<string>(
-    entries.keys()[0] ?? "localhost",
+    (prev) => prev ?? entries.keys()[0] ?? "localhost",
   );
   const active = app.useEntry(activeHost);
 
@@ -61,11 +69,13 @@ export default function App() {
               return (
                 <button
                   type="button"
-                  class="chip"
-                  classList={{
-                    active: host === activeHost(),
-                    [status().kind]: true,
-                  }}
+                  class={[
+                    "chip",
+                    {
+                      active: host === activeHost(),
+                      [status().kind]: true,
+                    },
+                  ]}
                   onClick={() => setActiveHost(host)}
                 >
                   {host} · {status().kind}

@@ -9,9 +9,10 @@
  *  record moving — and not a value.
  */
 
+import { writeWrappedValue } from "@kolu/surface/solid";
 import { Deferred, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createStore, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -28,16 +29,37 @@ h.setSubPanel.mockImplementation(() => {
   return Deferred.await(gate);
 });
 
+/** The record as the per-key `terminals` collection holds it: ONE store the
+ *  server's frames are MERGED into (`@kolu/surface`'s `writeWrappedValue`, the
+ *  seam `createSubscription` writes every subscription value through), not a
+ *  signal each frame replaces. The grain is the whole point here — a `subPanel`
+ *  that moved keeps the record's identity and notifies
+ *  `subPanel.collapsed`/`.panelSize` alone, so a settle rule that subscribed to
+ *  the record OBJECT would never hear a foreign write. */
 const record = createRoot(() => {
-  const [value, setValue] = createSignal<
-    { subPanel?: { collapsed: boolean; panelSize: number } } | undefined
-  >(undefined);
-  return { value, setValue };
+  const [store, setStore] = createStore<{
+    v: { subPanel?: { collapsed: boolean; panelSize: number } } | undefined;
+  }>({ v: undefined });
+  return {
+    value: () => store.v,
+    setValue: (
+      next:
+        | { subPanel?: { collapsed: boolean; panelSize: number } }
+        | undefined,
+    ) => writeWrappedValue(setStore, next),
+  };
 });
 
+// The host wire as `createHostWire` builds it: `terminals.byKey(id)` is the
+// record accessor and `terminalKeys()` is the keys subscription the settle
+// rule subscribes to so a record moving wakes it.
 vi.mock("../hostScope/hostScopes", () => ({
   activeScope: () => ({
-    wire: { terminals: { byKey: () => record.value } },
+    wire: {
+      terminals: { byKey: () => record.value },
+      // Literal, not `T`: a `vi.mock` factory is hoisted above its bindings.
+      terminalKeys: () => ["split-store-tile"],
+    },
   }),
 }));
 
@@ -82,11 +104,16 @@ describe("the split's in-flight entry cannot outlive its write", () => {
     h.setSubPanel.mockClear();
     h.toastError.mockClear();
     record.setValue({ subPanel: { ...OPEN_30 } });
+    // Every write here — the store's entry and the record alike — is staged:
+    // readers see it from the next flush, which is the turn after the gesture
+    // or the socket delivery in the app.
+    flush();
   });
 
   it("shows the gesture at once, and lets the record take over when it lands", async () => {
     const split = useSplitPanelState();
     split.write(T, COLLAPSED);
+    flush();
     expect(split.state(T)).toEqual(COLLAPSED);
 
     await answerWrite(true);
@@ -95,10 +122,12 @@ describe("the split's in-flight entry cannot outlive its write", () => {
     expect(split.state(T)).toEqual(COLLAPSED);
 
     record.setValue({ subPanel: { ...COLLAPSED } });
+    flush();
     expect(split.state(T)).toEqual(COLLAPSED);
     // …and the entry is gone, so the record is the source again: a later
     // change reaches this tile.
     record.setValue({ subPanel: { ...FOREIGN } });
+    flush();
     expect(split.state(T)).toEqual(FOREIGN);
   });
 
@@ -108,18 +137,22 @@ describe("the split's in-flight entry cannot outlive its write", () => {
     // The record already says this. Corvu re-emits the controlled sizes it was
     // handed, so this is what a drag's own echo looks like arriving back here.
     split.write(T, { ...OPEN_30 });
+    flush();
     expect(h.setSubPanel).not.toHaveBeenCalled();
 
     // And once a gesture IS in front, its own echo is inert too — otherwise
     // every echo owes another write, the entry changes identity, the shown
     // value moves, and Corvu re-emits again with no fixpoint.
     split.write(T, DRAG_A);
+    flush();
     expect(h.setSubPanel).toHaveBeenCalledOnce();
     split.write(T, { ...DRAG_A });
+    flush();
     expect(h.setSubPanel).toHaveBeenCalledOnce();
 
     // A real move still writes.
     split.write(T, DRAG_B);
+    flush();
     expect(h.setSubPanel).toHaveBeenCalledTimes(2);
     expect(split.state(T)).toEqual(DRAG_B);
   });
@@ -127,6 +160,7 @@ describe("the split's in-flight entry cannot outlive its write", () => {
   it("A FAILED write reverts to the record", async () => {
     const split = useSplitPanelState();
     split.write(T, COLLAPSED);
+    flush();
     expect(split.state(T)).toEqual(COLLAPSED);
 
     await answerWrite(false);
@@ -141,34 +175,41 @@ describe("the split's in-flight entry cannot outlive its write", () => {
   it("A FOREIGN value wins once our writes are acknowledged", async () => {
     const split = useSplitPanelState();
     split.write(T, COLLAPSED);
+    flush();
     await answerWrite(true);
 
     // Another browser (or an agent through MCP) writes something else, so the
     // record never comes to equal ours. Their value is the saved one.
     record.setValue({ subPanel: { ...FOREIGN } });
+    flush();
     expect(split.state(T)).toEqual(FOREIGN);
   });
 
   it("…but NOT while a write of ours is still outstanding", () => {
     const split = useSplitPanelState();
     split.write(T, COLLAPSED);
+    flush();
 
     // An echo of some earlier state arriving mid-write is not somebody else's
     // value; it is the past. The gesture stands.
     record.setValue({ subPanel: { ...FOREIGN } });
+    flush();
     expect(split.state(T)).toEqual(COLLAPSED);
   });
 
   it("A DRAG does not jitter: an older echo never pulls the divider back", async () => {
     const split = useSplitPanelState();
     split.write(T, DRAG_A);
+    flush();
     split.write(T, DRAG_B);
+    flush();
     expect(split.state(T)).toEqual(DRAG_B);
 
     // The first write answers and its echo lands, while the second is still
     // outstanding. The divider must stay where the user left it.
     await answerWrite(true);
     record.setValue({ subPanel: { ...DRAG_A } });
+    flush();
     expect(split.state(T)).toEqual(DRAG_B);
 
     // The second answers; its echo is still behind it on the same socket, so
@@ -177,13 +218,16 @@ describe("the split's in-flight entry cannot outlive its write", () => {
     expect(split.state(T)).toEqual(DRAG_B);
 
     record.setValue({ subPanel: { ...DRAG_B } });
+    flush();
     expect(split.state(T)).toEqual(DRAG_B);
   });
 
   it("a failure with a newer write still outstanding leaves the newer one standing", async () => {
     const split = useSplitPanelState();
     split.write(T, DRAG_A);
+    flush();
     split.write(T, DRAG_B);
+    flush();
 
     await answerWrite(false);
     // The failed write is superseded by one that has not answered: reverting

@@ -22,7 +22,13 @@
  *  would let one tab's switch decide the other tab's toggle target. */
 
 import { isEncodedHostKey } from "kolu-common/hostKey";
-import { type Accessor, createEffect, createRoot, on } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  onSettled,
+  runWithOwner,
+} from "solid-js";
 import {
   defaultInvalidWarning,
   isSaneStamp,
@@ -136,11 +142,33 @@ export function createHostRecency(): Accessor<readonly HostVisit[]> {
   // when the HOST changes, while the raw signal changes on every WRITE — and
   // the membership reconcile writes a fresh-but-equal `HostKey` object, which
   // is not a switch and must not stamp one.
-  createEffect(
-    on(encActiveHost, (hostKey) => {
-      setMru((prev) => promoteHost(prev, hostKey, Date.now()));
-    }),
-  );
+  createEffect(encActiveHost, (hostKey) => {
+    const at = Date.now();
+    // SETTLED, not inline: the palette's root index folds BOTH legs of one
+    // switch in a single memo — the active host and, through `hostRootActions`,
+    // this trail (`commands.tsx:254-256` → `palette/hostActions.ts:39`). An
+    // inline write relays the switch into a reader that has already answered
+    // for it, so ⌘⇧H's default highlight paints one frame on the new host with
+    // the stale trail — the wrong row, under the cursor, at the moment the
+    // chord is being pressed. From `onSettled` the write lands in a later pass
+    // of the SAME flush (no extra frame), carrying no effect origin, so the row
+    // and the switch reach the list together.
+    //
+    // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
+    // tracked effect created and run right there, so the write would carry the
+    // arm's own frame (the relay it is deferring) and this trail would grow a
+    // child per switch. With no owner it enqueues, which is the deferral. The
+    // callback writes one signal and returns NOTHING (a returned value reads as
+    // a cleanup, which `onSettled` forbids unowned): no children, no cleanup.
+    //
+    // The stamp is taken HERE, at the switch, not in the drain: `Date.now()` is
+    // what the trail means by "when", and the settle is a scheduling detail.
+    runWithOwner(null, () =>
+      onSettled(() => {
+        setMru((prev) => promoteHost(prev, hostKey, at));
+      }),
+    );
+  });
 
   return mru;
 }

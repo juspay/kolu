@@ -15,14 +15,14 @@
  */
 import type { GitStatusEntry } from "@pierre/trees";
 import { createSignal, Show } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileTree } from "./FileTree";
 import {
   disposeAll,
-  flush,
   mountInto,
   paintedRows,
+  settle,
 } from "./FileTree.testlib.ts";
 
 afterEach(disposeAll);
@@ -77,13 +77,13 @@ describe("a folder collapsed under a filter", () => {
       expanded: ["src/"],
       gitStatus: [],
     });
-    await flush();
+    await settle();
     expect(paintedRows(root)).toEqual(
       expect.arrayContaining(["src/", ...MATCHES]),
     );
 
     clickRow(root, "src/");
-    await flush();
+    await settle();
     expect(paintedRows(root)).not.toContain("src/alpha-one.txt");
 
     // Same paths, same open folders — only the decoration moved.
@@ -91,7 +91,7 @@ describe("a folder collapsed under a filter", () => {
       ...frame(),
       gitStatus: MATCHES.map((path) => ({ path, status: "untracked" })),
     });
-    await flush();
+    await settle();
 
     const rows = paintedRows(root);
     expect(rows).toContain("src/");
@@ -107,9 +107,9 @@ describe("a folder collapsed under a filter", () => {
       expanded: ["src/"],
       gitStatus: [],
     });
-    await flush();
+    await settle();
     clickRow(root, "src/");
-    await flush();
+    await settle();
     expect(paintedRows(root)).not.toContain("src/alpha-one.txt");
 
     setFrame({
@@ -117,7 +117,7 @@ describe("a folder collapsed under a filter", () => {
       expanded: ["src/"],
       gitStatus: [],
     });
-    await flush();
+    await settle();
 
     expect(paintedRows(root)).toContain("src/alpha-one.txt");
   });

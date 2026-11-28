@@ -7,11 +7,12 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { Work } from "kolu-work";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentName } from "../ui/agentDisplay";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
+import { liveArm } from "./terminalStatus";
 import type { MemberLine } from "./workFacts";
 
 const REMOTE_ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -151,6 +152,7 @@ const line = (
     member: { work: "w", role, joinedAt: "2026-01-01T00:00:00Z" } as never,
     split: { host, id: id as TerminalId },
     standing,
+    up: standing !== undefined && liveArm(standing) !== undefined,
   };
 };
 
@@ -277,6 +279,7 @@ describe("a work's terminal row", () => {
       REMOTE_REF,
     );
     part(one, "work-member-look")?.click();
+    flush();
     expect(world.peeks).toEqual([
       { host: "remote:nix@example", id: REMOTE_ID },
     ]);
@@ -302,7 +305,9 @@ describe("a work's terminal row", () => {
       line(third, "implementor", thinking),
     ]);
     part(row(el, LOCAL_REF), "work-member-take-over")?.click();
+    flush();
     part(row(el, REMOTE_REF), "work-member-hand-back")?.click();
+    flush();
     expect(world.takes).toEqual([LOCAL_REF]);
     expect(world.backs).toEqual([REMOTE_REF]);
     const none = row(el, third);
@@ -320,6 +325,7 @@ describe("a work's terminal row", () => {
     const here = part(row(el, LOCAL_REF), "work-member-name");
     expect(here?.tagName).toBe("BUTTON");
     here?.click();
+    flush();
     expect(world.tiles).toEqual([{ host: "local", id: LOCAL_ID }]);
     expect(part(row(el, REMOTE_REF), "work-member-name")?.tagName).toBe("SPAN");
   });
@@ -371,6 +377,7 @@ describe("a work's terminal row", () => {
       line(LOCAL_REF, "planner", running),
       line(REMOTE_REF, "implementor", thinking),
     ]);
+    flush();
     const after = row(el, LOCAL_REF);
     expect(after).toBe(before);
     expect(part(after, "state-pip")).toBe(mark);
@@ -459,6 +466,7 @@ describe("a work's terminal row, in its Details", () => {
     expect(row(el, LIVE).dataset.inspected).toBeDefined();
 
     part(row(el, LIVE), "work-member-role")?.click();
+    flush();
     expect(part(row(el, LIVE), "work-member-inspector")).toBeNull();
     expect(row(el, LIVE).dataset.inspected).toBeUndefined();
 

@@ -50,8 +50,11 @@ export const ActivityWindowChip: Component<{
         data-testid={`${props.testIdPrefix}-trigger`}
         data-window={activityWindow()}
         data-enabled={activityWindow() !== "all" ? "" : undefined}
-        class={`${FILTER_CHIP_BASE} ${props.class ?? ""}`}
-        classList={filterChipAccent(activityWindow() !== "all")}
+        class={[
+          FILTER_CHIP_BASE,
+          props.class ?? "",
+          filterChipAccent(activityWindow() !== "all"),
+        ]}
         aria-label={`Activity window: ${current().label}`}
         title={`Activity window: ${current().label} — click to change`}
         onClick={() => setMenuOpen((prev) => !prev)}

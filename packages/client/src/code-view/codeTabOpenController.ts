@@ -1,10 +1,17 @@
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import { Effect, type Fiber } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createEffect, onCleanup } from "solid-js";
+import {
+  createEffect,
+  onCleanup,
+  onSettled,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import { match } from "ts-pattern";
-import { runOwnedAction } from "../runAction";
+import { runAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
+import type { CodeLister } from "./codeLister";
 
 declare const codeOwnerBrand: unique symbol;
 
@@ -65,7 +72,10 @@ export interface OpenInCodeTabRequest {
   allowBasenameFallback?: boolean;
 }
 
-/** Current reactive facts used to decide whether and how a request may land. */
+/** Current reactive facts used to decide whether and how a request may land —
+ *  AND the facts a fresh read is issued with, since the effect phase that
+ *  issues it may read nothing reactive of its own
+ *  (STRICT_READ_UNTRACKED). Every field is produced by one compute. */
 export interface CodeTabOpenSnapshot<Paths> {
   request: OpenInCodeTabRequest | null;
   scope: CodeTabScope | null;
@@ -74,6 +84,10 @@ export interface CodeTabOpenSnapshot<Paths> {
   paths: Paths;
   inventoryPending: boolean;
   includeIgnored: boolean;
+  /** Who lists the shown root — git, the disk, or nothing to list at all.
+   *  A request only reaches the fresh read while its scope is the one shown,
+   *  so the shown root's lister is the request's. */
+  lister: CodeLister | null;
 }
 
 interface CodeTabOpenControllerOptions<Paths, Resolved> {
@@ -91,7 +105,7 @@ interface CodeTabOpenControllerOptions<Paths, Resolved> {
    *  result. */
   readFresh: (
     request: OpenInCodeTabRequest,
-    includeIgnored: boolean,
+    from: CodeTabOpenSnapshot<Paths>,
   ) => Effect.Effect<Paths, unknown>;
   onResolved: (
     request: OpenInCodeTabRequest,
@@ -183,10 +197,46 @@ export function createCodeTabOpenController<Paths, Resolved>(
     attempt = { kind: "idle" };
   };
 
+  /** THE ONE LANDING VERB — and every landing writes SETTLED.
+   *
+   *  The latch above is synchronous, so a second resolution of the same
+   *  request is still refused at once. The OUTCOME writes are not: they are
+   *  made from this controller's effect, whose compute has just read the
+   *  inventory, the scope and the mode, and the presenter's `onResolved`
+   *  lands the pane's selection through the Code view's one `select` funnel.
+   *  Written inline, every memo keyed on those roots — the per-mode frame and
+   *  its `<Show>` condition, the browse query's input state and its poll
+   *  effect — ran once mid-flush against the facts the arm was answering and
+   *  again after the write landed (`EFFECT_RELAY_TEAR`, `warn` from the third
+   *  sighting against the same (effect, signal) pair). Settled, the write
+   *  opens a frame of its own exactly as a click's does, inside the same
+   *  flush, so the selection and its highlight still paint together.
+   *
+   *  UNOWNED, as `createViewState.noteActivation` is. An apply arm carries no
+   *  owner of its own — `getOwner()` is `null` there, because the queue drains
+   *  effect callbacks outside any owner — so this `runWithOwner(null, …)` is
+   *  what makes the deferral independent of the CALLER: reached from an owned
+   *  scope, `onSettled` would become a tracked effect created and run right
+   *  there, carrying that scope's frame and binding a child per open. With no
+   *  owner it enqueues, which is the deferral.
+   *
+   *  The callbacks write plain signals and stores and raise toasts; they
+   *  create no children and register no cleanup, which `onSettled` forbids
+   *  unowned. They are handed over in a BLOCK that answers with nothing,
+   *  whatever they return: an unowned settle has no lifecycle to attach a
+   *  cleanup to, so a returned value (a toast's id, a setter's `false`) throws
+   *  `SETTLED_CLEANUP_UNOWNED` out of the drain and halts the flush it was
+   *  draining. Passing `apply` straight through would make that every caller's
+   *  problem; `governance/effectCleanup.ts` holds every `onSettled` to this
+   *  form. */
   const complete = (request: OpenInCodeTabRequest, apply: () => void): void => {
     stopRefreshing();
     attempt = { kind: "complete", request };
-    apply();
+    runWithOwner(null, () => {
+      onSettled(() => {
+        apply();
+      });
+    });
   };
 
   const isCurrent = (
@@ -204,7 +254,14 @@ export function createCodeTabOpenController<Paths, Resolved>(
     ) {
       return false;
     }
-    const current = options.snapshot();
+    // A POINT-IN-TIME read, deliberately `untrack`ed: this runs on the read's
+    // fiber, asking what is true at the moment the answer landed. A read that
+    // needs no suspension lands inside the effect phase that forked it — a
+    // strict-read window — so a tracked read would raise STRICT_READ_UNTRACKED
+    // and claim a dependency for a computation that has already finished. The
+    // effect's own compute (`createEffect(options.snapshot, …)` below) is where
+    // this snapshot is subscribed to; the landing only tests it.
+    const current = untrack(options.snapshot);
     return (
       current.request === request &&
       current.scope !== null &&
@@ -213,103 +270,113 @@ export function createCodeTabOpenController<Paths, Resolved>(
     );
   };
 
-  createEffect(() => {
-    const current = options.snapshot();
-    const request = current.request;
+  createEffect(
+    options.snapshot,
+    (current) => {
+      const request = current.request;
 
-    if (request === null) {
-      retire();
-      return;
-    }
-    if (
-      match(attempt)
-        .with(
-          { kind: "complete" },
-          (completeAttempt) => completeAttempt.request === request,
-        )
-        .otherwise(() => false)
-    )
-      return;
-
-    if (
-      current.scope === null ||
-      !codeTabScopesEqual(current.scope, request.scope)
-    ) {
-      // A scope mismatch can be transient: the producer may have selected a
-      // different terminal in the same batch, while this consumer still sees
-      // the prior projection. Abort work tied to the departed scope, but keep
-      // the latest request eligible for the matching scope to arrive.
-      retire();
-      return;
-    }
-
-    const refreshing = refreshingAttempt();
-    if (
-      refreshing !== null &&
-      (refreshing.request !== request ||
-        refreshing.includeIgnored !== current.includeIgnored ||
-        current.inventoryPending)
-    ) {
-      retire();
-    }
-
-    if (current.inventoryPending) return;
-
-    if (
-      current.inventoryScope !== null &&
-      codeTabScopesEqual(current.inventoryScope, request.scope)
-    ) {
-      const resolved = options.resolve(request, current.paths);
-      if (resolved !== null) {
-        complete(request, () =>
-          options.onResolved(request, resolved, "inventory"),
-        );
+      if (request === null) {
+        retire();
         return;
       }
-    }
+      if (
+        match(attempt)
+          .with(
+            { kind: "complete" },
+            (completeAttempt) => completeAttempt.request === request,
+          )
+          .otherwise(() => false)
+      )
+        return;
 
-    if (refreshingAttempt() !== null) return;
+      if (
+        current.scope === null ||
+        !codeTabScopesEqual(current.scope, request.scope)
+      ) {
+        // A scope mismatch can be transient: the producer may have selected a
+        // different terminal in the same batch, while this consumer still sees
+        // the prior projection. Abort work tied to the departed scope, but keep
+        // the latest request eligible for the matching scope to arrive.
+        retire();
+        return;
+      }
 
-    const includeIgnored = current.includeIgnored;
-    const retired = { value: false };
-    const fiber: { current: Fiber.Fiber<unknown, never> | null } = {
-      current: null,
-    };
-    attempt = { kind: "refreshing", request, includeIgnored, fiber, retired };
-    // The whole read AND its landing live on one fiber, so interrupting it stops
-    // both. Recovered to a total program before the fork: the outcome is applied
-    // by `complete`, which is this controller's one landing verb.
-    fiber.current = runOwnedAction(
-      "open in code tab",
-      options.readFresh(request, includeIgnored).pipe(
-        Effect.map((paths) => () => {
-          const freshResolved = options.resolve(request, paths);
-          if (freshResolved === null) {
-            complete(request, () => options.onNotFound(request));
-            return;
-          }
+      const refreshing = refreshingAttempt();
+      if (
+        refreshing !== null &&
+        (refreshing.request !== request ||
+          refreshing.includeIgnored !== current.includeIgnored ||
+          current.inventoryPending)
+      ) {
+        retire();
+      }
+
+      if (current.inventoryPending) return;
+
+      if (
+        current.inventoryScope !== null &&
+        codeTabScopesEqual(current.inventoryScope, request.scope)
+      ) {
+        const resolved = options.resolve(request, current.paths);
+        if (resolved !== null) {
           complete(request, () =>
-            options.onResolved(request, freshResolved, "fresh"),
+            options.onResolved(request, resolved, "inventory"),
           );
-        }),
-        Effect.catch((raw) =>
-          Effect.succeed(() => {
-            const error = raw instanceof Error ? raw : new Error(String(raw));
-            complete(request, () => options.onError(request, error));
+          return;
+        }
+      }
+
+      if (refreshingAttempt() !== null) return;
+
+      const includeIgnored = current.includeIgnored;
+      const retired = { value: false };
+      const fiber: { current: Fiber.Fiber<unknown, never> | null } = {
+        current: null,
+      };
+      attempt = { kind: "refreshing", request, includeIgnored, fiber, retired };
+      // The whole read AND its landing live on one fiber, so interrupting it stops
+      // both. Recovered to a total program before the fork: the outcome is applied
+      // by `complete`, which is this controller's one landing verb.
+      //
+      // Forked with `runAction`, not `runOwnedAction`: this is the effect phase,
+      // where `onCleanup` — which is how `runOwnedAction` ties a fiber to an
+      // owner — is forbidden (CLEANUP_IN_FORBIDDEN_SCOPE). The fiber's
+      // interruption is owned here instead: `stopRefreshing` interrupts it when
+      // a newer attempt supersedes it, and the body's `onCleanup(retire)` when
+      // the view goes away.
+      fiber.current = runAction(
+        "open in code tab",
+        options.readFresh(request, current).pipe(
+          Effect.map((paths) => () => {
+            const freshResolved = options.resolve(request, paths);
+            if (freshResolved === null) {
+              complete(request, () => options.onNotFound(request));
+              return;
+            }
+            complete(request, () =>
+              options.onResolved(request, freshResolved, "fresh"),
+            );
           }),
+          Effect.catch((raw) =>
+            Effect.succeed(() => {
+              const error = raw instanceof Error ? raw : new Error(String(raw));
+              complete(request, () => options.onError(request, error));
+            }),
+          ),
+          Effect.tap((land) =>
+            Effect.sync(() => {
+              // A superseded read no longer belongs to the latest user intent; its
+              // answer — success OR failure — must not land over the replacement
+              // request. Checked HERE, after the read, because interruption alone
+              // cannot guarantee this frame never runs.
+              if (isCurrent(request, includeIgnored, retired)) land();
+            }),
+          ),
         ),
-        Effect.tap((land) =>
-          Effect.sync(() => {
-            // A superseded read no longer belongs to the latest user intent; its
-            // answer — success OR failure — must not land over the replacement
-            // request. Checked HERE, after the read, because interruption alone
-            // cannot guarantee this frame never runs.
-            if (isCurrent(request, includeIgnored, retired)) land();
-          }),
-        ),
-      ),
-    );
-  });
+      );
+    },
+    { name: "codeTabOpenRequest" },
+  );
 
   onCleanup(retire);
 }

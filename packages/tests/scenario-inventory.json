@@ -13594,6 +13594,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c86b9a1d3fa3159eb1eef44adbbbee300f947201"
+    },
+    {
+      "revisionId": "revision-ff60d6fba3b3d1b4eb3c",
+      "scenarioKey": "scenario-bd1239f02ce8773dbcd2",
+      "feature": "features/deep-links.feature",
+      "scenario": "Following the same work link twice answers twice",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f214645bbecabfa880ba05ee864a358847b1ae654c1833268150b3c8d28b445f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c694e59a22836b88dbdadcdc145cd93a21fe4ecc"
     }
   ]
 }

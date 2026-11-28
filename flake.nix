@@ -71,7 +71,7 @@
           # upstream closure nobody ships, and neither is something a kolu user
           # installs. `ci::agent-models` / `ci::agent-published` reach them with
           # `nix build -f default.nix`.
-        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" "agent-distro-pre-models" "agent-distro-delivery" ]) // {
+        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" "agent-distro-pre-models" "agent-distro-delivery" "koluBinSolidDev" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
           agent-flake-env = kolu.agentFlakeEnv;
         });
@@ -82,13 +82,24 @@
       # for `kolu is deployed under this page` (packages/tests/support/hooks.ts,
       # `deployKoluServer`). Not a package: `ci/flake-build` builds, and odu
       # pushes, every package, and this is nothing a kolu user installs.
-      legacyPackages = platform.mapSystems (system: {
-        koluBin-next-padi-build = (import ./default.nix {
-          pkgs = pkgsBySystem.${system};
-          inherit commitHash;
-          padiBuildIdOverride = "e2e-deploy-next-build";
-        }).koluBin;
-      });
+      #
+      # THE SOLID-DIAGNOSTICS LANE'S SERVERS (`ci::e2e-solid-dev`): the same two
+      # builds serving the client built on Solid's development runtime
+      # (`koluBinSolidDev`, default.nix), so a deploy mid-scenario lands on a
+      # dev-mode client too. Test artifacts, not packages, for the same reason.
+      legacyPackages = platform.mapSystems (system:
+        let
+          nextBuild = import ./default.nix {
+            pkgs = pkgsBySystem.${system};
+            inherit commitHash;
+            padiBuildIdOverride = "e2e-deploy-next-build";
+          };
+        in
+        {
+          koluBin-next-padi-build = nextBuild.koluBin;
+          koluBin-solid-dev = koluBySystem.${system}.koluBinSolidDev;
+          koluBin-solid-dev-next-padi-build = nextBuild.koluBinSolidDev;
+        });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
       # so each platform's `tsc`/`astro check` is its own proof — a darwin-only

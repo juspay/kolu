@@ -94,8 +94,11 @@ the result with the daemon's own mirror.
 - `<Xterm>` — the whole hazard set as one JSX element: it composes lifecycle,
   WebGL, scroll-lock, render-recovery, write coalesce (via `fullRate`), and touch,
   owns their reactive lifetime, and hands the consumer a live `XtermHandle` in
-  `onReady` (inside the reactive owner) for stream/key/PTY policy. Kolu's
-  `Terminal.tsx` is consumer #1.
+  `onReady` for stream/key/PTY policy. `onReady` runs under the component's own
+  owner, re-entered after the font load — not inside an effect or `ref`
+  callback — so it may create effects and register `onCleanup`; a signal it
+  writes there is written in an owned scope. Kolu's `Terminal.tsx` is
+  consumer #1.
 - `gridForBox` / `measureGridBox` — how a box becomes cols × rows, and why
   `@xterm/addon-fit` is not used: the addon divides the box by the ACTIVE
   renderer's cell width, and the two renderers round the character measurement

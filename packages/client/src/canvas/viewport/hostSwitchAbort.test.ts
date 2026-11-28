@@ -11,7 +11,7 @@
  *  never touched by the host we left. RED without the abort seam: both cases
  *  write host B's camera on the drained frame. */
 
-import { createRoot } from "solid-js";
+import { createRoot, flush, onCleanup } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCamera, type HostCamera } from "../../hostScope/createCamera";
 
@@ -23,7 +23,10 @@ vi.mock("../../hostScope/hostScopes", () => ({
   activeScope: () => (activeCam ? { camera: activeCam } : undefined),
 }));
 
-import { useCanvasViewport } from "./useCanvasViewport";
+import {
+  createContainerSizeObserver,
+  useCanvasViewport,
+} from "./useCanvasViewport";
 
 // Deterministic rAF + clock: capture frame callbacks so a test drives them by
 // hand (real rAF never fires under vitest's headless clock).
@@ -87,84 +90,103 @@ const NO_GESTURES = {
 };
 
 describe("host-switch camera isolation", () => {
-  it("an in-flight pan animation started on host A never writes host B's camera after a switch", async () => {
-    await createRoot(async (dispose) => {
-      try {
-        const camA = createCamera();
-        const camB = createCamera();
-        const viewport = useCanvasViewport();
-        const el = document.createElement("div");
-        viewport.setContainerRef(el, NO_GESTURES);
-        await Promise.resolve();
-        notifyResize(
-          [
-            {
-              target: el,
-              borderBoxSize: [],
-              contentBoxSize: [],
-              devicePixelContentBoxSize: [],
-              contentRect: DOMRect.fromRect({ width: 600, height: 400 }),
-            } as ResizeObserverEntry,
-          ],
-          {} as ResizeObserver,
-        );
-
-        // Viewing A: start an animated pan toward a far point.
-        activeCam = camA;
-        clock = 0;
-        viewport.panTo(1000, 1000);
-
-        // One frame in: the animation is live and has moved A's camera.
-        clock = 30;
-        drainFrames(clock);
-        expect(camA.positioned()).toBe(true);
-
-        // SWITCH to B — exactly what the active-host effect does: re-key the
-        // active camera AND abort the outgoing host's transient input.
-        activeCam = camB;
-        viewport.abortTransientInput();
-
-        // Drive the clock past the animation's end. The cancelled tween frames
-        // must not fire, so B's camera stays pristine (never positioned, origin).
-        clock = 500;
-        drainFrames(clock);
-
-        expect(camB.positioned()).toBe(false);
-        expect(camB.snapshot()).toEqual(POSE_ORIGIN);
-      } finally {
-        dispose();
-      }
+  /** Open the root that OWNS the per-host cameras and the container attach, and
+   *  hand the driving back to the test body: a real consumer drives the viewport
+   *  from events and frames, never from inside an owner's body (a signal write
+   *  there is REACTIVE_WRITE_IN_OWNED_SCOPE). */
+  function mountViewport(el: HTMLDivElement) {
+    let dispose!: () => void;
+    let camA!: HostCamera;
+    let camB!: HostCamera;
+    createRoot((d) => {
+      dispose = d;
+      camA = createCamera();
+      camB = createCamera();
+      const viewport = useCanvasViewport();
+      // The measuring and the attach's release are the owner's (a ref
+      // callback may neither create a primitive nor register a cleanup), so
+      // this root holds both — disposal detaches the container.
+      createContainerSizeObserver();
+      onCleanup(() => viewport.releaseContainer(el));
     });
+    // The attach itself is what the ref does: from outside the owner's body,
+    // which is where its signal write belongs.
+    useCanvasViewport().setContainerRef(el, NO_GESTURES);
+    return { camA, camB, viewport: useCanvasViewport(), dispose };
+  }
+
+  it("an in-flight pan animation started on host A never writes host B's camera after a switch", () => {
+    const el = document.createElement("div");
+    const { camA, camB, viewport, dispose } = mountViewport(el);
+    try {
+      notifyResize(
+        [
+          {
+            target: el,
+            borderBoxSize: [],
+            contentBoxSize: [],
+            devicePixelContentBoxSize: [],
+            contentRect: DOMRect.fromRect({ width: 600, height: 400 }),
+          } as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      );
+      // The measurement is staged: the pan below reads it, so settle first —
+      // a real consumer pans a frame after the observer delivered.
+      flush();
+
+      // Viewing A: start an animated pan toward a far point.
+      activeCam = camA;
+      clock = 0;
+      viewport.panTo(1000, 1000);
+
+      // One frame in: the animation is live and has moved A's camera.
+      clock = 30;
+      drainFrames(clock);
+      flush();
+      expect(camA.positioned()).toBe(true);
+
+      // SWITCH to B — exactly what the active-host effect does: re-key the
+      // active camera AND abort the outgoing host's transient input.
+      activeCam = camB;
+      viewport.abortTransientInput();
+
+      // Drive the clock past the animation's end. The cancelled tween frames
+      // must not fire, so B's camera stays pristine (never positioned, origin).
+      clock = 500;
+      drainFrames(clock);
+      flush();
+
+      expect(camB.positioned()).toBe(false);
+      expect(camB.snapshot()).toEqual(POSE_ORIGIN);
+    } finally {
+      dispose();
+    }
   });
 
   it("a queued gesture flush started on host A never writes host B's camera after a switch", () => {
-    createRoot((dispose) => {
-      try {
-        const camA = createCamera();
-        const camB = createCamera();
-        const viewport = useCanvasViewport();
-        const el = document.createElement("div");
-        viewport.setContainerRef(el, NO_GESTURES);
+    const el = document.createElement("div");
+    const { camA, camB, viewport, dispose } = mountViewport(el);
+    try {
+      // Viewing A: a wheel event enqueues a per-frame gesture flush (rAF).
+      activeCam = camA;
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaX: 80, deltaY: 0, cancelable: true }),
+      );
+      expect(frames.length).toBe(1); // a flush is queued
 
-        // Viewing A: a wheel event enqueues a per-frame gesture flush (rAF).
-        activeCam = camA;
-        el.dispatchEvent(
-          new WheelEvent("wheel", { deltaX: 80, deltaY: 0, cancelable: true }),
-        );
-        expect(frames.length).toBe(1); // a flush is queued
+      // SWITCH to B before the flush frame runs, aborting the queued gesture.
+      activeCam = camB;
+      viewport.abortTransientInput();
 
-        // SWITCH to B before the flush frame runs, aborting the queued gesture.
-        activeCam = camB;
-        viewport.abortTransientInput();
-
-        // The queued flush is discarded — B's camera is never touched.
-        clock = 500;
-        drainFrames(clock);
-        expect(camB.positioned()).toBe(false);
-        expect(camB.snapshot()).toEqual(POSE_ORIGIN);
-      } finally {
-        dispose();
-      }
-    });
+      // The queued flush is discarded — B's camera is never touched.
+      clock = 500;
+      drainFrames(clock);
+      flush();
+      expect(camB.positioned()).toBe(false);
+      expect(camB.snapshot()).toEqual(POSE_ORIGIN);
+    } finally {
+      dispose();
+    }
   });
 });

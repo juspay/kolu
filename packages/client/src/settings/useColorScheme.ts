@@ -44,11 +44,13 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
   const memo = createMemo(() =>
     resolveIsDark(preferences().colorScheme, prefersDark()),
   );
-  createEffect(() => {
-    const dark = memo();
-    document.documentElement.classList.toggle("dark", dark);
-    document.documentElement.style.colorScheme = dark ? "dark" : "light";
-  });
+  createEffect(
+    () => memo(),
+    (dark) => {
+      document.documentElement.classList.toggle("dark", dark);
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    },
+  );
   // Publish the RAW media-query fact, never the resolved `memo()`: the server
   // owns the `colorScheme` leg of the resolution. Sending an already-resolved
   // "is dark" would put the same derivation in two places, free to drift.
@@ -57,16 +59,16 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
   // browser only WRITES the reading, so a standing subscription on a cell nothing
   // here reads would be pure wire cost. The narrowing lives at the wire seam (one
   // site, fail-loud if the member is absent), not here.
-  const publishViewerMode = () => {
+  const publishViewerMode = (connected: boolean, dark: boolean) => {
     // Never write into a socket that is down. This is a raw `.set`, not a
     // subscription, so nothing in `connectSurfaces` would resubscribe it — a set
     // that rejected because the server was mid-restart would just be a toast, and
     // the server would keep serving the stale reading to every face for the rest
     // of the session.
-    if (wsStatus() !== "open") return;
+    if (!connected) return;
     runAction(
       "report viewer mode",
-      setViewerMode(prefersDark() ? "dark" : "light").pipe(
+      setViewerMode(dark ? "dark" : "light").pipe(
         Effect.catch((err) =>
           Effect.sync(() => {
             toast.error(
@@ -79,15 +81,25 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
   };
   // Tracks BOTH the media query and the transport, so the reading is (re)published
   // on the first connect, on every reconnect, and after a server restart — the
-  // server just rewrites the same value, and its scalar `equals` drops it.
-  createEffect(publishViewerMode);
+  // server just rewrites the same value, and its scalar `equals` drops it. Both
+  // facts are read in the compute and handed to the publish, which is the
+  // imperative half (effect-phase reads would not be dependencies).
+  createEffect(
+    () => ({ connected: wsStatus() === "open", dark: prefersDark() }),
+    ({ connected, dark }) => {
+      publishViewerMode(connected, dark);
+    },
+  );
   // `viewerMode` is ONE server-wide fact, so with two viewers open (a dark laptop and
   // a light phone) the last writer decides the policy for both. Republishing on focus
   // makes that writer the tab the user is actually in front of — and since a terminal
   // is created from a focused tab, the creating viewer and the daemon agree again.
-  makeEventListener(window, "focus", publishViewerMode);
+  // An event handler reads the facts itself: it runs outside any computation.
+  const publishNow = () =>
+    publishViewerMode(wsStatus() === "open", prefersDark());
+  makeEventListener(window, "focus", publishNow);
   makeEventListener(document, "visibilitychange", () => {
-    if (!document.hidden) publishViewerMode();
+    if (!document.hidden) publishNow();
   });
   return memo;
 });

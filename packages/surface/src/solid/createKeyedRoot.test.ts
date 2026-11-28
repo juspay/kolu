@@ -1,41 +1,49 @@
 /**
- * `createKeyedRoot` — the keyed-root swap atom. The load-bearing pin is the
- * SYNCHRONOUS dispose ordering: on a key change the prior key's root is disposed
- * (its subscriptions abort) BEFORE anything reads the new key, which is what makes
- * a host/entry switch leak no root across the swap and raise no false error from
- * the outgoing socket's close. Reverting the eager `createRenderEffect` (making the
- * re-key lazy-on-read) fails the first test.
+ * `createKeyedRoot` — the keyed-root swap atom. The load-bearing pin is the swap's
+ * TIMING: on a key change the re-key happens on that change's own flush — the
+ * prior key's root is disposed (its subscriptions abort) in the same flush that
+ * builds the new one, and so BEFORE anything reads the new key — which is what
+ * makes a host/entry switch leak no root across the swap and raise no false error
+ * from the outgoing socket's close. Reverting the eager `createRenderEffect`
+ * (making the re-key lazy-on-read) fails the first test.
  */
 
-import { createRoot, createSignal, onCleanup } from "solid-js";
+import { createRoot, createSignal, flush, onCleanup, untrack } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createKeyedRoot } from "./createKeyedRoot";
 
 describe("createKeyedRoot", () => {
-  it("re-derives under a fresh root per key change, disposing the prior root SYNCHRONOUSLY before the next read", () => {
-    createRoot((dispose) => {
-      const opened: string[] = [];
-      const disposed: string[] = [];
-      const [key, setKey] = createSignal("a");
+  it("re-derives under a fresh root per key change, disposing the prior root on the key change's flush, before the next read", () => {
+    const opened: string[] = [];
+    const disposed: string[] = [];
+    const [key, setKey] = createSignal("a");
+    // The key is driven from OUTSIDE the root — where a switch comes from (a
+    // click, a route change), and the only place a signal write is legal: a write
+    // under an owner is REACTIVE_WRITE_IN_OWNED_SCOPE.
+    const { value, dispose } = createRoot((dispose) => {
       const value = createKeyedRoot(key, (k) => {
         opened.push(k);
         onCleanup(() => disposed.push(k));
         return `built:${k}`;
       });
-      // Eager: the value is built synchronously at creation, present on first read.
-      expect(opened).toEqual(["a"]);
-      expect(value()).toBe("built:a");
-
-      setKey("b");
-      // SYNCHRONOUS: "a"'s root is disposed and "b" opened by the time setKey returns
-      // — BEFORE we read value(). This ordering is the switch-abort guarantee.
-      expect(disposed).toEqual(["a"]);
-      expect(opened).toEqual(["a", "b"]);
-      expect(value()).toBe("built:b");
-
-      dispose();
-      expect(disposed).toEqual(["a", "b"]); // the final key tears down with the owner
+      return { value, dispose };
     });
+    // Eager: the value is built synchronously at creation, present on first read.
+    expect(opened).toEqual(["a"]);
+    expect(value()).toBe("built:a");
+
+    setKey("b");
+    flush();
+    // The re-key rides the key change's own flush: "a"'s root is disposed and "b"
+    // opened there — BEFORE anything reads value(). That is the switch-abort
+    // guarantee, and it is why the flush above is the whole assertion's subject:
+    // a consumer reading on the next frame finds the swap already complete.
+    expect(disposed).toEqual(["a"]);
+    expect(opened).toEqual(["a", "b"]);
+    expect(value()).toBe("built:b");
+
+    dispose();
+    expect(disposed).toEqual(["a", "b"]); // the final key tears down with the owner
   });
 
   it("populates synchronously — the value is present on the FIRST read (no undefined-first-render)", () => {
@@ -53,27 +61,35 @@ describe("createKeyedRoot", () => {
   });
 
   it("re-runs the factory on a KEY change, NOT when an incidental signal the factory read changes (identity-keyed)", () => {
-    createRoot((dispose) => {
-      let builds = 0;
-      const [key, setKey] = createSignal("a");
-      const [tick, setTick] = createSignal(0);
+    let builds = 0;
+    const [key, setKey] = createSignal("a");
+    const [tick, setTick] = createSignal(0);
+    const { value, dispose } = createRoot((dispose) => {
       const value = createKeyedRoot(key, (k) => {
         builds++;
-        return `${k}:${tick()}`;
+        // `untrack`: a `mapArray` item factory is a strict-read scope (like a
+        // component body), so a bare reactive read there is a one-time read Solid
+        // flags as STRICT_READ_UNTRACKED. Reading the incidental signal once IS
+        // what this test is about — the atom keys on `key`, never on what the
+        // factory happened to read — so the read says so.
+        return `${k}:${untrack(tick)}`;
       });
-      expect(builds).toBe(1);
-      expect(value()).toBe("a:0");
-
-      // A signal the factory read changing must NOT re-run the factory — the atom
-      // keys on `key`, and the factory runs untracked (mapArray's per-item root).
-      setTick(1);
-      expect(builds).toBe(1);
-
-      // A KEY change re-runs it, reading the current incidental value.
-      setKey("b");
-      expect(builds).toBe(2);
-      expect(value()).toBe("b:1");
-      dispose();
+      return { value, dispose };
     });
+    expect(builds).toBe(1);
+    expect(value()).toBe("a:0");
+
+    // A signal the factory read changing must NOT re-run the factory — the atom
+    // keys on `key`, and the factory runs untracked (mapArray's per-item root).
+    setTick(1);
+    flush();
+    expect(builds).toBe(1);
+
+    // A KEY change re-runs it, reading the current incidental value.
+    setKey("b");
+    flush();
+    expect(builds).toBe(2);
+    expect(value()).toBe("b:1");
+    dispose();
   });
 });

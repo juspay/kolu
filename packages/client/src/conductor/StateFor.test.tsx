@@ -6,7 +6,7 @@
  */
 
 import type { MemberReading } from "kolu-common/works";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 import StateFor from "./StateFor";

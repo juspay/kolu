@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 
@@ -53,9 +53,9 @@ function mount(): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={shown}>
+      <Shown value={shown}>
         <ConductorLook host="remote:nix@example" id={TERMINAL} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -171,6 +171,7 @@ describe("an agent line", () => {
   it("says 'terminal gone' for a terminal the roster no longer has, and offers nothing", () => {
     const el = mount();
     setStanding({ kind: "gone" });
+    flush();
     expect(
       el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
     ).toBe("terminal gone");

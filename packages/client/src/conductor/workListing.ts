@@ -22,7 +22,7 @@
 
 import type { Doubt, StageName, WorkId } from "kolu-work";
 import type { PickedView } from "./livePanes";
-import { batch, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { defaultInvalidWarning, persistedPref } from "../persistedPref";
 import { pointChatAt, showAllChat } from "./chatScope";
 import { setPhoneView } from "./phoneView";
@@ -69,7 +69,7 @@ const [inspected, setInspected] = createSignal<string | null>(null);
 const [finishedOpen, setFinishedOpen] = createSignal(false);
 /** A work asked to come into view — keyed by a counter so asking twice for
  *  the same work scrolls twice, and with the question to bring into view
- *  when the asker named one. Cleared by the work that answered it. */
+ *  when the asker named one. */
 export interface WantedCard {
   readonly id: WorkId;
   readonly ask: string | null;
@@ -77,6 +77,13 @@ export interface WantedCard {
 }
 const [wanted, setWanted] = createSignal<WantedCard | null>(null);
 let asks = 0;
+/** The newest request a card has already answered. A PLAIN NUMBER, not a
+ *  signal: it is the cards' own bookkeeping, read and written from the
+ *  imperative half of the effect that serves the request, and it is nobody's
+ *  reason to run. Clearing the request itself would do that — it is the very
+ *  signal that effect tracks, so every "go to this work" would cost a second
+ *  flush in which each card learns there is nothing left to do. */
+let served = 0;
 
 /** The picked work, or `null` for all the works. */
 export const pickedWork = picked;
@@ -105,48 +112,40 @@ export const isMemberInspected = (ref: string): boolean =>
 /** A PRESS ON A ROW: open it, or fold it. Folding the inspected row ends the
  *  inspection with it. */
 export function toggleMember(ref: string): void {
-  batch(() => {
-    const next = new Set(unfolded());
-    if (next.delete(ref)) {
-      if (inspected() === ref) setInspected(null);
-    } else next.add(ref);
-    setUnfolded(next);
-  });
+  const next = new Set(unfolded());
+  if (next.delete(ref)) {
+    if (inspected() === ref) setInspected(null);
+  } else next.add(ref);
+  setUnfolded(next);
 }
 
 /** INSPECT ONE TERMINAL of the picked work: its Details in front, with that
  *  terminal's row open and marked as the one asked for. */
 export function inspectMember(ref: string): void {
-  batch(() => {
-    setUnfolded(new Set([...unfolded(), ref]));
-    setInspected(ref);
-    setViewChoice("details");
-  });
+  setUnfolded(new Set([...unfolded(), ref]));
+  setInspected(ref);
+  setViewChoice("details");
 }
 
 /** PICK A WORK: the screen is about it, and so is the chat — on the stage
  *  `stage` names, when a press on its map picked it, which was a press to
  *  read that stage: its Details are in front. */
 export function pickWork(id: WorkId, stage?: StageName | Doubt): void {
-  batch(() => {
-    setPicked(id);
-    setPickedStage(stage);
-    setViewChoice(stage === undefined ? undefined : "details");
-    setUnfolded(new Set<string>());
-    setInspected(null);
-    pointChatAt(id);
-  });
+  setPicked(id);
+  setPickedStage(stage);
+  setViewChoice(stage === undefined ? undefined : "details");
+  setUnfolded(new Set<string>());
+  setInspected(null);
+  pointChatAt(id);
 }
 
 /** BACK TO ALL THE WORKS: nothing picked, and the whole chat. */
 export function unpickWork(): void {
-  batch(() => {
-    setPicked(null);
-    setViewChoice(undefined);
-    setUnfolded(new Set<string>());
-    setInspected(null);
-    showAllChat();
-  });
+  setPicked(null);
+  setViewChoice(undefined);
+  setUnfolded(new Set<string>());
+  setInspected(null);
+  showAllChat();
 }
 
 /** A press on a work's head: pick it, or unpick it when it is the one. */
@@ -164,9 +163,15 @@ export const toggleFinished = (): void => {
 /** The work a route asked to bring into view, if one is waiting. */
 export const wantedCard = wanted;
 
-/** The work answered: it is in view. */
+/** Has this request still to be answered? Asked by a card's effect in its
+ *  imperative half, which reads no reactive state. */
+export const cardWaiting = (seq: number): boolean => seq > served;
+
+/** The work answered: it is in view. The request is LEFT STANDING — it names
+ *  a work that is still picked, and a card mounted after it was served finds
+ *  it answered already. */
 export function cardShown(seq: number): void {
-  if (wanted()?.seq === seq) setWanted(null);
+  served = Math.max(served, seq);
 }
 
 /** GO TO A WORK — the one route every face takes: a work chip, a `#/work/…`
@@ -178,11 +183,9 @@ export function cardShown(seq: number): void {
 export function showWork(id: WorkId, ask: string | null = null): void {
   asks += 1;
   const seq = asks;
-  batch(() => {
-    enterConductorMode();
-    closeReader();
-    setPhoneView("work");
-    pickWork(id);
-    setWanted({ id, ask, seq });
-  });
+  enterConductorMode();
+  closeReader();
+  setPhoneView("work");
+  pickWork(id);
+  setWanted({ id, ask, seq });
 }

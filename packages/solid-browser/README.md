@@ -128,6 +128,7 @@ The three functions above answer *"where does this link go?"*. `createBrowser` a
 
 ```ts
 import { createBrowser } from "@kolu/solid-browser";
+import { flush } from "solid-js";
 
 // Your host picks the location type. Here: a doc slug.
 const browser = createBrowser<{ slug: string }>({
@@ -139,18 +140,26 @@ const browser = createBrowser<{ slug: string }>({
 
 browser.navigate({ slug: "guide" }); // record + go
 browser.navigate({ slug: "api" });
+
+// THE TWO CLOCKS. The verbs answer now; the reactive mirror updates on the
+// next flush, so a read taken in the same turn as the write still sees the
+// previous value. In an app the mirror is read from JSX, which runs after the
+// flush; in a test, call `flush()` from solid-js between the write and the
+// read.
+flush();
 browser.current(); // → { slug: "api" }
 browser.canBack(); // → true   (drives a ◀ button's `disabled`)
 
-browser.back(); // → { slug: "guide" }   (returns the location to apply)
+browser.back(); // → { slug: "guide" }   (returns the location to apply, now)
 browser.back(); // → { slug: "index" }
 browser.forward(); // → { slug: "guide" }
 
 browser.navigate({ slug: "faq" }); // navigating after a back forks history:
+flush();
 browser.canForward(); // → false  (the "guide → api" tail was discarded)
 ```
 
-`current`/`canBack`/`canForward` are reactive accessors, so a toolbar's ◀/▶ enablement tracks navigation with no extra wiring. The host owns the two things the controller deliberately doesn't: **applying** a returned location (rendering it) and **resolving** it to content.
+`current`/`canBack`/`canForward` are reactive accessors, so a toolbar's ◀/▶ enablement tracks navigation with no extra wiring — one flush behind the verb that moved it, which is the same flush that re-renders the toolbar. The host owns the two things the controller deliberately doesn't: **applying** a returned location (rendering it) and **resolving** it to content.
 
 > **Why `back()` returns the location instead of applying it.** The controller can't render your documents — only your host can. So traversal returns *what to show* and leaves *how to show it* to you. This is exactly the split kolu's Code tab uses: `back()` yields a `{ mode, path }`, and the Code tab re-applies it (sets the mode, re-selects the file, repaints the line highlight).
 

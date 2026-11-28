@@ -3,7 +3,8 @@
  *  Pure data + function shapes, no rendering: every concrete renderer is an
  *  appliance the consumer plugs in. */
 
-import type { Accessor, JSX } from "solid-js";
+import type { Accessor } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 /** What a renderer draws from. A file may have a `source` (UTF-8 text on
  *  disk), a `url` (a route-served rendered form), or both:

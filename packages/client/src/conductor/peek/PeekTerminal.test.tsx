@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { decodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shown } from "../../ui/shown";
 
@@ -19,8 +19,9 @@ const seam = vi.hoisted(() => ({
   allowed: true,
   onData: undefined as ((data: string) => void) | undefined,
   keyHandler: undefined as ((e: { key: string }) => boolean) | undefined,
-  /** Changes a signal the stand-in's `terminal.reset()` reads. */
-  touchResetRead: undefined as (() => void) | undefined,
+  /** Takes the screen's scroll lock the other way — the pane's own reactive
+   *  state, read in the held-report effect's compute. */
+  holdScreen: undefined as (() => void) | undefined,
 }));
 
 vi.mock("../../wire", async () => {
@@ -55,17 +56,17 @@ vi.mock("@kolu/surface/client", async () => {
 });
 
 vi.mock("@kolu/xterm-kit/solid", async () => {
-  const { createSignal, onMount } = await import("solid-js");
-  // A signal the screen's reset reads, as xterm's `reset()` runs the scroll
-  // lock's listener, which reads the lock: whatever the attach effect calls
-  // reads signals the effect must never restart on.
-  const [resetRead, setResetRead] = createSignal(0);
-  seam.touchResetRead = () => setResetRead((n) => n + 1);
+  const { createSignal } = await import("solid-js");
+  // THE SCREEN'S OWN REACTIVE STATE: the scroll lock, which the pane reads in
+  // a tracking scope (the held-report effect) and the attach's own reset
+  // writes. Whatever the attach effect calls touches state the attach must
+  // never restart on.
+  const [locked, setLocked] = createSignal(false);
+  seam.holdScreen = () => setLocked((on) => !on);
   const handle = {
     container: document.createElement("div"),
     terminal: {
       reset() {
-        resetRead();
         seam.log.push("reset");
       },
       focus() {},
@@ -84,7 +85,12 @@ vi.mock("@kolu/xterm-kit/solid", async () => {
       parsed?.();
     },
     clearPendingOutput() {},
-    scrollLock: { reset() {}, isLocked: () => false },
+    scrollLock: {
+      reset() {
+        setLocked(false);
+      },
+      isLocked: () => locked(),
+    },
     recovery: { noteData() {} },
   };
   return {
@@ -94,7 +100,10 @@ vi.mock("@kolu/xterm-kit/solid", async () => {
       onReady: (h: unknown) => void;
     }) => {
       seam.onData = props.onData;
-      onMount(() => props.onReady(handle));
+      // Inside the component's own owner, as `<Xterm>` hands the handle over
+      // (`xterm-kit/src/solid/Xterm.tsx:461`): the scope the consumer's
+      // `onCleanup` and its attach effect belong to.
+      props.onReady(handle);
       return <div data-testid="peek-screen" />;
     },
   };
@@ -122,7 +131,7 @@ const mount = () => {
   document.body.append(root);
   const dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <PeekTerminal
           host="remote:nix@example"
           id={ID}
@@ -136,7 +145,7 @@ const mount = () => {
           onHandle={() => {}}
           testId="peek-screen"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -198,6 +207,9 @@ describe("PeekTerminal", () => {
 
     expect(seam.keyHandler?.({ key: "Escape" })).toBe(false);
     setMayType(true);
+    // The gate reads the signal when the key arrives, so the write must have
+    // landed — a frame later, as it has for a person pressing the key.
+    flush();
     expect(seam.keyHandler?.({ key: "Escape" })).toBe(true);
     dispose();
   });
@@ -207,7 +219,10 @@ describe("PeekTerminal", () => {
     await vi.waitFor(() => expect(seam.attached).toHaveLength(1));
     const resets = seam.log.filter((l) => l === "reset").length;
 
-    seam.touchResetRead?.();
+    // The screen's own scroll lock — read by the pane in a tracking scope,
+    // and written by the very reset the attach runs.
+    seam.holdScreen?.();
+    flush();
     await Promise.resolve();
 
     expect({

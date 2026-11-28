@@ -19,7 +19,7 @@
  *  host reads cleanly without a stale terminal title, and the conversation is
  *  never captioned with a terminal it is not showing. */
 
-import Drawer from "@corvu/drawer";
+import Drawer from "@corvu-next/drawer";
 import { type Component, Show } from "solid-js";
 import { useConductorBadge } from "./conductor/useConductorFacts";
 import { conductorMode } from "./conductor/useConductorMode";
@@ -153,8 +153,10 @@ const MobilePullChrome: Component<{
             <span
               data-testid="mobile-handle-needs-you"
               data-waiting={badge.waiting()}
-              class="shrink-0 min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0"
-              classList={{ "ml-auto": !clientStale() }}
+              class={[
+                "shrink-0 min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0",
+                { "ml-auto": !clientStale() },
+              ]}
             >
               {badge.waiting()}
             </span>

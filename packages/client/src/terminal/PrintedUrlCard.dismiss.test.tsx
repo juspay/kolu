@@ -8,7 +8,8 @@
  * the card's path must be keyed, so a stale read is unspellable.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../wire", () => ({
@@ -87,6 +88,9 @@ describe("printed-URL card dismissal", () => {
     );
 
     openPrintedUrlCard(target);
+    // The open is a staged write: the card is drawn on the flush that follows,
+    // as a user sees it a frame after their click.
+    flush();
     expect(document.querySelector("[data-testid=printed-url-card]")).not.toBe(
       null,
     );
@@ -100,6 +104,7 @@ describe("printed-URL card dismissal", () => {
       );
     };
     expect(boom).not.toThrow();
+    flush();
     expect(document.querySelector("[data-testid=printed-url-card]")).toBe(null);
   });
 });

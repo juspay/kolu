@@ -17,23 +17,23 @@
  *  ← → (Home / End) move focus
  *  within the group, wrapping; Enter or Space picks the focused option, once.
  *  Neither Corvu nor `@solid-primitives` ships a roving-focus primitive, so it
- *  lives here, once. Buttons are keyed by `value` (`Key`), so a caller that
- *  hands in fresh option objects for the same values (a re-emitted listing)
- *  keeps the very buttons — and the focus — it had. */
+ *  lives here, once. Buttons are keyed by `value` (`<For keyed>`), so a caller
+ *  that hands in fresh option objects for the same values (a re-emitted
+ *  listing) keeps the very buttons — and the focus — it had. */
 
-import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
   createMemo,
   createRenderEffect,
   createSignal,
-  type JSX,
-  onCleanup,
-  on,
-  onMount,
+  For,
+  onSettled,
   Show,
+  untrack,
 } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { dynamic, type JSX } from "@solidjs/web";
+import { trueWord } from "./attrWord";
+import { refWithRelease } from "./refWithRelease";
 
 export interface SegmentedControlOption<T extends string> {
   value: T;
@@ -152,14 +152,27 @@ export default function SegmentedControl<T extends string>(props: {
       pressed !== undefined && props.options.some((o) => o.value === pressed);
     return focused() !== undefined || !offered ? tabStop() : pressed;
   });
-  // A render effect, so the caller hears it before the first paint.
-  createRenderEffect(on(inView, (v) => props.onInViewChange?.(v)));
-  const keep = (value: T) => (el: HTMLButtonElement) => {
-    buttons.set(value, el);
-    onCleanup(() => {
-      if (buttons.get(value) === el) buttons.delete(value);
-    });
-  };
+  // A render effect, so the caller hears it before the first paint. The
+  // callback prop is read in the COMPUTE and untracked: an effect callback may
+  // not read, and a caller swapping its handler identity is not a reason to
+  // re-announce the view.
+  createRenderEffect(
+    () => ({ v: inView(), notify: untrack(() => props.onInViewChange) }),
+    ({ v, notify }) => {
+      // A statement, not an expression body: an effect callback's return value
+      // is its CLEANUP, and a caller's handler may answer anything.
+      notify?.(v);
+    },
+  );
+  /** Hand a button its slot in the map, and release the slot when the `<For>`
+   *  item that asked for the ref goes. */
+  const keep = (value: T) =>
+    refWithRelease<HTMLButtonElement>(
+      (el) => buttons.set(value, el),
+      (el) => {
+        if (buttons.get(value) === el) buttons.delete(value);
+      },
+    );
   const onKeyDown = (value: T) => (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     // Enter / Space pick the focused option HERE, with the browser's own
@@ -186,7 +199,7 @@ export default function SegmentedControl<T extends string>(props: {
     )
       focusOn(undefined);
   };
-  onMount(() => {
+  onSettled(() => {
     if (!props.autofocus) return;
     // After the frame, so a dialog's own initial focus does not win over it.
     requestAnimationFrame(() => {
@@ -210,30 +223,39 @@ export default function SegmentedControl<T extends string>(props: {
           data-testid={`${props.testIdPrefix}-toggle`}
           class="flex rounded-lg overflow-hidden border border-edge"
         >
-          <Key each={props.options} by="value">
-            {(opt) => (
-              <button
-                type="button"
-                ref={keep(opt().value)}
-                data-testid={`${props.testIdPrefix}-${opt().value}`}
-                aria-pressed={props.value === opt().value}
-                tabIndex={tabIndexOf(opt().value)}
-                onFocus={() => focusOn(opt().value)}
-                onFocusOut={onFocusOut}
-                onKeyDown={onKeyDown(opt().value)}
-                title={opt().hint}
-                class="px-2 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-                classList={{
-                  "bg-accent text-surface-0": props.value === opt().value,
-                  "bg-surface-2 text-fg-2 hover:text-fg":
-                    props.value !== opt().value,
-                }}
-                onClick={() => props.onChange(opt().value)}
-              >
-                {opt().label}
-              </button>
-            )}
-          </Key>
+          <For each={props.options} keyed={(opt) => opt.value}>
+            {(opt) => {
+              // The list is KEYED BY `value`, so this row's value cannot change
+              // for its lifetime. Read it ONCE, untracked: the top level of a
+              // `<For>` item callback is a strict-read window, and the ref and
+              // the key handler are built there, not re-built per read.
+              const value = untrack(() => opt().value);
+              return (
+                <button
+                  type="button"
+                  ref={keep(value)}
+                  data-testid={`${props.testIdPrefix}-${value}`}
+                  aria-pressed={props.value === value ? "true" : "false"}
+                  tabindex={tabIndexOf(value)}
+                  onFocus={() => focusOn(value)}
+                  onFocusOut={onFocusOut}
+                  onKeyDown={onKeyDown(value)}
+                  title={opt().hint}
+                  class={[
+                    "px-2 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50",
+                    {
+                      "bg-accent text-surface-0": props.value === value,
+                      "bg-surface-2 text-fg-2 hover:text-fg":
+                        props.value !== value,
+                    },
+                  ]}
+                  onClick={() => props.onChange(value)}
+                >
+                  {opt().label}
+                </button>
+              );
+            }}
+          </For>
         </div>
       }
     >
@@ -242,52 +264,58 @@ export default function SegmentedControl<T extends string>(props: {
         role="toolbar"
         aria-label={props.ariaLabel}
         data-mode={props.dataMode ? props.value : undefined}
-        data-touch={props.touch || undefined}
+        data-touch={trueWord(props.touch)}
         class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
-        <Key each={props.options} by="value">
-          {(opt) => (
-            <>
-              <Show when={opt().dividerBefore}>
-                <div
-                  class="self-stretch w-px bg-edge/60 mx-0.5"
-                  aria-hidden="true"
-                />
-              </Show>
-              <button
-                type="button"
-                ref={keep(opt().value)}
-                data-testid={`${props.testIdPrefix}-${opt().value}`}
-                aria-pressed={props.value === opt().value}
-                tabIndex={tabIndexOf(opt().value)}
-                onFocus={() => focusOn(opt().value)}
-                onFocusOut={onFocusOut}
-                onKeyDown={onKeyDown(opt().value)}
-                data-active={props.value === opt().value ? "" : undefined}
-                data-mode={opt().value}
-                title={opt().hint}
-                data-touch={props.touch || undefined}
-                class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-                onClick={() => props.onChange(opt().value)}
-              >
-                <Show when={opt().icon}>
-                  {(icon) => (
-                    <Dynamic component={icon()} class="w-3 h-3 opacity-70" />
-                  )}
+        <For each={props.options} keyed={(opt) => opt.value}>
+          {(opt) => {
+            // Keyed by `value`: this row's value is fixed for its lifetime, and
+            // the item callback's top level is a strict-read window.
+            const value = untrack(() => opt().value);
+            return (
+              <>
+                <Show when={opt().dividerBefore}>
+                  <div
+                    class="self-stretch w-px bg-edge/60 mx-0.5"
+                    aria-hidden="true"
+                  />
                 </Show>
-                <span>{opt().label}</span>
-                <Show when={(opt().badge ?? 0) > 0}>
-                  <span
-                    class="inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded-full bg-accent/20 text-fg text-[0.6rem] font-semibold tabular-nums"
-                    data-testid={`${props.testIdPrefix}-${opt().value}-count`}
-                  >
-                    {opt().badge}
-                  </span>
-                </Show>
-              </button>
-            </>
-          )}
-        </Key>
+                <button
+                  type="button"
+                  ref={keep(value)}
+                  data-testid={`${props.testIdPrefix}-${value}`}
+                  aria-pressed={props.value === value ? "true" : "false"}
+                  tabindex={tabIndexOf(value)}
+                  onFocus={() => focusOn(value)}
+                  onFocusOut={onFocusOut}
+                  onKeyDown={onKeyDown(value)}
+                  data-active={props.value === value ? "" : undefined}
+                  data-mode={value}
+                  title={opt().hint}
+                  data-touch={trueWord(props.touch)}
+                  class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                  onClick={() => props.onChange(value)}
+                >
+                  <Show when={opt().icon}>
+                    {(icon) => {
+                      const Icon = dynamic(icon);
+                      return <Icon class="w-3 h-3 opacity-70" />;
+                    }}
+                  </Show>
+                  <span>{opt().label}</span>
+                  <Show when={(opt().badge ?? 0) > 0}>
+                    <span
+                      class="inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded-full bg-accent/20 text-fg text-[0.6rem] font-semibold tabular-nums"
+                      data-testid={`${props.testIdPrefix}-${value}-count`}
+                    >
+                      {opt().badge}
+                    </span>
+                  </Show>
+                </button>
+              </>
+            );
+          }}
+        </For>
       </div>
     </Show>
   );

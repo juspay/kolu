@@ -11,7 +11,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
-import { createStore, produce } from "solid-js/store";
+import { createStore } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { type SplitPanelState, useSplitPanelState } from "./splitPanelState";
 
@@ -34,17 +34,20 @@ const DEFAULT_PANE_CHROME: Readonly<PaneChrome> = Object.freeze({
   refocusNonce: 0,
 });
 
+/** The actor a `plan…` verb hands back when its reads decided there is
+ *  nothing to write (no active host, a value already saved). One shared
+ *  no-op rather than a fresh closure per plan. */
+const NOTHING_TO_WRITE = (): void => {};
+
 const [state, setState] = createStore<Record<TerminalId, PaneChrome>>({});
 
 function ensureState(parentId: TerminalId): PaneChrome {
   const existing = state[parentId];
   if (existing) return existing;
   const seeded: PaneChrome = { ...DEFAULT_PANE_CHROME };
-  setState(
-    produce((all) => {
-      all[parentId] = seeded;
-    }),
-  );
+  setState((all) => {
+    all[parentId] = seeded;
+  });
   return seeded;
 }
 
@@ -54,14 +57,12 @@ function editChrome(
   parentId: TerminalId,
   write: (panel: PaneChrome) => void,
 ): void {
-  setState(
-    produce((all) => {
-      const held = all[parentId];
-      const panel = held ?? { ...DEFAULT_PANE_CHROME };
-      write(panel);
-      if (!held) all[parentId] = panel;
-    }),
-  );
+  setState((all) => {
+    const held = all[parentId];
+    const panel = held ?? { ...DEFAULT_PANE_CHROME };
+    write(panel);
+    if (!held) all[parentId] = panel;
+  });
 }
 
 export function useSubPanel() {
@@ -69,50 +70,78 @@ export function useSubPanel() {
   const focusedTerminalId = (): TerminalId | null =>
     activeScope()?.view.focusedTerminalId() ?? null;
 
-  /** The raw fact write is deliberately trapped inside this panel boundary.
-   *  Every exported caller below first establishes or checks the pane chrome
-   *  invariant; the broad terminal/view facades never expose this operation.
+  /** THE READER HALF of the raw fact write, deliberately trapped inside this
+   *  panel boundary. Every exported caller below first establishes or checks
+   *  the pane chrome invariant; the broad terminal/view facades never expose
+   *  this operation.
+   *
+   *  A `plan…` verb does ALL the reactive reads (the active scope, the focused
+   *  pane, this tile's chrome) and hands back the WRITES as a function. That
+   *  split is what lets a Solid effect drive these verbs: an effect callback is
+   *  a strict-read window, so the plan runs in the effect's COMPUTE and the
+   *  returned actor — writes only — runs in the effect. An event handler, which
+   *  may read freely, calls the eager verb beside it and pays nothing.
+   *
+   *  Hoisting the reads ahead of the writes changes no answer: a write is
+   *  staged, so a read after it in the same synchronous run already returned
+   *  the pre-write value.
+   *
    *  A missing active scope is the expected host-removal race and follows the
    *  active-host facade convention: the departing owner's write is a no-op. */
+  function planPaneFocus(
+    parentId: TerminalId,
+    id: TerminalId,
+    remember = true,
+  ): () => void {
+    const view = activeScope()?.view;
+    if (!view) return NOTHING_TO_WRITE;
+    const repeatsCurrentPane = view.focusedTerminalId() === id;
+    const rememberedPane = id === parentId ? "main" : "sub";
+    // Preserve the implicit main default for a never-touched tile: landing on
+    // it must not seed panel state merely to record the value it already has.
+    const recordsPane =
+      remember && (state[parentId] !== undefined || rememberedPane === "sub");
+    return () => {
+      if (recordsPane)
+        editChrome(parentId, (p) => {
+          p.rememberedPane = rememberedPane;
+        });
+      view.writeFocus({ id, tileHint: parentId });
+      // `focusedTerminalId` is a value memo, so an equal-id write correctly does
+      // not notify its consumers. Selection may still need to restore DOM focus
+      // after a dock row or close button took it; the existing nonce is the
+      // edge-less DOM impulse, never another focus authority.
+      if (repeatsCurrentPane) {
+        editChrome(parentId, (p) => {
+          p.refocusNonce += 1;
+        });
+      }
+    };
+  }
+
   function writePaneFocus(
     parentId: TerminalId,
     id: TerminalId,
     remember = true,
   ): void {
-    const view = activeScope()?.view;
-    if (!view) return;
-    const repeatsCurrentPane = view.focusedTerminalId() === id;
-    if (remember) {
-      const rememberedPane = id === parentId ? "main" : "sub";
-      // Preserve the implicit main default for a never-touched tile: landing on
-      // it must not seed panel state merely to record the value it already has.
-      if (state[parentId] || rememberedPane === "sub")
-        editChrome(parentId, (p) => {
-          p.rememberedPane = rememberedPane;
-        });
-    }
-    view.writeFocus({ id, tileHint: parentId });
-    // `focusedTerminalId` is a value memo, so an equal-id write correctly does
-    // not notify its consumers. Selection may still need to restore DOM focus
-    // after a dock row or close button took it; the existing nonce is the
-    // edge-less DOM impulse, never another focus authority.
-    if (repeatsCurrentPane) {
-      editChrome(parentId, (p) => {
-        p.refocusNonce += 1;
-      });
-    }
+    planPaneFocus(parentId, id, remember)();
   }
 
-  function focusVisiblePane(parentId: TerminalId): void {
+  /** WHICH PANE A LANDING ON THIS TILE LANDS ON: its remembered sub tab when it
+   *  has one and the split is open, else the tile's own main pane. The read half
+   *  of {@link planFocusVisiblePane}, named because the session seed must know
+   *  whether the derived boot pick — which is always the TILE — already names the
+   *  pane a landing would focus (`hostScope/createBootPick`). */
+  function visiblePaneOf(parentId: TerminalId): TerminalId {
     const panel = state[parentId];
     const open = !split.state(parentId).collapsed;
-    writePaneFocus(
-      parentId,
-      panel?.rememberedPane === "sub" && open && panel.activeSubTab
-        ? panel.activeSubTab
-        : parentId,
-      false,
-    );
+    return panel?.rememberedPane === "sub" && open && panel.activeSubTab
+      ? panel.activeSubTab
+      : parentId;
+  }
+
+  function planFocusVisiblePane(parentId: TerminalId): () => void {
+    return planPaneFocus(parentId, visiblePaneOf(parentId), false);
   }
 
   /** Expanding an existing split is not a tile landing: the newly visible
@@ -123,11 +152,88 @@ export function useSubPanel() {
     writePaneFocus(parentId, panel?.activeSubTab ?? parentId);
   }
 
+  /** Seed a tile's chrome if it has none — the reader half of `ensureState`:
+   *  the presence check is the read, the seeding is the write. */
+  function planEnsureState(parentId: TerminalId): () => void {
+    if (state[parentId]) return NOTHING_TO_WRITE;
+    return () => {
+      editChrome(parentId, () => {});
+    };
+  }
+
   /** Write a tile's saved split state — the ONE place these verbs reach the
    *  record, so every writer below is a gesture that passed through here. */
+  const planSaveSplit = (
+    parentId: TerminalId,
+    next: Partial<SplitPanelState>,
+  ): (() => void) =>
+    split.planWrite(parentId, { ...split.state(parentId), ...next });
   const saveSplit = (parentId: TerminalId, next: Partial<SplitPanelState>) => {
-    split.write(parentId, { ...split.state(parentId), ...next });
+    planSaveSplit(parentId, next)();
   };
+
+  function planClearFocus(): () => void {
+    const view = activeScope()?.view;
+    if (!view) return NOTHING_TO_WRITE;
+    return () => view.writeFocus(null);
+  }
+
+  function planCollapsePanel(parentId: TerminalId): () => void {
+    const collapse = planSaveSplit(parentId, { collapsed: true });
+    // Collapsing temporarily forces input to main; it must not erase the pane
+    // to restore when the user reopens this same split.
+    const land = planPaneFocus(parentId, parentId, false);
+    return () => {
+      collapse();
+      land();
+    };
+  }
+
+  /** Reader half of `expandPanel` — the tile's current saved split is the
+   *  read, so a split ARRIVING on the metadata stream (an effect) can open
+   *  the tile. */
+  const planExpandPanel = (parentId: TerminalId): (() => void) =>
+    planSaveSplit(parentId, { collapsed: false });
+
+  const planCollapsePanelChrome = (parentId: TerminalId): (() => void) =>
+    planSaveSplit(parentId, { collapsed: true });
+
+  function planSelectSubTab(
+    parentId: TerminalId,
+    subId: TerminalId | null,
+  ): () => void {
+    const land = planPaneFocus(parentId, subId ?? parentId);
+    return () => {
+      editChrome(parentId, (p) => {
+        p.activeSubTab = subId;
+      });
+      land();
+    };
+  }
+
+  function planFocusSubTab(
+    parentId: TerminalId,
+    subId: TerminalId,
+  ): () => void {
+    const reveal = planSaveSplit(parentId, { collapsed: false });
+    const land = planPaneFocus(parentId, subId);
+    return () => {
+      editChrome(parentId, (p) => {
+        p.activeSubTab = subId;
+      });
+      reveal();
+      land();
+    };
+  }
+
+  function planFocusMainPane(parentId: TerminalId): () => void {
+    const seed = planEnsureState(parentId);
+    const land = planPaneFocus(parentId, parentId);
+    return () => {
+      seed();
+      land();
+    };
+  }
 
   return {
     /** A tile's SAVED split state, off the record. */
@@ -142,13 +248,24 @@ export function useSubPanel() {
     /** Focus a top-level tile's remembered pane. Both rememberedPane and the
      *  remembered tab are verb-only chrome: this verb resolves them immediately
      *  and writes the same one per-host focus fact as every other transition. */
-    focusVisiblePane,
+    focusVisiblePane(parentId: TerminalId) {
+      planFocusVisiblePane(parentId)();
+    },
+    /** Reader half of {@link planFocusVisiblePane}'s verb above, for a caller
+     *  inside an effect: run it in the compute, run what it returns in the
+     *  effect. */
+    planFocusVisiblePane,
+
+    /** Reader of the landing pane itself (no write), for the session seed. */
+    visiblePaneOf,
 
     /** Clear selection through the same narrow focus boundary. No pane chrome
      *  exists to update when there is no focused terminal. */
     clearFocus() {
-      activeScope()?.view.writeFocus(null);
+      planClearFocus()();
     },
+    /** Reader half of `clearFocus` — the active scope is the read. */
+    planClearFocus,
 
     /** The user asked for the split to open or shut — a gesture, so it writes
      *  the saved state. */
@@ -163,8 +280,9 @@ export function useSubPanel() {
      *  opens to show it — a real change of what the user is looking at, so it
      *  is saved. It takes no focus; `expandAndFocusPanel` is the gesture. */
     expandPanel(parentId: TerminalId) {
-      saveSplit(parentId, { collapsed: false });
+      planExpandPanel(parentId)();
     },
+    planExpandPanel,
 
     /** User-driven expansion: open the split and focus its visible active
      *  split. External split adoption uses the chrome-only `expandPanel` so an
@@ -176,18 +294,23 @@ export function useSubPanel() {
 
     /** Collapse with no focus move — the tab strip's own shut button. */
     collapsePanelChrome(parentId: TerminalId) {
-      saveSplit(parentId, { collapsed: true });
+      planCollapsePanelChrome(parentId)();
     },
+    planCollapsePanelChrome,
 
     collapsePanel(parentId: TerminalId) {
-      saveSplit(parentId, { collapsed: true });
-      // Collapsing temporarily forces input to main; it must not erase the pane
-      // to restore when the user reopens this same split.
-      writePaneFocus(parentId, parentId, false);
+      planCollapsePanel(parentId)();
     },
+    planCollapsePanel,
 
     /** Chrome-only remembered-tab update for hydration, adoption, and landing
-     *  orchestration. Explicit user selection uses `selectSubTab`. */
+     *  orchestration. Explicit user selection uses `selectSubTab`. Writes
+     *  only, so it reads nothing an effect callback's strict-read window
+     *  forbids — but a caller in an effect's APPLY ARM still settles it: both
+     *  mirrors (`useActiveReconcile`'s departure repair and
+     *  `useAdoptNewSplit`'s arrival) write it from an `onSettled` carrying
+     *  their whole write phase, because this leaf is folded with the terminal
+     *  census their compute just read. */
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
       editChrome(parentId, (p) => {
         p.activeSubTab = subId;
@@ -196,27 +319,22 @@ export function useSubPanel() {
 
     /** Explicit tab choice: update remembered chrome and focus exactly once. */
     selectSubTab(parentId: TerminalId, subId: TerminalId | null) {
-      editChrome(parentId, (p) => {
-        p.activeSubTab = subId;
-      });
-      writePaneFocus(parentId, subId ?? parentId);
+      planSelectSubTab(parentId, subId)();
     },
+    planSelectSubTab,
 
     /** Split landing: reveal the chosen tab without focus side effects, then
      *  commit the one focus fact exactly once. */
     focusSubTab(parentId: TerminalId, subId: TerminalId) {
-      editChrome(parentId, (p) => {
-        p.activeSubTab = subId;
-      });
-      saveSplit(parentId, { collapsed: false });
-      writePaneFocus(parentId, subId);
+      planFocusSubTab(parentId, subId)();
     },
+    planFocusSubTab,
 
     /** Pane DOM focus may commit only a pane already made visible by chrome. */
     focusMainPane(parentId: TerminalId) {
-      ensureState(parentId);
-      writePaneFocus(parentId, parentId);
+      planFocusMainPane(parentId)();
     },
+    planFocusMainPane,
 
     focusVisibleSubPane(parentId: TerminalId, subId: TerminalId) {
       const panel = ensureState(parentId);
@@ -261,7 +379,9 @@ export function useSubPanel() {
     /** Clean up state for a parent that no longer exists — the browser-only
      *  chrome here, and any in-flight split write it left behind. */
     removePanel(parentId: TerminalId) {
-      setState(produce((s) => delete s[parentId]));
+      setState((s) => {
+        delete s[parentId];
+      });
       split.forget(parentId);
     },
   } as const;
@@ -274,11 +394,14 @@ export function useSubPanel() {
  *  drop a panel, and it does not decide focus — so its seam is this, not the
  *  panel's whole surface. */
 export type TabStripRepairPorts = {
-  collapsePanel: (parentId: TerminalId) => void;
-  collapsePanelChrome: (parentId: TerminalId) => void;
+  planCollapsePanel: (parentId: TerminalId) => () => void;
+  planCollapsePanelChrome: (parentId: TerminalId) => () => void;
   paneChrome: (parentId: TerminalId) => { activeSubTab: TerminalId | null };
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
-  selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
+  planSelectSubTab: (
+    parentId: TerminalId,
+    subId: TerminalId | null,
+  ) => () => void;
 };
 
 /** What the EVICTION reconcile drives beyond a repair: the DOM-focus nonce (a
@@ -305,25 +428,33 @@ export type EvictionSubPanelPorts = TabStripRepairPorts & {
  *  pane left its tile but is still alive). The invariant they both restore —
  *  "`activeSubTab` is null or a LIVE sub of this tile" — has consumers that
  *  trust a plain null-check for "no active split" (the adopt don't-steal guard,
- *  `focusVisiblePane`), so it gets one author rather than one per mutation. */
-export function repairTileTabs(
+ *  `focusVisiblePane`), so it gets one author rather than one per mutation.
+ *
+ *  Both callers run inside a Solid effect, where a reactive read is forbidden,
+ *  so this is a PLANNER: the reads (the tile's active tab, the saved split each
+ *  collapse supersedes) happen when it is called — from the effect's compute —
+ *  and the writes ride the function it returns. */
+export function planTileTabsRepair(
   panel: TabStripRepairPorts,
   tileId: TerminalId,
   remaining: readonly TerminalId[],
   leavingWasFocused: boolean,
-): void {
+): () => void {
   if (remaining.length === 0) {
-    if (leavingWasFocused) panel.collapsePanel(tileId);
-    else panel.collapsePanelChrome(tileId);
-    // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
-    // must not dangle at a departed sub.
-    panel.setActiveSubTab(tileId, null);
-    return;
+    const collapse = leavingWasFocused
+      ? panel.planCollapsePanel(tileId)
+      : panel.planCollapsePanelChrome(tileId);
+    return () => {
+      collapse();
+      // Clear the active tab too: the tile's last split is gone, so
+      // `activeSubTab` must not dangle at a departed sub.
+      panel.setActiveSubTab(tileId, null);
+    };
   }
   const active = panel.paneChrome(tileId).activeSubTab;
-  if (active !== null && !remaining.includes(active)) {
-    const replacement = remaining[0] ?? null;
-    if (leavingWasFocused) panel.selectSubTab(tileId, replacement);
-    else panel.setActiveSubTab(tileId, replacement);
-  }
+  if (active === null || remaining.includes(active)) return NOTHING_TO_WRITE;
+  const replacement = remaining[0] ?? null;
+  if (!leavingWasFocused)
+    return () => panel.setActiveSubTab(tileId, replacement);
+  return panel.planSelectSubTab(tileId, replacement);
 }

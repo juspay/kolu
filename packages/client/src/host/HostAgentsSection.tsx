@@ -84,7 +84,7 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
       title={props.detail.state.title}
     >
       <span
-        classList={{
+        class={{
           "text-warning": props.detail.state.tone === "warn",
           "text-fg-3": props.detail.state.tone !== "warn",
         }}
@@ -93,11 +93,13 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
       </span>
       <span
         data-testid="host-agents-state-text"
-        class="min-w-0 truncate font-medium"
-        classList={{
-          "text-warning": props.detail.state.tone === "warn",
-          "text-fg": props.detail.state.tone !== "warn",
-        }}
+        class={[
+          "min-w-0 truncate font-medium",
+          {
+            "text-warning": props.detail.state.tone === "warn",
+            "text-fg": props.detail.state.tone !== "warn",
+          },
+        ]}
       >
         {props.detail.state.text}
       </span>
@@ -134,7 +136,7 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
             >
               <span class="truncate font-mono text-fg-3/60">{event.when}</span>
               <span
-                classList={{
+                class={{
                   "text-warning": event.tone === "warn",
                   "text-fg-3": event.tone !== "warn",
                 }}

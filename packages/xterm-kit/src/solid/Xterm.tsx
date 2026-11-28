@@ -22,11 +22,12 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  type JSX,
-  on,
+  omit,
   onCleanup,
-  splitProps,
+  onSettled,
+  runWithOwner,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { BIRTH_GRID } from "../birthGrid";
 import { gridForBox, sameGrid, type TerminalGrid } from "./grid";
 import { clearWriteQueue } from "../internals";
@@ -163,7 +164,24 @@ interface XtermOwnProps {
   >;
   /** Keystrokes out (query-response filtering / sticky modifiers are policy). */
   onData: (data: string) => void;
-  /** The live handle, inside the reactive owner — wire policy here. */
+  /** The live handle — wire policy here.
+   *
+   *  WHICH OWNER this runs under, because Solid 2 makes the answer decide what
+   *  is legal inside it: THIS COMPONENT'S OWN OWNER, the one its body ran in.
+   *  Construction is asynchronous (the font is awaited before the terminal can
+   *  be measured), so the owner is captured before the await and re-entered
+   *  with `runWithOwner` after it — see `createXtermLifecycle`. It is NOT an
+   *  effect callback and not a `ref` callback, so `onCleanup`, `createEffect`,
+   *  `createMemo` and `onSettled` are all valid here and tear down with the
+   *  component; `onCleanup` in particular registers on a live owner rather
+   *  than warning NO_OWNER_CLEANUP or throwing CLEANUP_IN_FORBIDDEN_SCOPE.
+   *
+   *  What that owner also means: a reactive read here is UNTRACKED (the
+   *  re-entry restores the owner, not a tracking scope), so a value that must
+   *  follow its source is read inside an effect's compute, not here; and a
+   *  signal write here is a write in an owned scope, which dev REFUSES unless
+   *  the signal declares `ownedWrite` (the kit's two grid signals do, and say
+   *  why). */
   onReady: (handle: XtermHandle) => void;
   /** Touch tap resolver: return true if the tap was consumed (e.g. a ref was
    *  followed), else the soft keyboard is summoned. */
@@ -201,9 +219,29 @@ export const Xterm: Component<
   // shadows) spreads onto the div.
   XtermOwnProps & Omit<JSX.HTMLAttributes<HTMLDivElement>, keyof XtermOwnProps>
 > = (props) => {
-  const [own, rest] = splitProps(props, OWN_KEYS);
+  // The kit's own props are read off `props`; everything else is the host
+  // div's attribute bag.
+  const rest = omit(props, ...OWN_KEYS);
   let container!: HTMLDivElement;
   let fitRaf = 0;
+
+  // The renderer fact, bound by the KIT on its own div (`data-renderer`) rather
+  // than handed to a consumer to put back through the spread.
+  //
+  // `hasWebgl` is written from the WebGL attach/detach effect (`./webgl`), so a
+  // consumer attribute derived from it lands a flush AFTER the box change that
+  // caused the re-attach. Riding the shared spread, that late write re-ran the
+  // ONE render effect that also carries every layout-derived attribute, so a
+  // single box measurement painted the div twice and the first frame showed the
+  // new layout with the stale renderer (`EFFECT_RELAY_TEAR`). Bound here it is
+  // its own small effect over its own source: it applies once, in the flush its
+  // write lands in, and the spread reads nothing an effect writes.
+  //
+  // Written in the ready callback — an owned scope — hence `ownedWrite`.
+  const [webglFacts, setWebglFacts] = createSignal<WebglHandle | null>(null, {
+    name: "xtermWebglFacts",
+    ownedWrite: true,
+  });
 
   // The two grids this component keeps apart, and the whole of why it does.
   //
@@ -219,10 +257,20 @@ export const Xterm: Component<
   // Value-compared so a fit that lands on the same cols×rows doesn't notify —
   // consumers gate real work on this, and a re-fit that measured nothing new is
   // not an event.
+  //
+  // `ownedWrite`: both are this component's OWN internal signals, and the one
+  // path that seeds them runs inside this component's owner — the lifecycle
+  // re-enters it with `runWithOwner` after the font await, and the ready
+  // callback below takes the pane's first measurement and the terminal's birth
+  // size there, BEFORE handing the handle to the consumer (see `applyFit`'s
+  // call site). That in-scope write is the intent, not an accident: the
+  // alternative is a consumer that receives a handle whose grids are still
+  // empty and has to wait a flush to learn its own pane's size.
   const gridEquals = (a: TerminalGrid | null, b: TerminalGrid | null) =>
     a && b ? sameGrid(a, b) : a === b;
   const [wantedGrid, setWantedGrid] = createSignal<TerminalGrid | null>(null, {
     equals: gridEquals,
+    ownedWrite: true,
   });
   // Seeded with the constructor's invented 80×24 (`BIRTH_GRID`) and corrected
   // the moment a terminal exists — honest, because an unmeasured xterm really
@@ -231,7 +279,7 @@ export const Xterm: Component<
   // answer, and this is not it.
   const [termGrid, setTermGrid] = createSignal<TerminalGrid>(
     { ...BIRTH_GRID },
-    { equals: sameGrid },
+    { equals: sameGrid, ownedWrite: true },
   );
 
   /** Measure the container's current box and record what it could HOLD —
@@ -256,17 +304,27 @@ export const Xterm: Component<
    *  which they do. kolu's canvas tiles render under a transform, so gating on
    *  a quantity the measurement never reads would let the guard and the
    *  measurement disagree. */
-  const applyFit = () => {
-    if (!core) return;
+  const measureFit = (decided: boolean): TerminalGrid | null => {
+    if (!core) return null;
     // The OWNER's gate, read first: a box its layout has not decided is a
     // stand-in, and a measurement of it is a size this pane would go on to
-    // state. See {@link XtermOwnProps.boxDecided}.
-    if (!own.boxDecided) return;
-    if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+    // state. See {@link XtermOwnProps.boxDecided}. Every caller hands the gate
+    // in — the box-decided effect its compute's value, the others the prop
+    // read at the moment they fit — because an effect callback is a
+    // strict-read window where the prop must not be read.
+    if (!decided) return null;
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) return null;
     const box = measureGridBox(core.terminal, container);
-    const next = box && gridForBox(box);
-    if (!next) return;
-    setWantedGrid(next);
+    return (box && gridForBox(box)) || null;
+  };
+
+  /** {@link measureFit}, published straight away — the rAF path and the initial
+   *  in-scope fit, neither of which runs from an effect's apply arm. The
+   *  decided-box effect publishes its own reading from `onSettled` instead; see
+   *  its call site. */
+  const applyFit = (decided: boolean) => {
+    const next = measureFit(decided);
+    if (next) setWantedGrid(next);
   };
 
   /** Apply a grid the STREAM stated, at this point in the stream — the ONE
@@ -295,7 +353,7 @@ export const Xterm: Component<
   };
   const refit = () => {
     cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(applyFit);
+    fitRaf = requestAnimationFrame(() => applyFit(props.boxDecided));
   };
 
   // See `XtermHandle.onceMeasured`. The one-shot-ness is latched in the DATA,
@@ -306,10 +364,14 @@ export const Xterm: Component<
     const first = createMemo<TerminalGrid | null>(
       (prev) => prev ?? wantedGrid(),
     );
+    // Named by hand: the compiler names no effect, so every effect under this
+    // component otherwise reports at its owner's `<Xterm>` JSX site alone.
     createEffect(
-      on(first, (measured) => {
+      first,
+      (measured) => {
         if (measured) fn(measured);
-      }),
+      },
+      { name: "xtermOnceMeasured" },
     );
   };
 
@@ -339,7 +401,12 @@ export const Xterm: Component<
   });
 
   // The scroll lock is solid-reactive, so it's created in the component owner.
-  const scrollLock = createScrollLock(own.scrollLockEnabled);
+  // The gate goes in as a THUNK over the prop, not the prop's own value: a
+  // component body is a strict-read window, so `props.scrollLockEnabled` is read
+  // where the lock calls it (an effect compute, a scroll handler) rather than
+  // here. Same shape as `fullRate` below, and it also means a host that swaps
+  // the accessor is followed instead of pinned to the one read at mount.
+  const scrollLock = createScrollLock(() => props.scrollLockEnabled());
 
   createXtermLifecycle(
     () => container,
@@ -347,20 +414,21 @@ export const Xterm: Component<
     // so a `theme`/`fontSize` that changed mid-load builds with the latest value.
     () => ({
       terminalOptions: {
-        ...(own.terminalOptions ?? {}),
-        theme: own.theme,
-        fontSize: own.fontSize,
-        fontFamily: own.fontFamily,
+        ...(props.terminalOptions ?? {}),
+        theme: props.theme,
+        fontSize: props.fontSize,
+        fontFamily: props.fontFamily,
       },
-      webLinkHandler: own.webLinkHandler,
+      webLinkHandler: props.webLinkHandler,
     }),
     (c: XtermCore) => {
       core = c;
       const term = c.terminal;
 
-      const webgl = attachWebGL(term, own.webgl, own.webglHooks);
+      const webgl = attachWebGL(term, props.webgl, props.webglHooks);
+      setWebglFacts(webgl);
       clearAtlas = webgl.clearTextureAtlas;
-      const recovery = createRenderRecovery(term, () => own.visible);
+      const recovery = createRenderRecovery(term, () => props.visible);
       // App-switch return fires `focus` (not `visibilitychange`); force a sync
       // repaint so a parked-rAF frame doesn't stay frozen.
       makeEventListener(window, "focus", () => recovery.recover());
@@ -373,7 +441,7 @@ export const Xterm: Component<
       // Bytes and stream resizes BOTH go through it, in the order they arrived
       // — which is what makes a resize mean "the pty's mirror moved HERE"
       // rather than "the pty's mirror moved, roughly, around now".
-      const fullRate = () => own.fullRate();
+      const fullRate = () => props.fullRate();
       const outputCoalesce = createOutputCoalesce(fullRate, {
         write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
         resize: (cols, rows) => scrollLock.resizeInOrder(cols, rows),
@@ -392,13 +460,11 @@ export const Xterm: Component<
         coalesce = null;
       });
       createEffect(
-        on(
-          fullRate,
-          (fr) => {
-            if (fr) outputCoalesce.flush();
-          },
-          { defer: true },
-        ),
+        fullRate,
+        (fr) => {
+          if (fr) outputCoalesce.flush();
+        },
+        { defer: true, name: "xtermFullRateFlush" },
       );
 
       // Touch: xterm 6.0 ships no touch path. The soft-keyboard input surface is
@@ -407,7 +473,7 @@ export const Xterm: Component<
       const screen = enableSoftKeyboardInput(term);
       if (screen) {
         wireTouchTaps(screen, {
-          onTap: (...args) => own.onTap?.(...args),
+          onTap: (...args) => props.onTap?.(...args),
           onFocus: () => term.focus(),
         });
       }
@@ -425,8 +491,8 @@ export const Xterm: Component<
       );
 
       // Keystrokes out — the consumer's callback owns any filtering/rewriting.
-      term.onData((data) => own.onData(data));
-      // No `own.visible` gate: `applyFit` already declines an unmeasurable box
+      term.onData((data) => props.onData(data));
+      // No `props.visible` gate: `applyFit` already declines an unmeasurable box
       // (a detached or zero-size host cannot fit), so a second, weaker predicate
       // for the same question could only ever disagree with the real one.
       createResizeObserver(() => container, refit);
@@ -461,47 +527,41 @@ export const Xterm: Component<
       // imperatively: the signal is the one door this fact leaves through, so
       // the consumer's own effect over it covers the initial sizing and every
       // later one with no ordering to get right.
-      applyFit();
+      applyFit(props.boxDecided);
 
-      own.onReady(handle);
+      props.onReady(handle);
     },
   );
 
   // Live theme switching.
   createEffect(
-    on(
-      () => own.theme,
-      (theme) => {
-        if (!core) return;
-        core.terminal.options.theme = theme;
-        clearAtlas?.();
-      },
-      { defer: true },
-    ),
+    () => props.theme,
+    (theme) => {
+      if (!core) return;
+      core.terminal.options.theme = theme;
+      clearAtlas?.();
+    },
+    { defer: true, name: "xtermThemeApply" },
   );
   // Live font-size: apply + refit + clear atlas.
   createEffect(
-    on(
-      () => own.fontSize,
-      (size) => {
-        if (!core) return;
-        core.terminal.options.fontSize = size;
-        refit();
-        clearAtlas?.();
-      },
-      { defer: true },
-    ),
+    () => props.fontSize,
+    (size) => {
+      if (!core) return;
+      core.terminal.options.fontSize = size;
+      refit();
+      clearAtlas?.();
+    },
+    { defer: true, name: "xtermFontSizeApply" },
   );
   // Re-fit against current geometry on reveal without changing the user's scroll position.
   createEffect(
-    on(
-      () => own.visible,
-      (visible) => {
-        if (!visible || !core) return;
-        refit();
-      },
-      { defer: true },
-    ),
+    () => props.visible,
+    (visible) => {
+      if (!visible || !core) return;
+      refit();
+    },
+    { defer: true, name: "xtermRefitOnReveal" },
   );
   // The box became DECIDED: measure it NOW, in this update, rather than on the
   // next animation frame `refit` would wait for.
@@ -515,15 +575,53 @@ export const Xterm: Component<
   // frame in which the gate is open and the measurement is still the stand-in's
   // — exactly the window this gate exists to close.
   createEffect(
-    on(
-      () => own.boxDecided,
-      (decided) => {
-        if (!decided || !core) return;
-        cancelAnimationFrame(fitRaf);
-        applyFit();
-      },
-      { defer: true },
-    ),
+    () => props.boxDecided,
+    (decided) => {
+      if (!decided || !core) return;
+      cancelAnimationFrame(fitRaf);
+      // MEASURED now, in this update — that is the gate's promise, and it is a
+      // layout read, not a graph read, so it cannot be a memo.
+      const next = measureFit(decided);
+      if (!next) return;
+      // PUBLISHED from a settle, not inline: the same owner fact that decided
+      // this box also tells the consumer's gate whether the pane is shown, so
+      // that gate has already run in this flush — an inline write relays into
+      // it and the first frame pairs the new posture with the stale grid.
+      // `onSettled` lands the write in a later pass of the SAME flush (no extra
+      // frame) with no effect origin, so the posture and the measurement reach
+      // the consumer together.
+      //
+      // UNOWNED, and said so explicitly: an apply arm has no owner of its own
+      // (`getOwner()` is `null` there — the queue drains effect callbacks
+      // outside any owner), so this keeps the settle unowned however this
+      // component is mounted. Under an owner `onSettled` is instead a tracked
+      // effect created and run right there, carrying that scope's frame (the
+      // relay) and growing a child per box change. The callback is a block
+      // that writes one signal and answers with nothing: an unowned settle has
+      // no lifecycle to attach a cleanup to, and a returned value throws
+      // `SETTLED_CLEANUP_UNOWNED` from the drain.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          setWantedGrid(next);
+        }),
+      );
+    },
+    { defer: true, name: "xtermFitDecidedBox" },
+  );
+
+  // `data-renderer`, applied from its OWN effect rather than as one more
+  // attribute in the JSX below: an element that carries a spread has every
+  // other dynamic attribute MERGED into that one spread effect, so a binding
+  // written there would read `hasWebgl` in the same effect that reads every
+  // layout-derived attribute a consumer passes — the relay tear this attribute
+  // moved here to leave. On its own source it applies once, in the flush the
+  // WebGL attach/detach effect's write lands in.
+  createEffect(
+    () => webglFacts()?.hasWebgl() ?? false,
+    (has) => {
+      container.dataset.renderer = has ? "webgl" : "dom";
+    },
+    { name: "xtermRendererAttr" },
   );
 
   // The mount box and the terminal inside it are now two different HEIGHTS for a

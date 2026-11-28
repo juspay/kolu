@@ -7,7 +7,7 @@
  *  they swap automatically with `.dark` — no per-scheme branching here. */
 
 import type { FileTreeIconConfig } from "@pierre/trees";
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 /** Custom <symbol> definitions for file types Pierre's built-in icon set
  *  doesn't cover. Pierre injects this into its shadow DOM and renders each

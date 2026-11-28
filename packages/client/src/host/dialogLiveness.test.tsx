@@ -19,7 +19,7 @@
  * second defect: a not-live scan names its real cause off the discriminated `DaemonScan`
  * (a hard `failed` host reads its failure, never a guessed "connecting").
  *
- * Rendered through `solid-js/web`'s `render` into a happy-dom body (the surface pkg's
+ * Rendered through `@solidjs/web`'s `render` into a happy-dom body (the surface pkg's
  * `HostStatusPip.test.tsx` idiom); dialog content mounts via a `Portal` into
  * `document.body`, so assertions read `document.body.textContent`.
  */
@@ -27,7 +27,7 @@
 import type { DaemonStatus, PadiIdentity } from "@kolu/padi-client/surface";
 import { type ControlPlane, SurfaceAppProvider } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo, PadiLink } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { toKavalPresence } from "../kaval/daemonPresentation";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";

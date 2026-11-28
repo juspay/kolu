@@ -29,7 +29,8 @@
  *  the same discipline the retired pills followed. Segments hide at zero; the
  *  whole triplet renders nothing when all three are zero. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   ACTIVE_COUNT_CLASS,
   NEEDS_YOU_PILL_CLASS,

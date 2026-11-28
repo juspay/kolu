@@ -10,8 +10,8 @@
 
 import { Option } from "effect";
 import type { Doubt, Filed, StageName, Stages, Visit } from "kolu-work";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import StageMap from "./StageMap";
 
@@ -167,6 +167,13 @@ const MERGED: Stages = {
   ),
 };
 
+/** THE SAME STAGES, READ AGAIN — a fresh reading of a record that did not
+ *  move, which is what the card's fold hands the map on every tick. */
+const reread = (one: Stages): Stages =>
+  one.kind === "staged"
+    ? { ...one, stages: [...one.stages], trail: [...one.trail] }
+    : { ...one };
+
 function mount(stages: Stages) {
   const [shown, setShown] = createSignal<StageName | Doubt | undefined>();
   const pressed: Array<StageName | Doubt> = [];
@@ -258,6 +265,29 @@ describe("the stage map", () => {
     expect(arrow(el, "stage-arrow-plan-approve").textContent).toBe("→");
   });
 
+  it("keeps its arrow counts when the record moves and the trail does not", () => {
+    // THE CLOCK, as a card feels it: the fold is read again every second and
+    // the stage the work is in has a new `here`. Nothing about the moves
+    // between stages changed, so neither arrow may publish again — four
+    // equivalent `Count` objects is what `UNSTABLE_MEMO_OUTPUT` names.
+    const [stages, setStages] = createSignal<Stages>(REPORTED);
+    root = document.createElement("div");
+    document.body.append(root);
+    const el = root;
+    dispose = render(
+      () => <StageMap stages={stages()} size="full" testId="stage-map" />,
+      root,
+    );
+    const checks = arrow(el, "stage-arrow-build-checks");
+    for (let tick = 1; tick <= 4; tick += 1) {
+      setStages(reread(REPORTED));
+      flush();
+    }
+    expect(arrow(el, "stage-arrow-build-checks")).toBe(checks);
+    expect([checks.dataset.forward, checks.dataset.back]).toEqual(["2", "1"]);
+    expect(arrow(el, "stage-arrow-build-review").dataset.rounds).toBe("6");
+  });
+
   it("counts across a doubt only from below: unknown, or at least", () => {
     const saved = mount(SAVED).el;
     const loop = arrow(saved, "stage-arrow-build-review");
@@ -316,6 +346,7 @@ describe("the stage map", () => {
       '[data-testid="stage-cell"]',
     );
     review?.click();
+    flush();
     expect(pressed).toEqual(["review"]);
     expect(review?.getAttribute("aria-pressed")).toBe("true");
     expect(review?.classList.contains("bg-stage-review/20")).toBe(true);
@@ -339,6 +370,7 @@ describe("the stage map", () => {
       "Build or Review, 1h 5m. kolu did not record which.",
     );
     mark?.click();
+    flush();
     expect(pressed).toEqual(["build-or-review"]);
     expect(mark?.getAttribute("aria-pressed")).toBe("true");
     // No doubt between Plan and Approve: no mark there.

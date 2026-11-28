@@ -25,8 +25,7 @@
  *   - a throwing consumer callback is contained to its own fold.
  */
 
-import { createEffect, createRoot } from "solid-js";
-import { unwrap } from "solid-js/store";
+import { createEffect, createRoot, snapshot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
 import {
@@ -138,20 +137,37 @@ describe("fold — the frame is the unit of update", () => {
   });
 
   it("folds run AFTER the store write, so step sees the frame already applied", async () => {
+    // The frame loop notifies the folds inside the frame's own store
+    // transaction, so a `step` reading `byKey` or `keys()` is told the frame it
+    // is applying — not the one before it. Outside that window the store still
+    // serves what it last flushed, which is what the reads after `settle()`
+    // show: one frame, one answer, whichever way the fold asks.
     await drive(async ({ view, push }) => {
       const observed: (V | undefined)[] = [];
+      const keysSeen: string[][] = [];
       view.fold<number>({
         init: () => 0,
         step: (n) => {
           observed.push(view.byKey("a")?.());
+          keysSeen.push([...view.keys()]);
           return n + 1;
         },
       });
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });
       await settle();
-      push({ kind: "delta", upserts: [["a", { n: 2 }]], removes: [] });
+      push({
+        kind: "delta",
+        upserts: [
+          ["a", { n: 2 }],
+          ["b", { n: 3 }],
+        ],
+        removes: [],
+      });
       await settle();
       expect(observed).toEqual([{ n: 2 }]);
+      // The key the same frame ADDED is in the set the step reads, too.
+      expect(keysSeen).toEqual([["a", "b"]]);
+      expect(view.byKey("a")?.()).toEqual({ n: 2 });
     });
   });
 
@@ -181,10 +197,12 @@ describe("fold — the frame is the unit of update", () => {
         step: (n, d) => n + d.upserts.length,
       });
       let runs = 0;
-      createEffect(() => {
-        count();
-        runs++;
-      });
+      createEffect(
+        () => count(),
+        () => {
+          runs++;
+        },
+      );
       await settle();
       expect(runs).toBe(1);
       push({ kind: "snapshot", entries: [["a", { n: 1 }]] });
@@ -441,12 +459,12 @@ describe("fold — a fold is seeded with the STORE's objects, whenever it regist
   ): [string, V][][] =>
     seen.filter((f) => f.kind === "init").map((f) => f.entries);
 
-  /** What `byKey` reads, past the store's read proxy — the object the store HOLDS,
-   *  which is what a fold is handed and what the proxy is a view of. */
+  /** What `byKey` reads, past the store's read proxy — the object the store
+   *  HOLDS, which is what a fold is handed and what the proxy is a view of. */
   const heldValue = (
     view: UseCollectionDeltasResult<string, V>,
     key: string,
-  ): V => unwrap(view.byKey(key)?.() as V);
+  ): V => snapshot(view.byKey(key)?.() as V);
 
   it("a wire snapshot seeds init with the values byKey reads, not the wire's own", async () => {
     await drive(async ({ view, push }) => {

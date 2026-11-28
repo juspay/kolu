@@ -13,7 +13,7 @@ import { Effect, Stream } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+const settle = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe("terminalKeys re-keys on host switch (re-run #5 blocker)", () => {
   it("a switch re-subscribes under the new host; the old host's ids are gone + its stream aborts", async () => {
@@ -42,14 +42,14 @@ describe("terminalKeys re-keys on host switch (re-run #5 blocker)", () => {
           );
         });
 
-        await flush();
+        await settle();
         // Boot host: local's ids delivered; the factory saw ONLY "local".
         expect(factoryHosts).toEqual(["local"]);
         expect(sub()).toEqual(["local-1", "local-2"]);
 
         // Switch to zest — the whole point of the PR.
         setHost("zest");
-        await flush();
+        await settle();
         // Re-subscribed under the NEW host; the OLD host's stream tore down; ids swapped —
         // NOT stranded on local's ids (the static-createSubscription bug).
         expect(factoryHosts).toEqual(["local", "zest"]);

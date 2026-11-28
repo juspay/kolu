@@ -9,8 +9,8 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { Work, WorkId } from "kolu-work";
-import { createSignal, type JSX, Show } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush, Show } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeDoor } from "../code-view/codeDoor";
 
@@ -105,15 +105,20 @@ vi.mock("../code-view/CodeTab", async () => {
     default: (props: {
       subject: unknown;
       queries: {
-        lease: (shown: () => boolean) => void;
+        lease: (shown: () => boolean, shownPick: () => string | null) => void;
         localStatus: { pending: () => boolean };
       };
       door: CodeDoor;
       arrangement: string;
     }) => {
-      props.queries.lease(useShown());
+      props.queries.lease(useShown(), () => null);
       h.tabs.push({ subject: () => props.subject, door: props.door });
-      createRenderEffect(() => h.arrangements.push(props.arrangement));
+      createRenderEffect(
+        () => props.arrangement,
+        (arrangement) => {
+          h.arrangements.push(arrangement);
+        },
+      );
       return (
         <div data-testid="code-tab">
           {String(props.queries.localStatus.pending())}
@@ -177,9 +182,11 @@ const inside: MemberLine = {
       },
     },
   } as never,
+  // The standing is an ACTIVE arm, so there is a screen to watch.
+  up: true,
 };
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
 
 let dispose: (() => void) | undefined;
 beforeEach(() => {
@@ -197,10 +204,7 @@ afterEach(() => {
 const mount = (body: () => JSX.Element, shown: () => boolean = () => true) => {
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(
-    () => <Shown.Provider value={shown}>{body()}</Shown.Provider>,
-    host,
-  );
+  dispose = render(() => <Shown value={shown}>{body()}</Shown>, host);
 };
 
 describe("a picked work's Code view", () => {
@@ -254,9 +258,9 @@ describe("a picked work's Code view", () => {
         <WorkCode id={ID} work={readWork} members={[]} />
       </Show>
     ));
-    await flush();
+    await settle();
     for (const pulse of h.emit) pulse();
-    await flush();
+    await settle();
     expect(h.calls).toContain("remote:build-box:getStatus:local");
     expect(h.calls.every((call) => call.startsWith("remote:build-box:"))).toBe(
       true,
@@ -265,7 +269,7 @@ describe("a picked work's Code view", () => {
     setFront(false);
     h.calls = [];
     for (const pulse of h.emit) pulse();
-    await flush();
+    await settle();
     expect(h.calls).toEqual([]);
   });
 
@@ -274,9 +278,9 @@ describe("a picked work's Code view", () => {
       () => <WorkCode id={ID} work={readWork} members={[]} />,
       () => false,
     );
-    await flush();
+    await settle();
     for (const pulse of h.emit) pulse();
-    await flush();
+    await settle();
     expect(h.calls).toEqual([]);
   });
 
@@ -287,6 +291,7 @@ describe("a picked work's Code view", () => {
       ref: { path: "src/main.rs", startLine: 3, endLine: null },
       targetMode: "browse",
     });
+    flush();
     expect(door?.pending()?.scope).toEqual({
       host: { kind: "remote", target: "build-box" },
       owner: codeOwner("work", ID),

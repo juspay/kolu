@@ -17,13 +17,7 @@ import {
 import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
 import { previewPathCodec } from "kolu-common/preview";
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
 import type { CommentQueue } from "../comments/types";
 
@@ -67,10 +61,11 @@ function useIframeObserver(
   iframeEl: () => HTMLIFrameElement | undefined,
   observe: (el: HTMLIFrameElement) => () => void,
 ): void {
-  createEffect(() => {
-    const el = iframeEl();
+  createEffect(iframeEl, (el) => {
     if (!el) return;
-    onCleanup(observe(el));
+    // The disposer is RETURNED, not registered: it runs before the next bind
+    // (a new element) and on disposal.
+    return observe(el);
   });
 }
 

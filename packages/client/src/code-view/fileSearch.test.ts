@@ -84,4 +84,12 @@ describe("projectFileTreeSearch", () => {
       nfcPath,
     ]);
   });
+
+  it("hands back ONE empty ancestor list while no filter is active", () => {
+    // Two different inventories, no query: the tree must not be told its
+    // expansion set changed, so the empty list is the same object.
+    const first = projectFileTreeSearch(["a.ts"], "");
+    const second = projectFileTreeSearch(["a.ts", "b.ts"], "  ");
+    expect(first.expandedAncestors).toBe(second.expandedAncestors);
+  });
 });

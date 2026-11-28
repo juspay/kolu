@@ -28,9 +28,8 @@ import {
 } from "@kolu/padi-client/surface";
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
-import { createMemo, For } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { render } from "solid-js/web";
+import { createMemo, createStore, flush, For, reconcile } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TerminalAttention } from "@kolu/padi-client/attention";
 import { annotationLine } from "../../intent/text";
@@ -39,6 +38,7 @@ import {
   buildTerminalDisplayInfos,
   pairDisplayRow,
 } from "../../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { dockRowAttrs, rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { isActiveRow } from "./activeRow";
 
@@ -147,9 +147,10 @@ function renderDock() {
   const ids = [ALICE, BOB];
   const displayInfos = createMemo(() =>
     buildTerminalDisplayInfos(
-      ids,
-      (id) => meta[id],
-      () => [],
+      ids.flatMap((id) => {
+        const one = meta[id];
+        return one ? [{ id, ...terminalKey(one), subCount: 0 }] : [];
+      }),
     ),
   );
 
@@ -203,6 +204,8 @@ function renderDock() {
     ),
     host,
   );
+  // The render's DOM work lands on the flush after creation.
+  flush();
   cleanup = () => {
     dispose();
     host.remove();
@@ -217,25 +220,34 @@ describe("dock rows in one repository stay independent", () => {
 
     // Alice's harness finishes its turn, renames its task and gains an intent —
     // every field the Dock's primary line and sub-line read.
+    //
+    // MERGED into the record standing there, the way production delivers a whole
+    // server record: `useTerminalMetadata`'s per-id projection commits the
+    // reprojected record through Solid's reconcile channel (`createProjection(…,
+    // { key: null })`, `useTerminalMetadata.ts:263`), and the collection store
+    // under it merges each per-key subscription's value the same way
+    // (`@kolu/surface`'s `writeWrappedValue`, which `terminals` reaches because
+    // it is served per key). Neither ever hands a record's `git` (or any other
+    // container) a fresh object for a field that did not move — an
+    // `Object.assign` of a freshly built record does exactly that, and would make
+    // this fixture test a write shape the app cannot produce.
     const aliceMeta = metaWith(
       agentInfo("awaiting_user", "Ship it?"),
       "Rewrite",
     );
-    setMeta(
-      produce((all) => {
-        const held = all[ALICE];
-        if (held) Object.assign(held, aliceMeta);
-        else all[ALICE] = aliceMeta;
-      }),
-    );
-    setAttention(
-      produce((all) => {
-        const held = all[ALICE];
-        const asking: TerminalAttention = { klass: "asking", live: false };
-        if (held) Object.assign(held, asking);
-        else all[ALICE] = asking;
-      }),
-    );
+    setMeta((all) => {
+      const held = all[ALICE];
+      if (held) reconcile(aliceMeta, null)(held);
+      else all[ALICE] = aliceMeta;
+    });
+    setAttention((all) => {
+      const held = all[ALICE];
+      const asking: TerminalAttention = { klass: "asking", live: false };
+      if (held) Object.assign(held, asking);
+      else all[ALICE] = asking;
+    });
+    // Both store writes are staged until the flush a real frame would ride.
+    flush();
 
     const aliceAfter = readRow(host, ALICE);
     expect(aliceAfter.title).toBe("Rewrite");
@@ -248,11 +260,10 @@ describe("dock rows in one repository stay independent", () => {
 
   it("lights the alert indicator on only the terminal that was marked", () => {
     const { host, setUnread } = renderDock();
-    setUnread(
-      produce((all) => {
-        all[ALICE] = true;
-      }),
-    );
+    setUnread((all) => {
+      all[ALICE] = true;
+    });
+    flush();
 
     expect(readRow(host, ALICE).unread).toBe(true);
     expect(readRow(host, BOB).unread).toBe(false);

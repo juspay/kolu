@@ -25,7 +25,7 @@
 
 import { type Component, Show } from "solid-js";
 import { workLink } from "../deepLink";
-import { useMembership } from "./useWorks";
+import { useMembershipAt } from "./useWorks";
 import { showWork } from "./workListing";
 import { ROLE_WORD } from "./workReadings";
 
@@ -35,9 +35,9 @@ const WorkMark: Component<{
    *  member of a work in progress. */
   terminal: string;
 }> = (props) => {
-  const membership = useMembership();
+  const membership = useMembershipAt(() => props.terminal);
   return (
-    <Show when={membership().get(props.terminal)}>
+    <Show when={membership()}>
       {(at) => (
         <a
           href={workLink(at().work)}

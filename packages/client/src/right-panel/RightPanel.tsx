@@ -10,9 +10,9 @@
  *  at, and prefixes the split's own name when the shown pane is a split.
  *
  *  Pure presenter — no shell positioning, no resize handle. The desktop
- *  host wraps this in a `@corvu/resizable` `Resizable` (in `App.tsx`)
+ *  host wraps this in a `@corvu-next/resizable` `Resizable` (in `App.tsx`)
  *  for the horizontal split + drag-to-resize; the mobile host wraps
- *  this in a `@corvu/drawer` (`RightPanelDrawer.tsx`). Both hosts thread
+ *  this in a `@corvu-next/drawer` (`RightPanelDrawer.tsx`). Both hosts thread
  *  the same `visible` accessor — desktop reads `collapsed()`, mobile
  *  reads `drawerOpen()` — so `inert` (and the `data-collapsed` marker)
  *  reflect actual visibility on both surfaces. `data-collapsed` is emitted
@@ -26,7 +26,7 @@ import type {
   TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createEffect, For, Show } from "solid-js";
+import { type Component, createEffect, createMemo, For, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { dockRowLabel } from "../canvas/dock/dockRowData";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
@@ -36,7 +36,7 @@ import CodeTab from "../code-view/CodeTab";
 import { rightPanelCodeQueries, rightPanelCodeSubject } from "./hostCodeTab";
 import MetadataInspector from "./MetadataInspector";
 import { rightPanelCodeDoor } from "./openInCodeTab";
-import { paneDirectory } from "./paneDirectory";
+import { paneDirectory, samePaneDirectory } from "./paneDirectory";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -90,7 +90,12 @@ const RightPanel: Component<{
    *  — `~`-shortened by the ONE shortener, so the root keeps the emphasis and
    *  everything below it dims. The split itself lives in `paneDirectory`, with
    *  its own test. */
-  const directory = () => paneDirectory(props.meta);
+  // Memoised on the line's own equality: the fold re-reads the whole metadata
+  // proxy, so any leaf tick re-minted an equal record and re-published the
+  // header's `<Show>`.
+  const directory = createMemo(() => paneDirectory(props.meta), {
+    equals: samePaneDirectory,
+  });
 
   /** The Code view's door: the panel's front door, opening in the pane the
    *  view shows. */
@@ -109,11 +114,17 @@ const RightPanel: Component<{
   // While git is still unresolved there is no root to record: recording "no
   // repo" then would make the first real answer look like a repo change and
   // drop a restored stack.
-  createEffect(() => {
-    const { terminalId, git } = rightPanelCodeSubject();
-    if (terminalId === null || git.kind === "unresolved") return;
-    rightPanel.syncRepo(terminalId, git.kind === "repo" ? git.root : null);
-  });
+  createEffect(
+    () => {
+      const { terminalId, git } = rightPanelCodeSubject();
+      if (terminalId === null || git.kind === "unresolved") return null;
+      return { terminalId, root: git.kind === "repo" ? git.root : null };
+    },
+    (subject) => {
+      if (subject === null) return;
+      rightPanel.syncRepo(subject.terminalId, subject.root);
+    },
+  );
 
   return (
     <div
@@ -229,9 +240,9 @@ const RightPanel: Component<{
                   "content-visibility": isActive() ? "visible" : "hidden",
                 }}
                 inert={!isActive()}
-                aria-hidden={!isActive()}
+                aria-hidden={!isActive() ? "true" : "false"}
               >
-                <Shown.Provider value={() => props.visible && isActive()}>
+                <Shown value={() => props.visible && isActive()}>
                   {match(kind)
                     .with("inspector", () => (
                       <MetadataInspector
@@ -252,7 +263,7 @@ const RightPanel: Component<{
                       />
                     ))
                     .exhaustive()}
-                </Shown.Provider>
+                </Shown>
               </div>
             );
           }}

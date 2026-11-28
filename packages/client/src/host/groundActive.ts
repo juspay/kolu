@@ -4,13 +4,18 @@ import { type HostKey, hostKeysInclude } from "kolu-common/hostKey";
  *  wire.ts's `groundedActiveHost` enacts (kept here, dependency-free, so it is
  *  unit-pinnable exactly like {@link hostReconcileTarget}).
  *
- *  `activeHost` is the per-tab persisted INTENT: restored SYNCHRONOUSLY from
- *  sessionStorage at boot, a tick before the async `padiMap.entries` membership
- *  snapshot lands (and it may name a host that has since left the pool). The per-host
- *  SCOPE (`hostScope/hostScopes` → `scopedByEntry`) must never be handed an active key
- *  that membership does not ground: `scopedByEntry` reads a non-member active as the
- *  removal-race inhabitant (a dev warn + `undefined` world), which at BOOT is a false
- *  positive — the host is not departing, membership simply has not arrived yet.
+ *  `activeHost` is the per-tab persisted INTENT: restored from sessionStorage at boot by
+ *  a hydration write that lands on the FIRST FLUSH, not synchronously — so the accessor
+ *  answers the local fallback for that first frame, and the stored host a frame later,
+ *  both of them before the async `padiMap.entries` membership snapshot lands (and the
+ *  stored host may name one that has since left the pool). Nothing here reads that
+ *  value during construction: the grounding is a pure function of the two values, read
+ *  through `wire.ts`'s `groundedActiveHost` memo, which re-runs on the hydration write
+ *  like any other. The per-host SCOPE (`hostScope/hostScopes` → `scopedByEntry`) must
+ *  never be handed an active key that membership does not ground: `scopedByEntry` reads
+ *  a non-member active as the removal-race inhabitant (a dev warn + `undefined` world),
+ *  which at BOOT is a false positive — the host is not departing, membership simply has
+ *  not arrived yet.
  *
  *  So the accessor fed to the scope is grounded through this: the active host IFF it
  *  is a CURRENT member, else `null` ("nothing grounded yet" — `scopedByEntry`'s honest

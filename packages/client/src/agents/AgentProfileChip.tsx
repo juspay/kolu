@@ -20,7 +20,7 @@
  *  The first pill a user ever sees is the moment to say where the setting lives,
  *  so it raises the one-shot `agents` tip. */
 
-import { type Component, onMount, Show } from "solid-js";
+import { type Component, onSettled, Show } from "solid-js";
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
@@ -62,7 +62,9 @@ const AgentProfileChip: Component<{
   restart?: ChipRestart;
 }> = (props) => {
   const { showTipOnce } = useTips();
-  onMount(() => showTipOnce(CONTEXTUAL_TIPS.agents));
+  onSettled(() => {
+    showTipOnce(CONTEXTUAL_TIPS.agents);
+  });
   const stale = () =>
     props.staleness?.kind === "stale" ? props.staleness : undefined;
   let lastClick: MouseEvent | undefined;
@@ -95,14 +97,16 @@ const AgentProfileChip: Component<{
         data-restart={props.restart ? "" : undefined}
         data-armed={guard.armed() ? "" : undefined}
         disabled={guard.busy()}
-        aria-busy={guard.busy()}
-        class={`${props.buttonClass} gap-1.5 px-2 text-xs`}
-        classList={{
-          "opacity-50 cursor-wait": guard.busy(),
-          // Armed: the pill itself says "the next press acts" — a faint accent
-          // wash, no heavier text.
-          "bg-accent/10": guard.armed(),
-        }}
+        aria-busy={guard.busy() ? "true" : "false"}
+        class={[
+          `${props.buttonClass} gap-1.5 px-2 text-xs`,
+          {
+            "opacity-50 cursor-wait": guard.busy(),
+            // Armed: the pill itself says "the next press acts" — a faint accent
+            // wash, no heavier text.
+            "bg-accent/10": guard.armed(),
+          },
+        ]}
         style={{ color: "var(--color-fg-3, currentColor)" }}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
@@ -121,7 +125,7 @@ const AgentProfileChip: Component<{
           {(profile) => (
             <span
               data-testid="tile-agent-profile"
-              classList={{ "opacity-75": stale() !== undefined }}
+              class={{ "opacity-75": stale() !== undefined }}
             >
               {profile()}
             </span>

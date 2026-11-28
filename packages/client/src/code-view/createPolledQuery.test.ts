@@ -31,7 +31,7 @@ vi.mock("@kolu/surface/client", async () => {
   };
 });
 
-async function flush(ticks = 4): Promise<void> {
+async function settle(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await new Promise<void>((r) => setTimeout(r, 0));
   }
@@ -56,9 +56,11 @@ function asEffect<I, R>(
 
 /** A fake pulse source. `pulse()` fires one frame (→ one requery); `failPulse(err)`
  *  throws it into the pulse iterable (→ `surfaceError`); `live` is the transport-liveness
- *  accessor the primitive gates its reconnect-blip swallow on. */
-function fakeStream() {
-  const [live, setLive] = createSignal(true);
+ *  accessor the primitive gates its reconnect-blip swallow on — `liveAtFirst`
+ *  is where it starts, since a stream born mid-reconnect cannot be written
+ *  into that state from the owner that builds it. */
+function fakeStream(liveAtFirst = true) {
+  const [live] = createSignal(liveAtFirst);
   // A FACTORY now (the pulse follows the active host — `() => activePadiStreams.<pulse>.unenrolled`); the
   // mocked `unenrolledStreamCall` ignores the proc, so only the factory TYPE matters here.
   const pulseProc: () => StreamingProcedure<
@@ -73,7 +75,6 @@ function fakeStream() {
     live,
     pulseProc,
     pulse: () => pulseCtl.latest?.emit({ frame: true }),
-    setLive: (v: boolean) => setLive(v),
     failPulse: (err: Error) => pulseCtl.latest?.emit({ err }),
   };
 }
@@ -95,9 +96,9 @@ describe("createPolledQuery", () => {
               return "x";
             }),
           });
-          await flush();
+          await settle();
           pulse(); // no subscription installed while idle — a no-op
-          await flush();
+          await settle();
           resolve({ v: q(), pending: q.pending() });
           dispose();
         });
@@ -124,9 +125,9 @@ describe("createPolledQuery", () => {
               return `${i.repoPath}#${calls}`;
             }),
           });
-          await flush();
+          await settle();
           pulse(); // initial snapshot frame
-          await flush();
+          await settle();
           resolve({ v: q(), calls, p: q.pending() });
           dispose();
         });
@@ -153,11 +154,11 @@ describe("createPolledQuery", () => {
               return `${i.repoPath}#${calls}`;
             }),
           });
-          await flush();
+          await settle();
           pulse(); // initial
-          await flush();
+          await settle();
           pulse(); // an on-disk change (or a reconnect's fresh frame)
-          await flush();
+          await settle();
           resolve({ v: q(), calls, p: q.pending() });
           dispose();
         });
@@ -189,15 +190,15 @@ describe("createPolledQuery", () => {
             return `${i.repoPath}#${calls}`;
           }),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const before = q();
 
         setRepo("B");
-        await flush();
+        await settle();
         pulse(); // the re-subscribed pulse's first frame, now keyed on B
-        await flush();
+        await settle();
         const after = q();
 
         resolve({ before, after, calls });
@@ -207,6 +208,61 @@ describe("createPolledQuery", () => {
     expect(result.before).toBe("A#1");
     expect(result.after).toBe("B#2");
     expect(result.calls).toBe(2);
+  });
+
+  it("a round trip BACK to an already-answered key keeps that key's answer (no blank), where master re-blanked", async () => {
+    // The one behaviour difference from master. The answer's stamp moves only on a
+    // landing, so A → B → A with no landing for B returns to A's OWN answer:
+    // value held, `pending()` false, refreshed in place by the pulse's first frame.
+    // Master reset the faces on every active run of the poll effect, so the way
+    // back blanked and showed a "Loading…" frame before re-answering the same bytes.
+    const res = await new Promise<{
+      onB: { v: unknown; pending: boolean };
+      backAtA: { v: unknown; pending: boolean };
+      afterRefresh: unknown;
+      calls: number;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [repo, setRepo] = createSignal("A");
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: repo() }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: asEffect(async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          }),
+        });
+        await settle();
+        pulse(); // A's answer lands: "A#1"
+        await settle();
+
+        // Away to B, with NO landing for B (no pulse frame): B has no stamped
+        // answer, so it is blank and pending — the unchanged half of the rule.
+        setRepo("B");
+        await settle();
+        const onB = { v: q(), pending: q.pending() };
+
+        // …and BACK to A, whose answer is still the one being held.
+        setRepo("A");
+        await settle();
+        const backAtA = { v: q(), pending: q.pending() };
+
+        pulse(); // the re-subscribed pulse's first frame refreshes it in place
+        await settle();
+        resolve({ onB, backAtA, afterRefresh: q(), calls });
+        dispose();
+      });
+    });
+    expect(res.onB.v).toBeUndefined(); // a key with no stamped answer is blank…
+    expect(res.onB.pending).toBe(true);
+    expect(res.backAtA.v).toBe("A#1"); // …and the key still answered for is not
+    expect(res.backAtA.pending).toBe(false);
+    expect(res.afterRefresh).toBe("A#2"); // refreshed in place, never blanked
+    expect(res.calls).toBe(2); // B never read: it got no pulse frame
   });
 
   it("surfaces a query rejection via error() and onError", async () => {
@@ -224,9 +280,9 @@ describe("createPolledQuery", () => {
           }),
           onError: (err) => seen.push(err.message),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         resolve(q.error()?.message ?? "");
         dispose();
       });
@@ -243,8 +299,9 @@ describe("createPolledQuery", () => {
     const seen: string[] = [];
     const errMsg = await new Promise<string | undefined>((resolve) => {
       createRoot(async (dispose) => {
-        const { live, pulseProc, pulse, setLive } = fakeStream();
-        setLive(false);
+        // Born mid-reconnect: the transport is not live before the query is
+        // built, so there is nothing to write from inside this owner.
+        const { live, pulseProc, pulse } = fakeStream(false);
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
@@ -255,9 +312,9 @@ describe("createPolledQuery", () => {
           }),
           onError: (err) => seen.push(err.message),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         resolve(q.error()?.message);
         dispose();
       });
@@ -286,9 +343,9 @@ describe("createPolledQuery", () => {
           query: asEffect(async () => "unused"), // no frame fires; pending stays true until the pulse errors
           onError: (err) => seen.push(err.message),
         });
-        await flush();
+        await settle();
         failPulse(new Error("ENOSPC")); // the watcher install fails after subscribe
-        await flush();
+        await settle();
         resolve({ err: q.error()?.message, pending: q.pending() });
         dispose();
       });
@@ -325,11 +382,11 @@ describe("createPolledQuery", () => {
           onError: (err) => seen.push(err.message),
           swallowError: (err) => /NOT_FOUND/.test(err.message),
         });
-        await flush();
+        await settle();
         pulse(); // first read → "content"
-        await flush();
+        await settle();
         pulse(); // file deleted → requery throws NOT_FOUND → swallowed
-        await flush();
+        await settle();
         resolve({ err: q.error()?.message, v: q(), seen });
         dispose();
       });
@@ -372,13 +429,13 @@ describe("createPolledQuery", () => {
             return `${i.repoPath}#${calls}`;
           }),
         });
-        await flush();
+        await settle();
         pulse(); // initial snapshot → "A#1"
-        await flush();
+        await settle();
 
         // An upstream reference tick: `input()` re-evals to a NEW object, same value.
         setTick(1);
-        await flush();
+        await settle();
         resolve({ v: q(), calls, pending: q.pending() });
         dispose();
       });
@@ -414,16 +471,16 @@ describe("createPolledQuery", () => {
             return `${i.repoPath}#${calls}`;
           }),
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const before = q();
 
         setHost("host-2");
-        await flush();
+        await settle();
         const afterSwitch = { v: q(), pending: q.pending() };
         pulse(); // the re-subscribed pulse's first frame, now keyed on host-2
-        await flush();
+        await settle();
         const after = q();
 
         resolve({ before, afterSwitch, after, calls });
@@ -464,26 +521,26 @@ describe("createPolledQuery", () => {
           }),
           active,
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const shown = q(); // "A#1"
 
         // PAUSE (host backgrounded): value held, pulse torn down. A pulse frame while
         // paused hits the aborted stream and must NOT requery.
         setActive(false);
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const whilePaused = { v: q(), pending: q.pending(), calls };
 
         // RESUME (switch-BACK) with unchanged input: NO blank (value held), then the
         // re-subscribed pulse's first frame refreshes it immediately.
         setActive(true);
-        await flush();
+        await settle();
         const onResume = { v: q(), pending: q.pending() };
         pulse();
-        await flush();
+        await settle();
         const afterResume = q(); // "A#2"
 
         resolve({ shown, whilePaused, onResume, afterResume });
@@ -530,25 +587,25 @@ describe("createPolledQuery", () => {
           }),
           active,
         });
-        await flush();
+        await settle();
         pulse();
-        await flush();
+        await settle();
         const shownA = q(); // "A#1"
 
         // Pause, then change the input WHILE paused (the effect no-ops while inactive,
         // so the held value stays put — it does not blank yet).
         setActive(false);
-        await flush();
+        await settle();
         setInput({ repoPath: "B" });
-        await flush();
+        await settle();
         const whilePaused = { v: q(), pending: q.pending() };
 
         // Resume: the key changed (B ≠ the shown A), so it blanks + re-queries.
         setActive(true);
-        await flush();
+        await settle();
         const onResume = { v: q(), pending: q.pending() };
         pulse();
-        await flush();
+        await settle();
         const afterResume = q(); // "B#2"
 
         resolve({ shownA, whilePaused, onResume, afterResume });
@@ -565,14 +622,14 @@ describe("createPolledQuery", () => {
     expect(res.afterResume).toBe("B#2");
   });
 
-  it("active pause gate: an IN-FLIGHT query is aborted on pause — a late resolve never writes the now-background store (no cross-host mix)", async () => {
+  it("active pause gate: an IN-FLIGHT query is aborted on pause — a late resolve never publishes onto the now-background query (no cross-host mix)", async () => {
     // A requery already DISPATCHED when a host is backgrounded must be torn down, not
     // just the pulse: `BrowseFileDispatcher` reads `activeHost()` AFTER its await (the
     // binary URL), so a late resolve would stamp the NEW host's URL with THIS host's tag
-    // into THIS host's retained store — a cross-host mix. Pausing aborts the in-flight
+    // onto THIS host's retained answer — a cross-host mix. Pausing aborts the in-flight
     // query, so its resolve early-returns on `ctl.signal.aborted` and the held value is
     // frozen. (Before the fix, the inactive branch returned WITHOUT aborting, so the late
-    // resolve overwrote the store with "A#LATE".)
+    // resolve published "A#LATE".)
     const res = await new Promise<{
       paused: unknown;
       afterLateResolve: unknown;
@@ -599,20 +656,20 @@ describe("createPolledQuery", () => {
           }),
           active,
         });
-        await flush();
+        await settle();
         pulse(); // query#1 → "A#1"
-        await flush();
+        await settle();
 
         pulse(); // query#2 starts, then blocks on the deferred
-        await flush();
+        await settle();
         // Pause BEFORE query#2 resolves — it must be aborted, not left running.
         setActive(false);
-        await flush();
+        await settle();
         const paused = q();
 
         // Let the in-flight query resolve; it lands AFTER the pause.
         deferred.release?.();
-        await flush();
+        await settle();
         const afterLateResolve = q();
 
         resolve({ paused, afterLateResolve });
@@ -621,5 +678,54 @@ describe("createPolledQuery", () => {
     });
     expect(res.paused).toBe("A#1"); // held value frozen on pause
     expect(res.afterLateResolve).toBe("A#1"); // late resolve discarded (aborted)
+  });
+
+  it("a STANDING failure fires onError once, not again on every pause/resume (one toast per failure)", async () => {
+    // The faces are derived through `shownKey()`, which reads `active()` and the
+    // standing input key — and an effect's apply arm runs on every re-run of its
+    // compute, equal value or not. Wiring `onError` to `error()` therefore raised
+    // a fresh toast on every mode switch once a read had failed, forever — three
+    // calls for the one failure here (1 → 2 → 3 over two away-and-back switches:
+    // nothing LANDS in this fixture, so no key is answered for, the paused
+    // `shownKey()` matches no failure and only each resume re-raises). A landed-
+    // then-failed key pauses onto its own failure too, and makes it five. It is
+    // wired to the failure itself, so the callback moves only when a read fails
+    // or a landing retires it.
+    const seen: string[] = [];
+    const errAfterSwitches = await new Promise<string | undefined>(
+      (resolve) => {
+        createRoot(async (dispose) => {
+          const [active, setActive] = createSignal(true);
+          const { live, pulseProc, pulse } = fakeStream();
+          const q = createPolledQuery({
+            input: () => ({ repoPath: "A" }),
+            live,
+            pulseProc,
+            pulseInput: (i) => ({ repoPath: i.repoPath }),
+            query: asEffect(async () => {
+              throw new Error("boom");
+            }),
+            onError: (err) => seen.push(err.message),
+            active,
+          });
+          await settle();
+          pulse(); // the one failed read
+          await settle();
+
+          // Two away-and-back mode switches. No pulse frame fires on resume, so
+          // no NEW read fails — nothing here is a second failure.
+          for (let i = 0; i < 2; i++) {
+            setActive(false);
+            await settle();
+            setActive(true);
+            await settle();
+          }
+          resolve(q.error()?.message);
+          dispose();
+        });
+      },
+    );
+    expect(seen).toEqual(["boom"]); // ONE call — three before the fix
+    expect(errAfterSwitches).toBe("boom"); // the face still stands for the key
   });
 });

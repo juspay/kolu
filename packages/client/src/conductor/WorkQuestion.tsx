@@ -43,7 +43,7 @@
  *
  *  WHAT YOU CHOSE LAST TIME IS ALREADY CHOSEN. Every setup question opens on
  *  this person's last answer on this host, read off the SAVED works
- *  (`setupMemory`) rather than off a conversation — so a new conversation, a
+ *  (`setupMemoryOf`) rather than off a conversation — so a new conversation, a
  *  restart and a second tab all offer the same thing — drawn first and
  *  selected, which means one press of Answer sends the whole setup. It is
  *  written into the draft once ({@link seededChips}), which is what keeps
@@ -67,23 +67,26 @@ import {
   type Offered,
   type Recalled,
   type SentAnswer,
-  setupMemory,
+  setupMemoryOf,
   type Work,
   type WorkId,
 } from "kolu-work";
 import { type Component, createMemo, For, Show } from "solid-js";
 import AskOptions, { askOption } from "./AskOptions";
 import {
+  draftOf,
   forgetAskFields,
   pickOnly,
   seededChips,
+  typedDraftOf,
   typedKey,
   typeOnly,
 } from "./askForm";
-import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
+import { forgetAskDraft, setAskDraft, toggleAskDraft } from "./drafts";
 import { openReader } from "./reader/useReader";
+import { sameFields, sameItems } from "./sameItems";
 import { useConductor } from "./useConductor";
-import { useWorkMap } from "./useWorks";
+import { useSetupAnswers } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import WorkChoiceQuestion from "./WorkChoiceQuestion";
@@ -104,7 +107,31 @@ const readWords = (path: string): string => {
 const takesSeveral = (decision: Offered): boolean =>
   decision.topic === "work" && decision.multiple;
 
+/** TWO READINGS OF THE FORM AS IT WOULD BE SENT: the same questions, each
+ *  carrying the same answer. A value is a list of picks or the one thing
+ *  typed, and both are rebuilt per run, so neither can be compared by
+ *  reference. */
+const sameAnswers = (
+  a: Record<string, SentAnswer>,
+  b: Record<string, SentAnswer>,
+): boolean => {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => {
+    const one = a[key];
+    const other = b[key];
+    if (one === undefined || other === undefined) return false;
+    if (Array.isArray(one))
+      return Array.isArray(other) && sameItems(one, other);
+    return !Array.isArray(other) && sameFields(one, other);
+  });
+};
+
 const WorkQuestion: Component<{
+  /** The work's own record as ONE read (`createWorkRecord`), which every
+   *  face that draws this form hands it: the three lists below walk ALL of
+   *  the work's decisions, so off the store's proxy a work asked a hundred
+   *  things would put several hundred nodes on one memo. */
   work: Work;
   /** The id the work is filed under — what answering it names. */
   id: WorkId;
@@ -122,50 +149,59 @@ const WorkQuestion: Component<{
 }> = (props) => {
   const orch = useConductor();
   /** The questions of this ask, in the order they were asked. A question the
-   *  REQUEST answered is not drawn: nobody is asked what they already said. */
-  const questions = createMemo(() =>
-    props.work.decisions.filter(
-      (one) =>
-        one.ask === props.ask &&
-        !(
-          isSettled(one) &&
-          one.answer.how !== "dropped" &&
-          one.answer.from === "request"
-        ),
-    ),
+   *  REQUEST answered is not drawn: nobody is asked what they already said.
+   *
+   *  The three lists are GATED on their rows: each filter mints a new list
+   *  around the same decision records on every move of the work, and the
+   *  `<For>`s and the Answer button below read all three. */
+  const questions = createMemo(
+    () =>
+      props.work.decisions.filter(
+        (one) =>
+          one.ask === props.ask &&
+          !(
+            isSettled(one) &&
+            one.answer.how !== "dropped" &&
+            one.answer.from === "request"
+          ),
+      ),
+    { name: "workQuestion.questions", equals: sameItems },
   );
   /** The ones still asked — the fields — and the ones already settled, which
    *  are drawn as the record of what was said ABOVE them. A form answered in
    *  parts is both at once. */
-  const open = createMemo(() => questions().filter((one) => isAsked(one)));
-  const recorded = createMemo(() =>
-    questions().filter((one) => isSettled(one)),
+  const open = createMemo(() => questions().filter((one) => isAsked(one)), {
+    name: "workQuestion.open",
+    equals: sameItems,
+  });
+  const recorded = createMemo(
+    () => questions().filter((one) => isSettled(one)),
+    { name: "workQuestion.recorded", equals: sameItems },
   );
   const settled = () => open().length === 0;
 
   /** WHAT THIS PERSON CHOSE BEFORE on this work's host, off the saved works.
    *  Read by every setup question in the form — the two drawn here and the
-   *  four {@link WorkChoiceQuestion} draws — so the mirror is folded once. */
-  const works = useWorkMap();
-  const memory = createMemo(() =>
-    setupMemory([...works().values()], hostOf(props.work)),
+   *  four {@link WorkChoiceQuestion} draws — and the answers themselves are
+   *  the APP's one reading ({@link useSetupAnswers}), read work by work: the
+   *  four faces an ask is drawn in share that fold, and this memo's own
+   *  scope is the answers and this work's host. */
+  const setupAnswers = useSetupAnswers();
+  const memory = createMemo(
+    () => setupMemoryOf(setupAnswers(), hostOf(props.work)),
+    { name: "memory" },
   );
 
+  /** Does this question read as answered with `value` — what they chose, or
+   *  the default it opens on while nobody has touched it. */
   const picked = (decision: string, value: string): boolean =>
-    askDraft(props.ask, decision).includes(value);
+    draftOf(props.ask, decision).includes(value);
 
   /** An option pressed. A single-answer question keeps the one pressed last
    *  and empties its box; a `multiple` question toggles. */
   const pick = (decision: Offered, value: string): void => {
-    const current = askDraft(props.ask, decision.id);
     if (takesSeveral(decision)) {
-      setAskDraft(
-        props.ask,
-        decision.id,
-        current.includes(value)
-          ? current.filter((one) => one !== value)
-          : [...current, value],
-      );
+      toggleAskDraft(props.ask, decision.id, value);
       return;
     }
     pickOnly(props.ask, decision.id, value);
@@ -182,10 +218,9 @@ const WorkQuestion: Component<{
   };
 
   /** A QUESTION ITS ASKER DREW THE OPTIONS FOR: the options with what this
-   *  person chose last time first and already in the draft, and — for a
-   *  question about the work, whose answer is words — the box beside them.
-   *  The options are known the moment the form is drawn, so the default seeds
-   *  on the first frame and never again. */
+   *  person chose last time first and read as the answer while nobody has
+   *  touched it, and — for a question about the work, whose answer is words —
+   *  the box beside them. */
   const OfferedQuestion: Component<{ decision: Offered }> = (one) => {
     /** The last answer, when it is one of the options drawn here. A question
      *  about the work has no last time to open on: it is this work's own
@@ -198,10 +233,8 @@ const WorkQuestion: Component<{
       );
     };
     const chips = seededChips(
-      props.ask,
-      one.decision.id,
-      () =>
-        one.decision.topic === "setup" ? Option.some("offered") : Option.none(),
+      () => props.ask,
+      () => one.decision.id,
       () => one.decision.options.map(askOption),
       standing,
     );
@@ -228,7 +261,7 @@ const WorkQuestion: Component<{
             data-testid="conductor-ask-other"
             data-field={one.decision.id}
             placeholder="or say it in your own words"
-            value={askDraft(props.ask, typedKey(one.decision.id))[0] ?? ""}
+            value={typedDraftOf(props.ask, one.decision.id)[0] ?? ""}
             class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
             onInput={(event) => type(one.decision, event.currentTarget.value)}
           />
@@ -250,8 +283,8 @@ const WorkQuestion: Component<{
     decision: Asked,
     rider: string,
   ): Option.Option<SentAnswer> => {
-    const chosen = askDraft(props.ask, decision.id);
-    const typed = askDraft(props.ask, typedKey(decision.id))[0] ?? "";
+    const chosen = draftOf(props.ask, decision.id);
+    const typed = typedDraftOf(props.ask, decision.id)[0] ?? "";
     switch (decision.topic) {
       case "setup": {
         // Only a question kolu drew the options for takes a typed answer.
@@ -273,16 +306,21 @@ const WorkQuestion: Component<{
   };
 
   /** The whole form, as it is sent: only the questions that have something in
-   *  them. */
-  const answers = createMemo((): Record<string, SentAnswer> => {
-    const sending: Record<string, SentAnswer> = {};
-    const rider = props.attach?.text() ?? "";
-    for (const decision of open()) {
-      const sent = sentOf(decision, rider);
-      if (Option.isSome(sent)) sending[decision.id] = sent.value;
-    }
-    return sending;
-  });
+   *  them. Gated on what it holds — the record and the values inside it are
+   *  rebuilt on every keystroke elsewhere in the form, and the Answer
+   *  button's dead-or-alive rule is drawn from this. */
+  const answers = createMemo(
+    (): Record<string, SentAnswer> => {
+      const sending: Record<string, SentAnswer> = {};
+      const rider = props.attach?.text() ?? "";
+      for (const decision of open()) {
+        const sent = sentOf(decision, rider);
+        if (Option.isSome(sent)) sending[decision.id] = sent.value;
+      }
+      return sending;
+    },
+    { equals: sameAnswers },
+  );
 
   /** NOTHING FILLED IN IS NOTHING TO SEND — the one rule the Answer button
    *  is dead by. */

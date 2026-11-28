@@ -27,8 +27,7 @@
  *  work nothing, and the row is where a person sees why. */
 
 import type { Work } from "kolu-work";
-import { Key } from "@solid-primitives/keyed";
-import { type Component, createMemo, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { onHostWords, useKnownNames } from "./memberNames";
 import { openPeek } from "./peek/usePeek";
 import MemberInspector from "./MemberInspector";
@@ -136,7 +135,7 @@ const MemberRow: Component<{
         <button
           type="button"
           data-testid="work-member-role"
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
           aria-label={`${open() ? "Fold" : "Unfold"} ${ROLE_WORD[props.one.member.role]}`}
           class="col-start-1 flex cursor-pointer items-center gap-1 whitespace-nowrap text-start font-semibold text-fg hover:text-accent"
           onClick={() => toggleMember(ref())}
@@ -302,7 +301,7 @@ const WorkTerminals: Component<{
               afresh when its record moves, and a row keyed by the line would
               be taken down and built again — its mark, its spin, the Look
               button under the pointer — for every record change. */}
-          <Key each={props.members} by="terminal">
+          <For each={props.members} keyed={(one) => one.terminal}>
             {(one) => (
               <MemberRow
                 work={props.work}
@@ -312,7 +311,7 @@ const WorkTerminals: Component<{
                 unfolds={props.unfolds === true}
               />
             )}
-          </Key>
+          </For>
         </ul>
       </section>
     </Show>

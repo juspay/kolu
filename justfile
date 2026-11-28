@@ -16,12 +16,13 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 # The pinned workspace members are generated, never committed: kolu does not own
 # their source. `osfacts-client` lives in juspay/osfacts; the `@odu/*` trio in
 # juspay/odu (odu pins KOLU, so kolu consuming odu's libraries can only be a
-# graft — see nix/workspace.nix). Every `pnpm -r` here must skip them: their
-# tests and typecheck are their own repos' CI's job, and their fixtures resolve
-# against their own repo roots, not kolu's. The root package.json's `typecheck`
-# and `test:unit` scripts carry the same filters for callers that enter through
+# graft — see nix/workspace.nix); `@corvu-next/*` is a build of a pinned
+# corvu-next commit. Every `pnpm -r` here must skip them: their tests and
+# typecheck are their own repos' CI's job, and their fixtures resolve against
+# their own repo roots, not kolu's. The root package.json's `typecheck` and
+# `test:unit` scripts carry the same filters for callers that enter through
 # pnpm instead of just (the Nix typecheck derivation).
-pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/*'
+pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/* --filter=!@corvu-next/*'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
@@ -53,25 +54,36 @@ install: _materialize-pinned-members
 # Graft the PINNED workspace members into the tree from their npins pins.
 #
 # They are pnpm workspace members with no copy in this repo — the source lives
-# in juspay/osfacts and juspay/odu, and nothing here may duplicate it. Nix does
-# this graft for a build (nix/workspace.nix); this recipe is the working-tree
-# twin, so `just install`, `just dev`, and a bare vitest run all read the same
-# pinned bytes. Re-copied every time: the pin is the truth, the directory is a
-# cache of it, and a stale cache is the one failure this must not have.
+# in juspay/osfacts, juspay/odu and corvu-next, and nothing here may duplicate
+# it. Nix does this graft for a build (nix/workspace.nix); this recipe is the
+# working-tree twin, so `just install`, `just dev`, and a bare vitest run all
+# read the same pinned bytes. Re-copied every time: the pin is the truth, the
+# directory is a cache of it, and a stale cache is the one failure this must
+# not have.
 #
-# Each row is `member:dest:pin:subdir`, read from nix/consumer-closure.json —
+# Each row is `member:dest:pin:subdir:built`, read from nix/consumer-closure.json —
 # the committed artifact that already names every grafted member, its directory
-# and its pin. The grafted manifest's own `name` is checked against the member
-# the row claims, so a pin whose manifest was renamed fails here rather than as
-# a resolution error three commands later.
+# and its pin. A `built` member is copied out of the pin's BUILD — the very
+# derivation nix/workspace.nix grafts (`builtPins`), realised once per pin —
+# rather than out of its source. The grafted manifest's own `name` is checked
+# against the member the row claims, so a pin whose manifest was renamed fails
+# here rather than as a resolution error three commands later.
 [private]
 _materialize-pinned-members:
     #!/usr/bin/env bash
     set -euo pipefail
-    rows=($({{ nix_shell }} jq -r '.members | to_entries[] | select(.value.pin) | "\(.key):\(.value.dir):\(.value.pin.name):\(.value.pin.subdir)"' nix/consumer-closure.json))
+    rows=($({{ nix_shell }} jq -r '.members | to_entries[] | select(.value.pin) | "\(.key):\(.value.dir):\(.value.pin.name):\(.value.pin.subdir):\(.value.pin.built // false)"' nix/consumer-closure.json))
+    declare -A roots=()
     for row in "${rows[@]}"; do
-      IFS=: read -r member dest pin subdir <<<"$row"
-      src="$(nix eval --impure --raw --expr "toString ((import ./npins).${pin} + \"/${subdir}\")")"
+      IFS=: read -r member dest pin subdir built <<<"$row"
+      if [ -z "${roots[$pin]:-}" ]; then
+        if [ "$built" = true ]; then
+          roots[$pin]="$(nix build --no-link --print-out-paths --accept-flake-config --impure --expr "(import ./nix/workspace.nix { pkgs = import ./nix/nixpkgs.nix { system = builtins.currentSystem; }; }).builtPins.${pin}")"
+        else
+          roots[$pin]="$(nix eval --impure --raw --expr "toString (import ./npins).${pin}")"
+        fi
+      fi
+      src="${roots[$pin]}/${subdir}"
       rm -rf "$dest"
       mkdir -p "$(dirname "$dest")"
       cp -r "$src" "$dest"
@@ -319,8 +331,16 @@ client:
 # a gate call site declares the wrong one, or a test-bearing package declares
 # neither. This is the safe reach a workstation can run beside a live kolu.
 test-unit: install
-    {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
-    {{ nix_shell }} python3 .github/actions/publish-closure/test-publish-closure.py
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # `--no-bail`: pnpm runs every package and still exits non-zero, so one
+    # failing package cannot hide the packages ordered after it. The closure
+    # check is held to the same rule — it runs whatever vitest reported, and
+    # the recipe fails if either did.
+    status=0
+    {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 --no-bail test:unit || status=1
+    {{ nix_shell }} python3 .github/actions/publish-closure/test-publish-closure.py || status=1
+    exit "$status"
 
 # Regenerate `nix/consumer-closure.json` — the workspace adjacency an out-of-repo
 # consumer walks to turn its SEED list into the package set it hydrates. Derived
@@ -412,7 +432,8 @@ test-daemon: install
         exit "$st"
     }
     trap cleanup EXIT
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon "${shard_args[@]}"
+    # `--no-bail`: every daemon package reports; pnpm still exits non-zero.
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 --no-bail test:daemon "${shard_args[@]}"
 
 # THE TWO REAL PACKAGES, ASKED (`ci::agent-models`). Builds the floor this tree
 # pins AND upstream's package from the commit before `--models` existed
@@ -820,6 +841,12 @@ smoke:
 # What a `deltas` frame costs the client, before vs after the store rewrite
 # (juspay/kolu surface deltas frame). Prints the two arms per collection shape and
 # their relative speed — READ THE RATIO, not the absolute number.
+#
+# Runs in the `bench` vitest project, which resolves Solid's PRODUCTION tier —
+# what ships, and the only tier this is measurable in: the full dev-tier run,
+# with the attribution engine installed through the test projects' inherited
+# setup file (`@kolu/solid-test-setup`), died out of memory. The bench file
+# refuses the dev tier at module load, and only this project collects benches.
 bench-collection-deltas: install
     cd packages/surface && {{ nix_shell }} pnpm exec vitest bench --run src/solid/collectionDeltas.bench.ts
 

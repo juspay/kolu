@@ -59,3 +59,17 @@ describe("a fresh open", () => {
     expect(mode.conductorMode()).toBe(false);
   });
 });
+
+describe("a reload that lands back in the conductor", () => {
+  it("comes back in it, with the pane's latch already set", async () => {
+    layout.mode = "desktop";
+    sessionStorage.setItem(KEY, "conductor");
+    const mode = await loadFresh();
+    expect(mode.conductorMode()).toBe(true);
+    // The latch decides whether the pane EXISTS (`App.tsx`), and it is read
+    // once, while this module loads — before the pref's stored value has
+    // reached its accessor. A latch taken from the accessor there reads the
+    // fallback, and the conductor comes back with nothing on screen at all.
+    expect(mode.conductorEverSelected()).toBe(true);
+  });
+});

@@ -17,7 +17,6 @@
  *  of files one terminal wrote into one folder is ONE row (`Wrote mockup/ ·
  *  49 files`), whose "more" unfolds the per-file rows. */
 
-import { Key } from "@solid-primitives/keyed";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { took, type Work, type WorkEvent, type WorkId } from "kolu-work";
 import {
@@ -39,6 +38,7 @@ import {
   type TimelineView,
   WATCH_EVENTS_SHOWN,
 } from "./timelineView";
+import { sameFields, sameItems } from "./sameItems";
 import { gapWordsFor, timelineGap } from "./timelineGap";
 import { mergeReason } from "./prReadings";
 import {
@@ -97,6 +97,23 @@ interface Rail {
   readonly words: string | undefined;
 }
 
+/** TWO READINGS OF ONE ROW, by what the row SAYS: a view read again mints a
+ *  fresh row per event, and a folder row carries its own list of them, so
+ *  neither the row nor its indices can be compared by reference. */
+const sameRow = (
+  a: TimelineRow | undefined,
+  b: TimelineRow | undefined,
+): boolean => {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.kind === "event") return b.kind === "event" && a.index === b.index;
+  return (
+    b.kind === "folder" &&
+    a.folder === b.folder &&
+    sameItems(a.indices, b.indices)
+  );
+};
+
 /** A ROW'S TIME AND WHO IT WAS BY — the clock cell and the coloured dot,
  *  drawn the same at the head of an event row and of a folder row. */
 const RowStamp: Component<{
@@ -135,6 +152,9 @@ const GapWords: Component<{ rail: Rail }> = (props) => (
 
 const WorkTimeline: Component<{
   id: WorkId;
+  /** The record, as the card read it once (`createWorkRecord`): a snapshot,
+   *  so every fold here — and every row's reading of its own event — tracks
+   *  that one reading rather than the store's leaves. */
   work: Work;
   /** What the card shows of the timeline, read once by the card. */
   shown: TimelineShown;
@@ -160,8 +180,19 @@ const WorkTimeline: Component<{
    *  its check events name, which decision an ask points at) are computed
    *  once by the reader this returns. */
   const words = createMemo(() => eventReader(props.work));
-  const steps = createMemo(() =>
-    took(props.work, new Date(props.now).toISOString()),
+  /** HOW LONG EACH STEP TOOK, with each row's own reading kept across a
+   *  tick: `took` folds the whole timeline again on every move of the clock
+   *  and mints a `{ ms, open }` per event, so a row whose step is settled
+   *  would be handed an equal-but-new reading every second. The rows that
+   *  did not move keep the object they had, and the list keeps its identity
+   *  when none of them did — so only the step still running wakes. */
+  const steps = createMemo<ReadonlyArray<{ ms: number; open: boolean }>>(
+    (prev = []) =>
+      took(props.work, new Date(props.now).toISOString()).map((one, index) => {
+        const was = prev[index];
+        return was !== undefined && sameFields(was, one) ? was : one;
+      }),
+    { equals: sameItems },
   );
   /** The control's words: what a press does from here — unfold the whole,
    *  or fold back to the part the card shows when folded. */
@@ -238,7 +269,7 @@ const WorkTimeline: Component<{
                       <button
                         type="button"
                         data-testid="work-event-more"
-                        aria-expanded={open()}
+                        aria-expanded={open() ? "true" : "false"}
                         class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
                         onClick={() => toggle(key())}
                       >
@@ -293,11 +324,13 @@ const WorkTimeline: Component<{
                   counting, with the ellipsis that says so. */}
               <span class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3">
                 <Show when={steps()[row.index]}>
-                  {(step) =>
-                    step().ms === 0 && !step().open
-                      ? ""
-                      : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`
-                  }
+                  {(step) => (
+                    <>
+                      {step().ms === 0 && !step().open
+                        ? ""
+                        : `${dualPhrase(step().ms)}${step().open ? "…" : ""}`}
+                    </>
+                  )}
                 </Show>
               </span>
             </li>
@@ -344,7 +377,7 @@ const WorkTimeline: Component<{
               <button
                 type="button"
                 data-testid="work-event-more"
-                aria-expanded={open()}
+                aria-expanded={open() ? "true" : "false"}
                 class="shrink-0 cursor-pointer rounded-sm px-1 font-mono text-[0.58rem] text-accent hover:underline"
                 onClick={() => toggle(rowKey(folder.row))}
               >
@@ -375,10 +408,10 @@ const WorkTimeline: Component<{
         Timeline · {viewWord(shown().view)}
       </h4>
       <ul class="m-0 mt-1 flex list-none flex-col p-0">
-        {/* KEYED, not `<For>`: the view is read again on every tick of the
-            clock and mints fresh row objects, so a `<For>` over them would
-            rebuild every row each time. */}
-        <Key each={shown().rows} by={rowKey}>
+        {/* KEYED (`<For keyed>`, not a plain `<For>`): the view is read again
+            on every tick of the clock and mints fresh row objects, so an
+            unkeyed `<For>` over them would rebuild every row each time. */}
+        <For each={shown().rows} keyed={rowKey}>
           {(row, index) => {
             /** WHEN THIS ROW'S EVENT HAPPENED, for the wait to the next one. */
             const at = (one: TimelineRow): number => {
@@ -392,41 +425,55 @@ const WorkTimeline: Component<{
                 throw new Error(`timeline row ${rowKey(one)} names no event`);
               return Date.parse(event.at);
             };
-            const rail = (): Rail => {
-              const rows = shown().rows;
-              const i = index();
-              const next = rows[i + 1];
-              const gapMs =
-                next === undefined ? 0 : Math.max(0, at(next) - at(row()));
-              return {
-                first: i === 0,
-                last: next === undefined,
-                gapPx: next === undefined ? 0 : timelineGap(gapMs),
-                words: next === undefined ? undefined : gapWordsFor(gapMs),
-              };
-            };
+            /** THE RAIL UNDER THIS ROW — a memo, and gated: the view mints
+             *  fresh rows on every tick, so an ungated rail would hand the
+             *  row's `<Show>`s and its padding an equal-but-new object every
+             *  second. */
+            const rail = createMemo(
+              (): Rail => {
+                const rows = shown().rows;
+                const i = index();
+                const next = rows[i + 1];
+                const gapMs =
+                  next === undefined ? 0 : Math.max(0, at(next) - at(row()));
+                return {
+                  first: i === 0,
+                  last: next === undefined,
+                  gapPx: next === undefined ? 0 : timelineGap(gapMs),
+                  words: next === undefined ? undefined : gapWordsFor(gapMs),
+                };
+              },
+              { equals: sameFields },
+            );
+            /** THE ROW, NARROWED TO ITS KIND — each arm its own gated memo,
+             *  so the `<Match>` holding it is not handed a rebuilt row that
+             *  says exactly what the last one did. */
+            const eventRow = createMemo(
+              () => {
+                const it = row();
+                return it.kind === "event" ? it : undefined;
+              },
+              { equals: sameRow },
+            );
+            const folderRow = createMemo(
+              () => {
+                const it = row();
+                return it.kind === "folder" ? it : undefined;
+              },
+              { equals: sameRow },
+            );
             return (
               <Switch>
-                <Match
-                  when={(() => {
-                    const it = row();
-                    return it.kind === "event" ? it : undefined;
-                  })()}
-                >
+                <Match when={eventRow()}>
                   {(it) => <EventRow index={it().index} rail={rail()} />}
                 </Match>
-                <Match
-                  when={(() => {
-                    const it = row();
-                    return it.kind === "folder" ? it : undefined;
-                  })()}
-                >
+                <Match when={folderRow()}>
                   {(it) => <FolderRow row={it()} rail={rail()} />}
                 </Match>
               </Switch>
             );
           }}
-        </Key>
+        </For>
       </ul>
       <Show
         when={
@@ -436,7 +483,7 @@ const WorkTimeline: Component<{
         <button
           type="button"
           data-testid="work-timeline-whole"
-          aria-expanded={shown().view.kind === "whole"}
+          aria-expanded={shown().view.kind === "whole" ? "true" : "false"}
           class="mt-1 cursor-pointer text-[0.66rem] text-accent hover:underline"
           onClick={() => props.onWhole()}
         >

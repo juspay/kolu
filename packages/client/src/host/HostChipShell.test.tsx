@@ -3,14 +3,14 @@
  * A host tab is LIT on first paint — the regression #2263 shipped and a reload
  * made visible.
  *
- * An element whose JSX spread carries `classList` beside a static `class` has
- * TWO class authorities, and Solid applies spread props in key order: the
- * `classList` state class lands first, `class` then runs as
+ * An element whose JSX spread carries a state `class` beside a static `class`
+ * has TWO class authorities, and Solid applies spread props in key order: the
+ * state class lands first, the static `class` then runs as
  * `node.className = "…"` and erases it — and Solid remembers the class as
  * applied, so nothing re-adds it until the value flips false → true (the active
  * tab stayed unlit until you clicked a different host). So the shell takes
  * `active` / `down` as DATA and derives every element's classes in ONE `class`
- * expression, and its bag types forbid `class` / `classList` so a caller cannot
+ * expression, and its bag types forbid `class` so a caller cannot
  * bring a second authority back through the spread.
  *
  * `../useServerIdentity` is mocked (the `HostIdentityLabel` inside the shell
@@ -18,8 +18,8 @@
  * the `HostDownCanvas.test.tsx` idiom.
  */
 import type { HostKey } from "kolu-common/hostKey";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostChipShell } from "./HostChipShell";
 
@@ -62,6 +62,7 @@ function mount(state: () => { active: boolean; down: boolean }) {
     ),
     root,
   );
+  flush();
   return root;
 }
 
@@ -128,10 +129,12 @@ describe("HostChipShell — one class authority per element", () => {
     const el = mount(() => ({ active: active(), down: false }));
     expect(tabOf(el).classList.contains("host-tab-active")).toBe(true);
     setActive(false);
+    flush();
     expect(tabOf(el).classList.contains("host-tab-active")).toBe(false);
     expect(tabOf(el).classList.contains("host-tab-idle")).toBe(true);
     expect(selectOf(el).classList.contains("text-fg-2")).toBe(true);
     setActive(true);
+    flush();
     expect(tabOf(el).classList.contains("host-tab-active")).toBe(true);
     expect(tabOf(el).classList.contains("host-tab-idle")).toBe(false);
     expect(selectOf(el).classList.contains("text-fg")).toBe(true);

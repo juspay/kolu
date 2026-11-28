@@ -10,7 +10,14 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createRoot, onCleanup } from "solid-js";
+import {
+  createEffect,
+  createRoot,
+  createSignal,
+  flush,
+  getOwner,
+  onCleanup,
+} from "solid-js";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
 import type { SurfaceDispatch } from "../link";
@@ -92,6 +99,58 @@ describe("runUnderOwner — THE CLASS pin: an ownerless increment/onCleanup-decr
     // and no-ops — `cleaned` would stay 0 forever, exactly the permanent-leak
     // shape this whole class of bug takes.
     expect(cleaned).toBe(1);
+  });
+});
+
+describe("runUnderOwner — an OWNERLESS call from an effect's APPLY ARM", () => {
+  // Solid 2's effect phase runs with no ambient owner AND forbids creating an
+  // ownerless root there (`PRIMITIVE_IN_EFFECT_CALLBACK`). An ownerless `.use()`-
+  // shaped read made from an apply arm — padi's `entry(host).state()`, the shape
+  // `surface-map`'s `pendingProcedureFromApplyArm` test drives — therefore THREW
+  // while the helper created its throwaway root bare. Parenting that root at the
+  // client's own owner is what the guard explicitly allows.
+  it("runs there (no PRIMITIVE_IN_EFFECT_CALLBACK) and still nets its cleanup to zero", () => {
+    let cleaned = 0;
+    let ran = 0;
+    let thrown: unknown;
+    let disposeOuter = (): void => {};
+    let bump = (_n: number): void => {};
+    createRoot((d) => {
+      disposeOuter = d;
+      const parent = getOwner();
+      const [tick, setTick] = createSignal(0);
+      bump = setTick;
+      createEffect(
+        () => tick(),
+        () => {
+          try {
+            runUnderOwner(() => {
+              onCleanup(() => {
+                cleaned++;
+              });
+              ran++;
+            }, parent);
+          } catch (e) {
+            thrown = e;
+          }
+        },
+      );
+    });
+    // Five apply-arm passes, well past any one-shot: each must net to zero on its
+    // own, and none may be retained under `parent`.
+    flush();
+    for (let i = 1; i <= 4; i++) {
+      bump(i);
+      flush();
+    }
+    expect(thrown).toBeUndefined();
+    expect(ran).toBe(5);
+    // Each ownerless acquisition released in its own tick — the increment and the
+    // decrement net to zero without waiting for the parent.
+    expect(cleaned).toBe(5);
+    disposeOuter();
+    // Nothing was left parked under the client owner: its disposal frees nothing.
+    expect(cleaned).toBe(5);
   });
 });
 

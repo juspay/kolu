@@ -20,9 +20,9 @@
  *  2. **Every field is a GETTER, and the inputs arrive as accessors.** A plain
  *     object of VALUES read once is a snapshot: the wait chip stops counting,
  *     the pip stops repainting, `data-active` freezes on whichever tile was
- *     active at mount. Solid's `mergeProps` preserves property descriptors
- *     through a spread, so getters here stay reactive at the row's own prop
- *     reads — exactly as `pip()` in JSX used to be.
+ *     active at mount. A JSX spread preserves property descriptors, so
+ *     getters here stay reactive at the row's own prop reads — exactly as
+ *     `pip()` in JSX used to be.
  *
  *  What is assembled is what the two surfaces agree on. What stays at each call
  *  site is what they genuinely differ by: the surface token, the landing verb
@@ -36,7 +36,7 @@
 
 import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { DockRowProps } from "@kolu/solid-dockrow";
-import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";
+import { dockRowFacts, sameRowRecency } from "@kolu/solid-dockrow/rowValues";
 import type { TerminalId } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { type Accessor, createMemo } from "solid-js";
@@ -71,7 +71,10 @@ export type SharedDockRowProps = Pick<
 /** Build the shared half of a row's props. Call from a component body; call the
  *  returned function ONCE per row, inside the `<Show>` that has the record. */
 export function useDockRowBag(): (input: {
-  id: TerminalId;
+  /** The row's terminal, as an accessor: the bag is built inside the row's
+   *  `<Show>`, and reading a prop there is an untracked read of reactive
+   *  state — so the id is read where it is used, like every other input. */
+  id: Accessor<TerminalId>;
   /** The live record and its slow display projection, already paired. */
   combined: Accessor<{ info: TerminalDisplayInfo; meta: TerminalMetadata }>;
   /** The ORDER bucket — `data-bucket`. */
@@ -87,9 +90,9 @@ export function useDockRowBag(): (input: {
     // ONE memo per row, created here in the row's own owner — see note 1.
     const pip = useStatePip(
       encActiveHost,
-      () => input.id,
+      input.id,
       () => input.combined().meta,
-      () => store.isUnread(input.id),
+      () => store.isUnread(input.id()),
       input.pipBucket,
     );
     // MEMOIZED, and this is the "once per row" case rather than the per-read one
@@ -109,14 +112,21 @@ export function useDockRowBag(): (input: {
     // `.mode` and `.text` inside whichever branch renders), and a getter
     // re-runs the whole fold — and re-allocates its `{ window, own }` and its
     // `CompactDelta` — once per read, per row, per repaint.
-    const recency = createMemo(() =>
-      rowRecency(pip(), {
-        window: input.recencyAt(),
-        own: rowRecencyAt(input.combined().meta),
-      }),
+    const recency = createMemo(
+      () =>
+        rowRecency(pip(), {
+          window: input.recencyAt(),
+          own: rowRecencyAt(input.combined().meta),
+        }),
+      // A fresh `{ mode }`/`{ mode, text }` per run, and the fold reads the
+      // row's own props — so a re-rank re-runs it with the same words. The
+      // gate keeps `RecencyCell`'s four reads from re-rendering them.
+      { equals: sameRowRecency },
     );
     return {
-      id: input.id,
+      get id() {
+        return input.id();
+      },
       get pip() {
         return pip();
       },
@@ -130,7 +140,7 @@ export function useDockRowBag(): (input: {
         return facts().model;
       },
       get active() {
-        return isActiveRow(input.id);
+        return isActiveRow(input.id());
       },
       get label() {
         const c = input.combined();
@@ -151,7 +161,7 @@ export function useDockRowBag(): (input: {
           <span data-testid="dock-row-name" class="min-w-0 truncate">
             {renderRowLabel(markdown)}
           </span>
-          <WorkMark terminal={fleetTerminalRef(encActiveHost(), input.id)} />
+          <WorkMark terminal={fleetTerminalRef(encActiveHost(), input.id())} />
         </span>
       ),
       get subline() {

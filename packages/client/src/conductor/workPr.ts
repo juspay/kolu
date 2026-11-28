@@ -50,5 +50,7 @@ export function useWorkPr(
   const prs = useWorkPrs();
   // No custom equality: the mirror reconciles a reading IN PLACE, so one
   // object can carry new fields, and every new answer must reach the card.
-  return createMemo(() => workPrOf(work(), prs().get(id())));
+  return createMemo(() => workPrOf(work(), prs().get(id())), {
+    name: "workPr",
+  });
 }

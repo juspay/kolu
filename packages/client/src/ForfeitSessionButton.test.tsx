@@ -15,7 +15,8 @@
  *     that cost the session.
  */
 
-import { render } from "solid-js/web";
+import { flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ForfeitSessionButton from "./ForfeitSessionButton";
 
@@ -37,16 +38,23 @@ function mount(inFlight = false) {
     () => <ForfeitSessionButton inFlight={inFlight} onConfirm={onConfirm} />,
     host,
   );
+  flush();
+  // A click stages its writes; the DOM a user sees is the one after the
+  // frame that follows, so every press here flushes before it is read.
   const at = (testid: string) =>
     host?.querySelector<HTMLElement>(`[data-testid="${testid}"]`) ?? undefined;
-  return { onConfirm, at };
+  const click = (testid: string) => {
+    at(testid)?.click();
+    flush();
+  };
+  return { onConfirm, at, click };
 }
 
 describe("ForfeitSessionButton — one click can never discard the session", () => {
   it("the first click arms a confirm and forfeits NOTHING", () => {
-    const { onConfirm, at } = mount();
+    const { onConfirm, at, click } = mount();
 
-    at("forfeit-session")?.click();
+    click("forfeit-session");
 
     expect(onConfirm).not.toHaveBeenCalled();
     // The trigger has been replaced by the confirm step — copy plus a pair.
@@ -56,27 +64,27 @@ describe("ForfeitSessionButton — one click can never discard the session", () 
   });
 
   it("the confirmed click forfeits, exactly once", () => {
-    const { onConfirm, at } = mount();
+    const { onConfirm, click } = mount();
 
-    at("forfeit-session")?.click();
-    at("forfeit-session-confirm")?.click();
+    click("forfeit-session");
+    click("forfeit-session-confirm");
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
   it("Cancel walks back to the trigger with nothing discarded", () => {
-    const { onConfirm, at } = mount();
+    const { onConfirm, at, click } = mount();
 
-    at("forfeit-session")?.click();
-    at("forfeit-session-cancel")?.click();
+    click("forfeit-session");
+    click("forfeit-session-cancel");
 
     expect(onConfirm).not.toHaveBeenCalled();
     expect(at("forfeit-session")).toBeDefined();
   });
 
   it("says plainly that the saved session goes, and that a backup gets it back", () => {
-    const { at } = mount();
-    at("forfeit-session")?.click();
+    const { click } = mount();
+    click("forfeit-session");
 
     const copy = host?.textContent ?? "";
     expect(copy).toContain("discards the saved session");
@@ -95,11 +103,11 @@ describe("ForfeitSessionButton — one click can never discard the session", () 
   });
 
   it("is gated out while the card's restore is in flight", () => {
-    const { onConfirm, at } = mount(true);
+    const { onConfirm, at, click } = mount(true);
 
     const trigger = at("forfeit-session");
     expect((trigger as HTMLButtonElement | undefined)?.disabled).toBe(true);
-    trigger?.click();
+    click("forfeit-session");
     expect(at("forfeit-session-confirm")).toBeUndefined();
     expect(onConfirm).not.toHaveBeenCalled();
   });

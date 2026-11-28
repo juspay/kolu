@@ -4,8 +4,8 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import { type Accessor, batch, onCleanup, createSignal } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { type Accessor, createSignal } from "solid-js";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -51,13 +51,21 @@ const setPanX = (v: number): void => cam()?.setPanX(v);
 const setPanY = (v: number): void => cam()?.setPanY(v);
 const setZoom = (v: number): void => cam()?.setZoom(v);
 
-/** Container ref, set on mount. */
+/** Container ref, set on mount — the plain authority every non-reactive path
+ *  (the identity guard in `releaseContainer`) reads. */
 let containerEl: HTMLDivElement | null = null;
 // HOST-SCOPING: host-INDEPENDENT by design — DOM viewport; the camera is per-host above.
 const [observedSize, setObservedSize] = createSignal<{
   width: number;
   height: number;
 }>();
+// The reactive mirror of {@link containerEl}: the element to measure, read as a
+// dependency by `createContainerSizeObserver`'s effect. The ref WRITES this (a
+// ref callback may write a signal; it may not create a primitive or register a
+// cleanup), and the owner that asked for the ref observes it.
+// HOST-SCOPING: host-INDEPENDENT by design — the same DOM viewport as `observedSize`.
+const [measuredContainer, setMeasuredContainer] =
+  createSignal<HTMLDivElement | null>(null);
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
@@ -115,13 +123,12 @@ function flushGesture() {
   gestureRaf = 0;
   const result = applyGestureBatch(panX(), panY(), zoom(), pending);
   pending = { ...EMPTY };
-  // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
-  // frame never notifies zoom dependents and vice versa.
-  batch(() => {
-    setPanX(result.panX);
-    setPanY(result.panY);
-    setZoom(result.zoom);
-  });
+  // Equal-value writes are no-ops (Object.is), so a pure-pan frame never
+  // notifies zoom dependents and vice versa; the three writes land in one
+  // flush because consecutive writes share a microtask.
+  setPanX(result.panX);
+  setPanY(result.panY);
+  setZoom(result.zoom);
 }
 
 /** Drop any queued gesture delta — a programmatic absolute pan/zoom (or a
@@ -157,9 +164,19 @@ export interface CanvasViewport {
   panX: Accessor<number>;
   panY: Accessor<number>;
   zoom: Accessor<number>;
-  /** Set container ref — installs gesture listeners. The caller answers the
-   *  two `GesturePolicy` facts the gesture layer can't see for itself. */
+  /** Set container ref — names the element to measure and installs gesture
+   *  listeners. The caller answers the two `GesturePolicy` facts the gesture
+   *  layer can't see for itself, and — because a `ref` callback may neither
+   *  register a cleanup nor create a primitive — pairs this with
+   *  `createContainerSizeObserver()` and `releaseContainer(el)` in its
+   *  component body. */
   setContainerRef: (el: HTMLDivElement, policy: GesturePolicy) => void;
+  /** Detach a container attached by `setContainerRef`: drops its gesture
+   *  listeners, stops it being measured, aborts transient input, and forgets
+   *  the measurement (`mounted()` goes false). A no-op for an element that is
+   *  no longer the current container, so a late unmount can't tear down the
+   *  container that replaced it. */
+  releaseContainer: (el: HTMLDivElement) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
   /** Pan so a specific tile is centered. Animates over ~150ms. Cancels on
@@ -211,24 +228,26 @@ export interface CanvasViewport {
   cameraSettled: Accessor<boolean>;
 }
 
+/** Attach the canvas container: name the element to measure and install
+ *  gestures.
+ *
+ *  Called from the canvas element's `ref`, which is a ref callback — a scope
+ *  that may neither register an `onCleanup` nor create a reactive primitive.
+ *  So it only WRITES the element (here and into `measuredContainer`); the
+ *  measuring is `createContainerSizeObserver`, which the canvas component body
+ *  calls on its own owner, and the teardown is `releaseContainer`, which that
+ *  same body registers there. */
 function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
+  // A container SWAP drops the old element's listeners and queued delta but
+  // keeps the last measurement and any in-flight tween: the new element is
+  // measured a frame later, and `mounted()` must not blink false in between.
   cleanupGestures?.();
   discardPendingGesture();
   containerEl = el;
-  // A mount-time read can still see Corvu's temporary equal-width panels.
-  // The first observer delivery follows layout, so initial placement waits for
-  // the same authoritative measurement used for every subsequent resize.
-  createResizeObserver(el, ({ width, height }) =>
-    setObservedSize({ width, height }),
-  );
-  onCleanup(() => {
-    if (containerEl !== el) return;
-    cleanupGestures?.();
-    cleanupGestures = null;
-    abortTransientInput();
-    containerEl = null;
-    setObservedSize(undefined);
-  });
+  // A mount-time read can still see Corvu's temporary equal-width panels. The
+  // first observer delivery follows layout, so initial placement waits for the
+  // same authoritative measurement used for every subsequent resize.
+  setMeasuredContainer(el);
   cleanupGestures = installGestures(
     el,
     {
@@ -254,6 +273,35 @@ function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
     },
     policy,
   );
+}
+
+/** Measure whatever container is attached — `createResizeObserver` on the
+ *  element `setContainerRef` recorded, so the delivery that feeds
+ *  `viewportSize()` comes from the library rather than a hand-rolled observer.
+ *  Call it in the canvas component's BODY: it creates an effect and registers
+ *  the observer's disconnect on that owner, neither of which a ref callback
+ *  may do. A container swap re-points the signal, so the effect unobserves the
+ *  old element and observes the new one. The library calls back only when the
+ *  element's size changed at whole-pixel resolution, and hands over the exact
+ *  `contentRect` when it did — sub-pixel jitter notifies no size reader. */
+export function createContainerSizeObserver(): void {
+  createResizeObserver(measuredContainer, (rect) =>
+    setObservedSize({ width: rect.width, height: rect.height }),
+  );
+}
+
+/** Release the container `setContainerRef` attached — the canvas component
+ *  body's `onCleanup` half of that call, because a ref callback may register
+ *  no cleanup of its own. Guarded on identity: a late unmount of a REPLACED
+ *  element must not tear down the container that replaced it. */
+function releaseContainer(el: HTMLDivElement) {
+  if (containerEl !== el) return;
+  cleanupGestures?.();
+  cleanupGestures = null;
+  abortTransientInput();
+  containerEl = null;
+  setMeasuredContainer(null);
+  setObservedSize(undefined);
 }
 
 function normalizeDelta(dx: number, dy: number) {
@@ -298,10 +346,8 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
     (x, y) => {
-      batch(() => {
-        setPanX(x);
-        setPanY(y);
-      });
+      setPanX(x);
+      setPanY(y);
     },
     // Reached the target: the pose is the one the user asked for, so the
     // tiles it shows are the tiles to attach. (An ABORT doesn't land here —
@@ -323,10 +369,8 @@ function panTo(x: number, y: number) {
 
 function setPan(x: number, y: number) {
   abortTransientInput();
-  batch(() => {
-    setPanX(x);
-    setPanY(y);
-  });
+  setPanX(x);
+  setPanY(y);
 }
 
 // The observed viewport changes even when the camera remains still.
@@ -357,11 +401,9 @@ function applyZoomToCenter(direction: "in" | "out" | "reset") {
     viewportSize().height,
     direction,
   );
-  batch(() => {
-    setPanX(result.panX);
-    setPanY(result.panY);
-    setZoom(result.zoom);
-  });
+  setPanX(result.panX);
+  setPanY(result.panY);
+  setZoom(result.zoom);
 }
 
 const viewport: CanvasViewport = {
@@ -369,6 +411,7 @@ const viewport: CanvasViewport = {
   panY,
   zoom,
   setContainerRef,
+  releaseContainer,
   normalizeDelta,
   centerOnTile,
   panTo,

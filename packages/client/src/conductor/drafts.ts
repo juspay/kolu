@@ -8,8 +8,7 @@
  *  is the honest boundary for text the server was never told about. */
 
 import type { ConductorAttachment } from "kolu-common/conductor";
-import { createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createSignal, createStore, onCleanup } from "solid-js";
 import { armedMentionText } from "./mentions";
 import { forgetThumbnail } from "./thumbnails";
 
@@ -167,10 +166,31 @@ export function unsettleComposerAttachments(): void {
  *  in the PTY and it never bubbles), so a bubble-phase `stopPropagation` in the
  *  composer cannot reach it. A fact both can read settles the order without
  *  either listening for the other.
+ *
+ *  THE COMPOSER HANDS UP ITS DERIVATION, not an answer copied out of it
+ *  ({@link offerCompletionOpen}, as the peek window hands up its typing
+ *  derivation in `peek/usePeek.ts`). Relaying the VALUE through an effect put
+ *  this fact one flush behind the menu it is about, so an `Escape` arriving in
+ *  the flush the menu opens in was judged against the menu being shut — the
+ *  very race the shared fact exists to settle. `ownedWrite`: the composer
+ *  registers from its body.
  */
-const [completionOpen, setCompletionOpen] = createSignal(false);
+const SHUT = { read: () => false };
+const [completionSource, setCompletionSource] = createSignal<{
+  readonly read: () => boolean;
+}>(SHUT, { ownedWrite: true });
 
-export { completionOpen, setCompletionOpen };
+export const completionOpen = (): boolean => completionSource().read();
+
+/** Hand the composer's "is a menu open" derivation up for as long as the
+ *  composer is mounted. With no composer there is no menu. */
+export function offerCompletionOpen(read: () => boolean): void {
+  const mine = { read };
+  setCompletionSource(mine);
+  onCleanup(() =>
+    setCompletionSource((current) => (current === mine ? SHUT : current)),
+  );
+}
 
 /** Drop a terminal's `@name` into the box — the tile action's landing. The
  *  words already there are kept: arming is an addition to what you were saying,
@@ -183,36 +203,78 @@ export function armComposerMention(name: string): void {
  *  Keyed by ask id because two questions can be open at once, and answering the
  *  second must not disturb the first. */
 const [askDrafts, setAskDrafts] = createStore<
-  Record<string, Record<string, readonly string[]>>
+  Record<string, Record<string, string[]>>
 >({});
 
-export function askDraft(askId: string, field: string): readonly string[] {
-  return askDrafts[askId]?.[field] ?? [];
+/** ONE QUESTION'S VALUES AS THE DRAFT HAS THEM — `undefined` when there is no
+ *  entry at all. That is the distinction a form is read by: no entry is a
+ *  question NOBODY HAS TOUCHED, which opens on its default, while an entry of
+ *  no values is one somebody cleared on purpose and stays cleared
+ *  (`askForm.ts`). */
+export function askDraftEntry(
+  askId: string,
+  field: string,
+): readonly string[] | undefined {
+  return askDrafts[askId]?.[field];
 }
 
+/** ... and the same values with those two collapsed, for the readers that do
+ *  not offer a default. */
+export function askDraft(askId: string, field: string): readonly string[] {
+  return askDraftEntry(askId, field) ?? [];
+}
+
+/** One question's values, replaced wholesale — a single-answer pick, a box
+ *  emptied, a seeding. The array is COPIED IN: what the store holds is the
+ *  store's own to mutate ({@link toggleAskDraft}), never one the caller still
+ *  has a hand on. */
 export function setAskDraft(
   askId: string,
   field: string,
   values: readonly string[],
 ): void {
-  setAskDrafts(
-    produce((drafts) => {
-      const form = drafts[askId] ?? {};
-      form[field] = values;
-      drafts[askId] = form;
-    }),
-  );
+  setAskDrafts((drafts) => {
+    const form = drafts[askId];
+    if (form) form[field] = [...values];
+    else drafts[askId] = { [field]: [...values] };
+  });
+}
+
+/** ONE VALUE ON OR OFF a multi-answer question — the whole of what pressing
+ *  one of its chips does, written as the store can follow it: the value is
+ *  pushed onto the draft's own array or spliced out of it, so only the index
+ *  that moved notifies. Handing back a spread or filtered copy would replace
+ *  the array under every reader of the question for the one chip pressed
+ *  (Solid 2's IMMUTABLE_UPDATE_IN_STORE). */
+export function toggleAskDraft(
+  askId: string,
+  field: string,
+  value: string,
+): void {
+  setAskDrafts((drafts) => {
+    const form = drafts[askId];
+    if (form === undefined) {
+      drafts[askId] = { [field]: [value] };
+      return;
+    }
+    const values = form[field];
+    if (values === undefined) {
+      form[field] = [value];
+      return;
+    }
+    const at = values.indexOf(value);
+    if (at === -1) values.push(value);
+    else values.splice(at, 1);
+  });
 }
 
 /** The question stopped waiting — its draft is no longer anybody's unsent text.
  *  Deleting the key rather than blanking it keeps a long session's store from
  *  growing one empty form per question asked. */
 export function forgetAskDraft(askId: string): void {
-  setAskDrafts(
-    produce((drafts) => {
-      delete drafts[askId];
-    }),
-  );
+  setAskDrafts((drafts) => {
+    delete drafts[askId];
+  });
 }
 
 /** SOME OF ONE ASK'S FIELDS, forgotten — the questions a form sent and the
@@ -225,12 +287,10 @@ export function dropAskFields(
   askId: string,
   fields: ReadonlyArray<string>,
 ): void {
-  setAskDrafts(
-    produce((drafts) => {
-      const form = drafts[askId];
-      if (form === undefined) return;
-      for (const field of fields) delete form[field];
-      if (Object.keys(form).length === 0) delete drafts[askId];
-    }),
-  );
+  setAskDrafts((drafts) => {
+    const form = drafts[askId];
+    if (form === undefined) return;
+    for (const field of fields) delete form[field];
+    if (Object.keys(form).length === 0) delete drafts[askId];
+  });
 }

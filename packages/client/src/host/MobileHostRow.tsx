@@ -30,7 +30,7 @@ import {
   createMemo,
   createSignal,
   For,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import { AttentionTriplet } from "@kolu/solid-statepip";
@@ -53,7 +53,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // The host is fixed for this chip's lifetime (the `<For>` gives each chip its
   // own reactive owner, disposed when the host leaves the pool). Both derivations
   // are memoized because each is read from several tracked positions in the JSX
-  // (`isActive` from aria-current + data-active + two classList keys; `state`
+  // (`isActive` from aria-current + data-active + two class keys; `state`
   // from the title + the exception-dot class), and each read otherwise re-runs the
   // encode/membership-scan on every `activeHost`/entry change.
   const state = createMemo(() => padiMap.entry(props.host).state());
@@ -63,7 +63,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   const selectedHost = useActiveHostSelector();
   const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain (padi AND kaval).
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   const glance = createMemo(() => hostGlance(state(), kaval()));
   const down = createMemo(() => glance().down);
   // Always-on connection status (green / amber / red).
@@ -94,19 +94,21 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       // chip's border + tinted belly, quiet at rest — the same "host is a
       // place, not a label" treatment the desktop tab wears. Down hosts
       // desaturate + strike the label (exception-based, matching desktop).
-      class="flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
-      classList={{
-        // Active hue fill is kept even when down so the selected failed host
-        // still reads as the one that owns the canvas.
-        "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_18%,var(--color-surface-1))] text-fg":
-          isActive() && !down(),
-        "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_12%,var(--color-surface-1))] text-fg-3 opacity-80":
-          isActive() && down(),
-        "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
-          !isActive() && !down(),
-        "border-danger/40 bg-surface-2 text-fg-3 opacity-70":
-          !isActive() && down(),
-      }}
+      class={[
+        "flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors",
+        {
+          // Active hue fill is kept even when down so the selected failed host
+          // still reads as the one that owns the canvas.
+          "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_18%,var(--color-surface-1))] text-fg":
+            isActive() && !down(),
+          "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_12%,var(--color-surface-1))] text-fg-3 opacity-80":
+            isActive() && down(),
+          "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
+            !isActive() && !down(),
+          "border-danger/40 bg-surface-2 text-fg-3 opacity-70":
+            !isActive() && down(),
+        },
+      ]}
       style={{ "--host-hue": hostHue(props.host) }}
       title={`${hostLabel(props.host)} — ${glance().title}`}
       // A no-op tap on the already-active chip must not re-write `activeHost`
@@ -156,9 +158,11 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   const [draft, setDraft] = createSignal("");
   let inputEl: HTMLInputElement | undefined;
 
-  // Focus the input on mount (the section mounts fresh via `<Show>`, so a plain
-  // `onMount` fires exactly once) — shared timing with the desktop popover.
-  onMount(() => focusOnMount(inputEl));
+  // Focus the input once the section has settled (it mounts fresh via `<Show>`,
+  // so this fires exactly once) — shared timing with the desktop popover.
+  onSettled(() => {
+    focusOnMount(inputEl);
+  });
 
   const submit = (): void => {
     runAction("add host", addHost(draft(), props.onClose));
@@ -253,7 +257,7 @@ const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
           data-testid="mobile-host-add-open"
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-dashed border-edge text-lg text-fg-3 active:bg-surface-2"
           aria-label="Add a host"
-          aria-expanded={addOpen()}
+          aria-expanded={addOpen() ? "true" : "false"}
           // Sits OUTSIDE the chip scroller (so it stays reachable on overflow),
           // so it needs its OWN drag opt-out: stop the pointerdown before the
           // Corvu drawer reads a jittered tap as a drag-to-dismiss.

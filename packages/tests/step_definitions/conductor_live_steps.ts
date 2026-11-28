@@ -361,10 +361,13 @@ Then(
   },
 );
 
-/** A LIVE PANE'S SCREEN AND ITS HEAD'S READOUT, for the scroll-back steps. */
+/** A LIVE PANE'S SCREEN, ITS HEAD'S READOUT AND THE HEAD'S OWN WORDS, for the
+ *  scroll-back steps — the words say whether the client vouches for the
+ *  terminal the held screen belongs to. */
 const scrollingOf = (role: string): ConductorScreen => ({
   screen: screenOf(role),
   readout: `${paneOf(role)} [data-testid="live-live"]`,
+  status: `${paneOf(role)} [data-testid="live-status"]`,
   label: `the ${role}'s live terminal`,
 });
 

@@ -15,11 +15,11 @@ import {
   createComponent,
   createRoot,
   createSignal,
+  flush,
 } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { fakeWire } from "../fakeSocket.testlib";
 import { thrownText } from "../index";
-import { resolveTree } from "./resolveTree.testlib";
 import {
   type ConnectionStatus,
   type ControlPlane,
@@ -28,6 +28,7 @@ import {
   SurfaceAppProvider,
   useSurfaceApp,
 } from "./index";
+import { resolveTree } from "./resolveTree.testlib";
 
 /** A `controlPlane` whose `buildInfo` cell yields a fixed server commit. */
 function fakeControlPlane(serverCommit: string): ControlPlane {
@@ -41,7 +42,9 @@ function fakeControlPlane(serverCommit: string): ControlPlane {
 }
 
 /** Mount the provider with a caller-supplied `status` accessor and capture the
- *  model a child reads back out of context. */
+ *  model a child reads back out of context. The tree is RESOLVED (nothing
+ *  inserts it into a DOM here), or the `children` getter — and with it the
+ *  context read — never runs. */
 function mountModel(opts: {
   serverCommit: string;
   clientCommit: string;
@@ -49,16 +52,18 @@ function mountModel(opts: {
   dispose: () => void;
 }): SurfaceAppModel {
   let captured!: SurfaceAppModel;
-  createComponent(SurfaceAppProvider, {
-    controlPlane: fakeControlPlane(opts.serverCommit),
-    clientCommit: opts.clientCommit,
-    status: opts.status,
-    fault: () => null,
-    get children() {
-      captured = useSurfaceApp();
-      return null;
-    },
-  });
+  resolveTree(
+    createComponent(SurfaceAppProvider, {
+      controlPlane: fakeControlPlane(opts.serverCommit),
+      clientCommit: opts.clientCommit,
+      status: opts.status,
+      fault: () => null,
+      get children() {
+        captured = useSurfaceApp();
+        return null;
+      },
+    }),
+  );
   return captured;
 }
 
@@ -70,41 +75,49 @@ const flushProbe = (): Promise<void> =>
 
 describe("SurfaceAppProvider — updateReady", () => {
   it("flips on a `restarted` status (deploy caught live), even when not stale", () => {
-    createRoot((dispose) => {
-      const [status, setStatus] = createSignal<ConnectionStatus>("live");
+    const [status, setStatus] = createSignal<ConnectionStatus>("live");
+    let model!: SurfaceAppModel;
+    // The mount happens under the root's owner; the WRITE below does not —
+    // Solid 2 refuses a signal write made inside an owned scope.
+    const dispose = createRoot((d) => {
       // Same commit on both sides → never stale; only the status drives it.
-      const model = mountModel({
+      model = mountModel({
         serverCommit: "0784979",
         clientCommit: "0784979",
         status,
-        dispose,
+        dispose: d,
       });
-
-      expect(model.stale()).toBe(false);
-      expect(model.updateReady()).toBe(false);
-
-      setStatus("restarted");
-      expect(model.updateReady()).toBe(true);
-
-      dispose();
+      return d;
     });
+
+    expect(model.stale()).toBe(false);
+    expect(model.updateReady()).toBe(false);
+
+    setStatus("restarted");
+    // Solid 2 defers a write: nothing reads the new status until it flushes.
+    flush();
+    expect(model.updateReady()).toBe(true);
+
+    dispose();
   });
 
   it("reads a RETIRED wire as `restarted` through the turnkey `{ wire, probe }` source", async () => {
     const w = fakeWire();
     await createRoot(async (dispose) => {
       let captured!: SurfaceAppModel;
-      createComponent(SurfaceAppProvider, {
-        controlPlane: fakeControlPlane("0784979"),
-        clientCommit: "0784979",
-        wire: w.wire,
-        probe: () => Effect.succeed({ processId: "p1" }),
-        fault: () => null,
-        get children() {
-          captured = useSurfaceApp();
-          return null;
-        },
-      });
+      resolveTree(
+        createComponent(SurfaceAppProvider, {
+          controlPlane: fakeControlPlane("0784979"),
+          clientCommit: "0784979",
+          wire: w.wire,
+          probe: () => Effect.succeed({ processId: "p1" }),
+          fault: () => null,
+          get children() {
+            captured = useSurfaceApp();
+            return null;
+          },
+        }),
+      );
 
       w.set("open");
       await flushProbe();
@@ -115,6 +128,7 @@ describe("SurfaceAppProvider — updateReady", () => {
       // matches the manual one, with no close code and no socket to retire by
       // hand (the link stopped re-dialling and fails every call itself).
       w.set("retired");
+      await flushProbe();
       expect(captured.status()).toBe("restarted");
       expect(captured.updateReady()).toBe(true);
 
@@ -186,7 +200,7 @@ describe("SurfaceAppProvider — updateReady", () => {
 });
 
 describe("SurfaceAppProvider — presentingDown (the #1598 disconnect-overlay grace, WIRED)", () => {
-  it("holds the overlay back for a sub-second blip, raises it for a sustained outage", async () => {
+  it("holds the overlay back for a sub-second blip, raises it for a sustained outage", () => {
     // The #1598 producer (`gracedDown`) is unit-tested in isolation, but the MODEL
     // wiring it — `presentingDown = gracedDown(() => status() === "down", GRACE)`,
     // read by kolu's `TransportOverlay` — was pinned by NO test, so reverting the
@@ -197,45 +211,50 @@ describe("SurfaceAppProvider — presentingDown (the #1598 disconnect-overlay gr
     // invariant: a test must fail when the WIRING is removed, not only the producer.
     vi.useFakeTimers();
     try {
-      await createRoot(async (dispose) => {
-        const [status, setStatus] = createSignal<ConnectionStatus>("live");
-        const model = mountModel({
+      const [status, setStatus] = createSignal<ConnectionStatus>("live");
+      let model!: SurfaceAppModel;
+      // The mount is owned by the root; every `setStatus` below is NOT — Solid 2
+      // refuses a signal write made inside an owned scope.
+      const dispose = createRoot((d) => {
+        model = mountModel({
           serverCommit: "c",
           clientCommit: "c",
           status,
-          dispose,
+          dispose: d,
         });
-        // Flush the provider's initial effect run (deferred to the end of
-        // createRoot's batch); thereafter a top-level `setStatus` re-runs the
-        // gracedDown effect synchronously, so the timer arms before the fake clock
-        // advances (mirrors `gracedDown.test.ts`).
-        await Promise.resolve();
-        expect(model.presentingDown()).toBe(false);
-
-        // Down, then recover WITHIN the grace window: the overlay must never flash.
-        // Flush the gracedDown effect (arm/clear its timer) before advancing the
-        // fake clock — each `setStatus` schedules the effect on the microtask queue.
-        setStatus("down");
-        await Promise.resolve();
-        vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 100);
-        expect(model.presentingDown()).toBe(false); // still inside the grace
-        setStatus("live");
-        await Promise.resolve();
-        vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
-        expect(model.presentingDown()).toBe(false); // recovered → never flashed
-
-        // A sustained outage past the grace window DOES surface the overlay.
-        setStatus("down");
-        await Promise.resolve();
-        vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS + 50);
-        expect(model.presentingDown()).toBe(true);
-
-        // status() itself stays INSTANT (gates the header dot / heartbeat), distinct
-        // from the graced overlay signal.
-        expect(model.status()).toBe("down");
-
-        dispose();
+        return d;
       });
+      // Flush the provider's initial effect run; thereafter each `setStatus`
+      // arms (or clears) the gracedDown timer only once the write flushes, and
+      // the timer's own write needs a flush to be read back — Solid 2 defers
+      // both (mirrors `gracedDown.test.ts`).
+      flush();
+      expect(model.presentingDown()).toBe(false);
+
+      // Down, then recover WITHIN the grace window: the overlay must never flash.
+      setStatus("down");
+      flush();
+      vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 100);
+      flush();
+      expect(model.presentingDown()).toBe(false); // still inside the grace
+      setStatus("live");
+      flush();
+      vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
+      flush();
+      expect(model.presentingDown()).toBe(false); // recovered → never flashed
+
+      // A sustained outage past the grace window DOES surface the overlay.
+      setStatus("down");
+      flush();
+      vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS + 50);
+      flush();
+      expect(model.presentingDown()).toBe(true);
+
+      // status() itself stays INSTANT (gates the header dot / heartbeat), distinct
+      // from the graced overlay signal.
+      expect(model.status()).toBe("down");
+
+      dispose();
     } finally {
       vi.useRealTimers();
     }

@@ -9,69 +9,66 @@
  *  live list — see useTerminalExits), so a natural exit usually loses the event.
  *  Deriving the cleanup from the LIST closes the race for every removal cause.
  *
- *  ONE cleanup body (`evictTerminal`), two callers:
+ *  ONE cleanup body (`planEviction`), two callers:
  *    - the imperative close path (`removeAndAutoSwitch` in useTerminalCrud) —
  *      runs synchronously with metadata still present, reading the live
  *      parentId + top-level order;
  *    - the list-driven reconcile below — runs AFTER the departed terminal's
- *      metadata is gone, so it feeds `evictTerminal` a parentId + top-level
+ *      metadata is gone, so it feeds `planEviction` a parentId + top-level
  *      order CAPTURED from the pre-removal snapshot.
  *  `createEvictionDedup` keeps a kill from evicting twice: the imperative path
  *  CLAIMS the id, and the reconcile skips (draining) a claimed id. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, on } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  onSettled,
+  runWithOwner,
+  untrack,
+} from "solid-js";
+import { pickAutoSwitchTarget } from "./autoSwitchTarget";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
-import { type EvictionSubPanelPorts, repairTileTabs } from "./useSubPanel";
+import { type EvictionSubPanelPorts, planTileTabsRepair } from "./useSubPanel";
 
-/** Pick the tile that inherits focus when the active tile is removed: the
- *  survivor now occupying the removed tile's slot (its old index in the FULL
- *  pre-removal order, clamped to the new last), or `null` when none remain. Owns
- *  the WHOLE focus-fallback policy from raw facts — `topLevelBefore` is the
- *  pre-removal top-level order (still containing `removedId`), `departing` is
- *  every id leaving this frame, and `removedId` is the tile being processed. It
- *  derives the survivor set itself (`topLevelBefore` minus `removedId` and
- *  everyone else departing), so no caller can drift the filter predicate or the
- *  filtered-list/unfiltered-index cross-argument invariant that carried the #1667
- *  bug. The removed tile is provably never its own successor regardless of what
- *  `departing` contains; a `removedId` that was never top-level (`indexOf` of
- *  `-1`) yields `null`. The ONE home for "which sibling does focus fall to" —
- *  both callers of `evictTerminal` reach it through here, so they can never
- *  diverge. */
-export function pickAutoSwitchTarget(
-  topLevelBefore: readonly TerminalId[],
-  departing: ReadonlySet<TerminalId>,
-  removedId: TerminalId,
-): TerminalId | null {
-  const survivors = topLevelBefore.filter(
-    (x) => x !== removedId && !departing.has(x),
-  );
-  return (
-    survivors[
-      Math.min(topLevelBefore.indexOf(removedId), survivors.length - 1)
-    ] ?? null
-  );
-}
-
-/** The side-effecting seams `evictTerminal` drives — the store, the sub-panel,
- *  the right-panel, the find-bar, and the promote/rehome RPCs. Bundled so the
- *  cleanup body is a pure function of (ports, id, parentId, order): unit-testable
- *  with plain spies, and wired ONCE in useTerminalCrud. */
+/** The side-effecting seams {@link planEviction} drives — the store, the
+ *  sub-panel, the right-panel, the find-bar, and the promote/rehome RPCs.
+ *  Bundled so the cleanup body is a pure function of (ports, id, parentId,
+ *  order): unit-testable with plain spies, and wired ONCE in useTerminalCrud.
+ *
+ *  The reading seams (`activeId`, `focusedTerminalId`, every `plan…`) are
+ *  called in the PLAN phase and the writing ones in the actor, because the
+ *  list-driven caller is a Solid effect, whose callback may not read. */
 export interface TerminalEvictionPorts {
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
-  /** Pan-and-activate a survivor (or `null`). */
-  activate: (id: TerminalId | null) => void;
-  /** Drop an id from the tile MRU. */
-  dropFromMru: (id: TerminalId) => void;
-  /** Promote a sub-terminal to top-level (server `setParent(id, null)`), giving
-   *  it `fromTile` — the tile it is leaving — so the promoted tile can inherit
-   *  that tile's panel posture. `fromTile` is passed EXPLICITLY rather than
-   *  re-derived downstream: the list-driven caller runs after the departing tile
-   *  has left the live census, so a live `containingTile` walk would dangle and
-   *  answer "the child itself". */
-  promoteToTopLevel: (subId: TerminalId, fromTile: TerminalId) => void;
+  /** The tile the focus DERIVATION moved to because this frame's census
+   *  dropped THIS id, taken once — `undefined` when it moved nothing for this
+   *  departure. Keyed on the evicted id because the derivation also runs for
+   *  hosts nobody is viewing and for drains no eviction follows, and an
+   *  answer about another tile must not silence this close's own pan and
+   *  report. Read in the plan phase, like every other seam here. */
+  takeAutoSwitch: (from: TerminalId) => TerminalId | null | undefined;
+  /** The derived auto-switch's imperative half: the unread mark, the host's
+   *  active-terminal report, and the pan to the survivor. */
+  noteAutoSwitch: (id: TerminalId) => void;
+  /** Reader half of "pan-and-activate a survivor (or `null`)" — the
+   *  SYNCHRONOUS close path's auto-switch. That caller runs before the census
+   *  has dropped the tile, so the focus derivation has not answered yet and
+   *  this verb is what moves the selection; the list-driven caller runs after
+   *  it, where `takeAutoSwitch` has. */
+  planActivate: (id: TerminalId | null) => () => void;
+  /** Reader half of the promote: a sub-terminal takes its own tile (server
+   *  `setParent(id, null)`), inheriting the panel posture of `fromTile` — the
+   *  tile it is leaving, whose record the READ half consults. `fromTile` is
+   *  passed EXPLICITLY rather than re-derived downstream: the list-driven
+   *  caller runs after the departing tile has left the live census, so a live
+   *  `containingTile` walk would dangle and answer "the child itself". */
+  planPromoteToTopLevel: (
+    subId: TerminalId,
+    fromTile: TerminalId,
+  ) => () => void;
   /** Re-home a surviving child under a still-live parent (`setParent`). */
   rehomeUnder: (subId: TerminalId, newParentId: TerminalId) => void;
   /** The panel's seams — the repair rule's own vocabulary plus the two verbs a
@@ -105,22 +102,38 @@ export type RemovalGraph = {
  *  There is deliberately no live-index fallback: a synthesized graph could only
  *  guess one hop, which is exactly the answer #2059 proved wrong — it would
  *  rehome a grandchild under the departing node's immediate parent instead of
- *  the highest surviving ancestor, and its census would omit live siblings. */
-export function evictTerminal(
+ *  the highest surviving ancestor, and its census would omit live siblings.
+ *
+ *  A PLANNER, in two phases: every reactive read (the focused pane, the active
+ *  tile, each panel verb's own reads) happens here, and the writes ride the
+ *  function this returns — so the list-driven caller can run the plan in its
+ *  effect's COMPUTE and the writes in the effect, where a read would be
+ *  STRICT_READ_UNTRACKED. Hoisting the reads ahead of the writes is not a
+ *  behaviour change: a Solid 2 write is staged, so a read after it on the same
+ *  synchronous run already answered with the pre-write value. The ORDER of the
+ *  writes themselves is unchanged — in particular a promote still runs before
+ *  `removeRightPanel(id)`, so a promoted child still inherits a tile posture
+ *  the record still holds. */
+export function planEviction(
   ports: TerminalEvictionPorts,
   id: TerminalId,
   parentId: TerminalId | null,
   topLevelBefore: readonly TerminalId[],
   departing: ReadonlySet<TerminalId>,
   removal: RemovalGraph,
-) {
+): () => void {
+  /** The writes this eviction owes, in order. */
+  const writes: (() => void)[] = [];
+  const run = () => {
+    for (const write of writes) write();
+  };
   if (parentId !== null) {
     // A departing SPLIT owns panel state of its own — its tab, code mode,
     // per-mode selections, and a back/forward history stack — so it sheds that
     // state on the way out exactly as a departing tile does, in this ONE cleanup
     // body and before any branch below can return early. (Search state is
     // tile-only by construction: a split's leaf never opens the find bar.)
-    ports.removeRightPanel(id);
+    writes.push(() => ports.removeRightPanel(id));
     const edge = removal.parentOf;
     const census = removal.ids;
     // Surviving containing tile: walk the full pre-removal ancestor chain and
@@ -148,33 +161,37 @@ export function evictTerminal(
         cur = up;
       }
     }
+    const landing = dest;
     // True children of the departing node.
     for (const child of census) {
       if (child === id) continue;
       if (edge(child) !== id) continue;
       if (departing.has(child)) continue;
-      if (dest === null) ports.promoteToTopLevel(child, chainTop);
-      else ports.rehomeUnder(child, dest);
+      if (landing === null)
+        writes.push(ports.planPromoteToTopLevel(child, chainTop));
+      else writes.push(() => ports.rehomeUnder(child, landing));
     }
     // Chrome repair only when a live root still owns the panel.
-    if (dest === null) return;
+    if (landing === null) return run;
     const wasFocused = ports.focusedTerminalId() === id;
     const remaining = census.filter(
       (x) =>
         !departing.has(x) &&
         x !== id &&
-        x !== dest &&
-        containingTileOf(x, edge) === dest,
+        x !== landing &&
+        containingTileOf(x, edge) === landing,
     );
-    repairTileTabs(ports.subPanel, dest, remaining, wasFocused);
+    writes.push(
+      planTileTabsRepair(ports.subPanel, landing, remaining, wasFocused),
+    );
     if (remaining.length > 0) {
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce
       // consumer is self-gated by its `focused` prop, so background panes ignore
       // it while the still-focused pane repairs DOM focus after removal.
-      ports.subPanel.requestRefocus(dest);
+      writes.push(() => ports.subPanel.requestRefocus(landing));
     }
-    return;
+    return run;
   }
 
   // Top-level tile — promote its TRUE one-hop children to top-level (each
@@ -183,38 +200,69 @@ export function evictTerminal(
   //
   // The promote loop runs BEFORE `removeRightPanel(id)` below: a promoted child
   // inherits this tile's panel posture, which reads the tile's record — so the
-  // record must still be there.
+  // record must still be there (the READ is this planner's, one phase earlier,
+  // where the record is just as present).
   const oneHop = removal.ids.filter((x) => removal.parentOf(x) === id);
   for (const subId of oneHop) {
     if (departing.has(subId)) continue;
-    ports.promoteToTopLevel(subId, id);
+    writes.push(ports.planPromoteToTopLevel(subId, id));
   }
-  ports.subPanel.removePanel(id);
-  ports.removeRightPanel(id);
-  ports.removeSearch(id);
-  ports.dropFromMru(id);
-  if (ports.activeId() === id) {
-    // `activate` pans the canvas to the survivor — without it the viewport would
-    // stay centered on the just-removed tile.
-    ports.activate(pickAutoSwitchTarget(topLevelBefore, departing, id));
+  writes.push(() => {
+    ports.subPanel.removePanel(id);
+    ports.removeRightPanel(id);
+    ports.removeSearch(id);
+  });
+
+  // THE AUTO-SWITCH IS DERIVED, NOT WRITTEN. The per-host focus fact already
+  // answers the survivor in the flush the census dropped this tile
+  // (`hostScope/createViewState`), because writing it from here — an effect
+  // apply arm, one flush after the list the compute read — relayed the census
+  // into the signal the canvas, the dock and the palette all read, so every
+  // reader of the selection ran torn, against the departed tile. What the
+  // derivation cannot do is the activation's imperative half, so this takes it:
+  // the tile it moved to, once, with the pan and the host's report for it.
+  // KEYED ON THIS ID: the derivation also runs for a host nobody is viewing
+  // and for a drain the reconcile suppressed, so an answer about some other
+  // tile's departure must not be mistaken for this one's and silence the
+  // synchronous branch below.
+  const autoSwitched = ports.takeAutoSwitch(id);
+  if (autoSwitched !== undefined) {
+    if (autoSwitched !== null)
+      writes.push(() => ports.noteAutoSwitch(autoSwitched));
+  } else if (ports.activeId() === id) {
+    // THE SYNCHRONOUS CLOSE PATH: the census still holds this tile, so the
+    // derivation has answered nothing and the selection is moved by the write
+    // verb, which pans the canvas to the survivor too — without it the
+    // viewport would stay centred on the tile that just went.
+    writes.push(
+      ports.planActivate(pickAutoSwitchTarget(topLevelBefore, departing, id)),
+    );
   }
+
+  return run;
 }
 
-/** Dedup the two callers of `evictTerminal` so a kill can't evict twice. The
- *  imperative close path evicts synchronously and CLAIMS the id (only when a
- *  list-drop is actually coming — `willDrop`); the list-driven reconcile then
+/** Dedup the two callers of {@link planEviction} so a kill can't evict twice.
+ *  The imperative close path evicts synchronously and CLAIMS the id (only when
+ *  a list-drop is actually coming — `willDrop`); the list-driven reconcile then
  *  skips (and drains) any claimed id, so the kill's later list-drop is a true
  *  no-op — no double `setParent`, no double switch. A claim is added only when a
  *  departure will follow, so it's always drained by that departure's reconcile —
- *  the claim set stays bounded to in-flight removals (no leak). */
+ *  the claim set stays bounded to in-flight removals (no leak).
+ *
+ *  The CLAIM is spent in the write phase, not the plan phase: the list-driven
+ *  caller plans in a compute that a later run may discard, and a claim consumed
+ *  there would be gone with it. So the plan is built unconditionally (reads
+ *  only) and the returned actor is what checks the claim — the same test, at
+ *  the same moment, as before. */
 export function createEvictionDedup(
-  runEvict: (
+  planEvict: (
     id: TerminalId,
     parentId: TerminalId | null,
     topLevelBefore: readonly TerminalId[],
     departing: ReadonlySet<TerminalId>,
     removal: RemovalGraph,
-  ) => void,
+  ) => () => void,
 ) {
   const claimed = new Set<TerminalId>();
   return {
@@ -233,30 +281,35 @@ export function createEvictionDedup(
       // it too, the auto-switch could re-focus that dead sibling (#1667 via the
       // imperative path), and the later list-drops can't self-heal (they
       // short-circuit on `claimed`). `claimed` is exactly that in-flight set.
-      runEvict(
+      planEvict(
         id,
         parentId,
         topLevelBefore,
         new Set([id, ...claimed]),
         removal,
-      );
+      )();
     },
-    evictDeparted(
+    /** Reader half of the list-driven eviction: plan it in the reconcile's
+     *  compute, run what comes back in its effect. */
+    planEvictDeparted(
       id: TerminalId,
       parentId: TerminalId | null,
       topLevelBefore: readonly TerminalId[],
       departing: ReadonlySet<TerminalId>,
       removal: RemovalGraph,
-    ) {
-      if (claimed.delete(id)) return; // already evicted by the imperative path
-      runEvict(id, parentId, topLevelBefore, departing, removal);
+    ): () => void {
+      const evict = planEvict(id, parentId, topLevelBefore, departing, removal);
+      return () => {
+        if (claimed.delete(id)) return; // already evicted by the imperative path
+        evict();
+      };
     },
   };
 }
 
 export function useActiveReconcile(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
-  rawList: Accessor<TerminalId[]>;
+  rawList: Accessor<readonly TerminalId[]>;
   /** The store's live parent EDGE (`null` top-level, `undefined` absent) — the
    *  same one every other walk runs on. The snapshot below stores the absent
    *  case as `null`: an id in the list whose record has not arrived has no
@@ -269,19 +322,21 @@ export function useActiveReconcile(deps: {
    *  newly-active host. Carried in the snapshot so a switch RESETS the baseline
    *  (like the first run) instead of evicting the departed host's tiles. */
   activeHostKey: () => string;
-  /** Run the full cleanup for a naturally-departed terminal (dedup-guarded).
+  /** READER HALF of the full cleanup for a naturally-departed terminal
+   *  (dedup-guarded): called from this reconcile's COMPUTE, it does the
+   *  eviction's reads and hands back its writes, which the effect runs.
    *  `departing` is every id leaving in the same frame, so the auto-switch can
    *  clamp focus past all of them (never onto a still-departing sibling).
    *  `removal` is the pre-removal parent graph (the snapshot before this frame's
    *  departures), so nested rehome + remaining tabs don't walk a broken live
    *  census. */
-  evictDeparted: (
+  planEvictDeparted: (
     id: TerminalId,
     parentId: TerminalId | null,
     topLevelBefore: TerminalId[],
     departing: ReadonlySet<TerminalId>,
     removal: RemovalGraph,
-  ) => void;
+  ) => () => void;
   /** Whether the terminal list is a COMPLETE, authoritative census — i.e. the
    *  client is the lifecycle authority. When it is NOT (a supervised
    *  recycle/restart/degraded), departures are the server's doing (the drain empties
@@ -297,27 +352,44 @@ export function useActiveReconcile(deps: {
   // switch is one atomic snapshot step, never seen as departures of the prior
   // host's tiles.
   const snapshot = createHostScopedParentSnapshot<TerminalId | null>(
+    "reconcileParentSnapshot",
     deps.rawList,
     deps.activeHostKey,
-    (ids) => {
+    deps.parentOf,
+    (edges) => {
       const m = new Map<TerminalId, TerminalId | null>();
-      for (const id of ids) m.set(id, deps.parentOf(id) ?? null);
+      for (const { id, parent } of edges) m.set(id, parent ?? null);
       return m;
     },
   );
 
+  /** What this pass evicts, decided in the compute, acted on in the effect.
+   *  The evictions are PLANNED here (the departed tiles' chrome, focus and
+   *  tree facts are read in this compute) and travel as writes: the effect
+   *  callback is a strict-read window, so nothing downstream may read. */
+  interface ReconcilePass {
+    readonly snap: { host: string; map: Map<TerminalId, TerminalId | null> };
+    readonly evictions: readonly (() => void)[];
+  }
+  const nothingToDo = (snap: ReconcilePass["snap"]): ReconcilePass => ({
+    snap,
+    evictions: [],
+  });
   createEffect(
-    on(snapshot, (currSnap, prevSnap) => {
-      if (prevSnap === undefined) return; // first run — nothing has departed
+    (prev?: ReconcilePass): ReconcilePass => {
+      const currSnap = snapshot();
+      const prevSnap = prev?.snap;
+      if (prevSnap === undefined) return nothingToDo(currSnap); // first run
       // Host SWITCH — the list re-keyed to a disjoint host. Advance the baseline
       // WITHOUT evicting the departed host's tiles (they didn't close; the tab just
       // looked away). Any wrong-host promote/auto-switch write is thus unspellable.
-      if (currSnap.host !== prevSnap.host) return;
+      if (currSnap.host !== prevSnap.host) return nothingToDo(currSnap);
       const curr = currSnap.map;
-      const prev = prevSnap.map;
+      const prevMap = prevSnap.map;
       const departed: TerminalId[] = [];
-      for (const id of prev.keys()) if (!curr.has(id)) departed.push(id);
-      if (departed.length === 0) return; // a parentId change with no departure
+      for (const id of prevMap.keys()) if (!curr.has(id)) departed.push(id);
+      // a parentId change with no departure
+      if (departed.length === 0) return nothingToDo(currSnap);
       // SUPPRESS the eviction while the list is NOT an authoritative census (a
       // supervised recycle/restart/degraded). Then a departure is the server's own
       // doing — a `recycleKaval` holds `restarting` (published BEFORE the drain
@@ -325,42 +397,76 @@ export function useActiveReconcile(deps: {
       // lifecycle authority: promoting the split's subs here fires
       // `chrome.setParent(sub, null)` against a daemon that no longer has them (the
       // "Failed to set parent" toast), and a write that lands after park silently
-      // un-parents the parked sub so the split restores orphaned. Sampled, not
-      // tracked: `on` runs this callback untracked, so we read the current state
-      // without re-arming the effect on an authority flip — and `prev` still
-      // advances to `curr`, so a departure skipped here is never re-processed once
-      // the list is authoritative again. A real user-close only ever happens while
-      // the list is a complete census, where the cleanup runs as before.
-      if (!deps.listIsAuthoritative()) return;
-      // The pre-removal top-level order (still contains the departed ids), for
-      // byte-identical switch-target selection.
+      // un-parents the parked sub so the split restores orphaned. SAMPLED
+      // (untracked): the pass must not re-arm on an authority flip — and the
+      // baseline still advances to `curr`, so a departure skipped here is never
+      // re-processed once the list is authoritative again. A real user-close only
+      // ever happens while the list is a complete census, where the cleanup runs
+      // as before.
+      if (!untrack(deps.listIsAuthoritative)) return nothingToDo(currSnap);
       const topLevelBefore: TerminalId[] = [];
-      for (const [id, parentId] of prev) {
+      for (const [id, parentId] of prevMap) {
         if (parentId === null) topLevelBefore.push(id);
       }
-      // The whole departing set for THIS frame — so the per-tile auto-switch
-      // clamps focus past every leaving tile at once. Without it a batch that
-      // empties the top level lands focus on a sibling that is itself departing.
-      const departing = new Set(departed);
-      // Pre-removal parent graph — intact tree before this frame's departures.
-      // Live metadata already dropped departed ids; nested rehome must not walk
-      // a dangling edge (grandchildren would fall out of the root's pane set).
+      // Pre-removal parent graph — the intact tree before this frame's
+      // departures. Live metadata already dropped departed ids; nested rehome
+      // must not walk a dangling edge (grandchildren would fall out of the
+      // root's pane set).
       const removal: RemovalGraph = {
-        ids: [...prev.keys()],
+        ids: [...prevMap.keys()],
         parentOf: (x) => {
-          if (!prev.has(x)) return undefined;
-          return prev.get(x) ?? null;
+          if (!prevMap.has(x)) return undefined;
+          return prevMap.get(x) ?? null;
         },
       };
-      for (const id of departed) {
-        deps.evictDeparted(
-          id,
-          prev.get(id) ?? null,
-          topLevelBefore,
-          departing,
-          removal,
-        );
-      }
-    }),
+      // The whole departing set for THIS frame — so the per-tile auto-switch
+      // clamps focus past every leaving tile at once. Without it a batch that
+      // empties the top level lands focus on a sibling that is itself
+      // departing.
+      const departing = new Set(departed);
+      return {
+        snap: currSnap,
+        // SAMPLED (untracked): each plan reads the departing tile's chrome,
+        // the focused pane and the active tile as they stand at the departure
+        // — the same reads the cleanup used to do in the (untracked) effect
+        // phase. The LIST is what wakes this reconcile; a focus or a tab
+        // moving on its own is not a departure and must not re-arm it.
+        evictions: untrack(() =>
+          departed.map((id) =>
+            deps.planEvictDeparted(
+              id,
+              prevMap.get(id) ?? null,
+              topLevelBefore,
+              departing,
+              removal,
+            ),
+          ),
+        ),
+      };
+    },
+    (pass) => {
+      if (pass.evictions.length === 0) return;
+      // SETTLED, AS ONE UNIT. These writes are the eviction's whole write
+      // phase — the tab-strip repair's `activeSubTab`, the focus override, the
+      // refocus nonce — and this arm's compute has just read the terminal
+      // census. Written inline, every reader that folds that same census (the
+      // right panel's subject off the focus override, a pane's reveal fit off
+      // `activeSubTab`) re-runs inside this effect's frame against the list
+      // the compute was answering: the judged `EFFECT_RELAY_TEAR`, `warn` from
+      // its third sighting. An owner-less `onSettled` lands them in a later
+      // pass of the SAME flush, so the frame is their own and no frame is
+      // lost. ONE unit, not one per write: the repair and the refocus nonce
+      // are one answer, and the nonce's consumer is gated on the pane the
+      // repair selects — settling them apart would let it fire at a pane that
+      // is not shown yet. Unowned so the one-shot enqueues instead of becoming
+      // a child effect of this arm (which would carry this very frame); the
+      // writes create no children and register no cleanup, which `onSettled`
+      // forbids.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          for (const evict of pass.evictions) evict();
+        }),
+      );
+    },
   );
 }

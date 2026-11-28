@@ -91,11 +91,14 @@ const RecordButton: Component = () => {
                 ref={setTriggerEl}
                 data-testid="record-toggle"
                 data-phase={recorder.phase()}
-                class="h-7 w-7 flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-                classList={{
-                  "text-danger hover:bg-surface-2": recorder.phase() === "idle",
-                  "bg-surface-2 text-danger": recorder.phase() === "setup",
-                }}
+                class={[
+                  "h-7 w-7 flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+                  {
+                    "text-danger hover:bg-surface-2":
+                      recorder.phase() === "idle",
+                    "bg-surface-2 text-danger": recorder.phase() === "setup",
+                  },
+                ]}
                 onClick={onIdleClick}
                 aria-label={idleLabel()}
               >
@@ -108,23 +111,27 @@ const RecordButton: Component = () => {
         <div
           data-testid="record-active"
           data-phase={recorder.phase()}
-          class="pointer-events-auto flex items-stretch h-7 rounded-lg overflow-hidden"
-          classList={{
-            "bg-danger/10 divide-x divide-danger/20 record-capsule-live":
-              isLive(),
-            "bg-warning/10 divide-x divide-warning/25": isPaused(),
-          }}
+          class={[
+            "pointer-events-auto flex items-stretch h-7 rounded-lg overflow-hidden",
+            {
+              "bg-danger/10 divide-x divide-danger/20 record-capsule-live":
+                isLive(),
+              "bg-warning/10 divide-x divide-warning/25": isPaused(),
+            },
+          ]}
         >
           {/* Pause / resume */}
           <Tip label={pauseLabel()} class="flex">
             <button
               type="button"
               data-testid="record-pause"
-              class="w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              classList={{
-                "text-danger hover:bg-danger/15": isLive(),
-                "text-warning hover:bg-warning/20": isPaused(),
-              }}
+              class={[
+                "w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+                {
+                  "text-danger hover:bg-danger/15": isLive(),
+                  "text-warning hover:bg-warning/20": isPaused(),
+                },
+              ]}
               onClick={() => recorder.togglePause()}
               aria-label={pauseLabel()}
             >
@@ -143,20 +150,24 @@ const RecordButton: Component = () => {
             <button
               type="button"
               data-testid="record-stop"
-              class="flex items-center gap-1.5 px-2.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              classList={{
-                "text-danger hover:bg-danger/15": isLive(),
-                "text-warning hover:bg-warning/20": isPaused(),
-              }}
+              class={[
+                "flex items-center gap-1.5 px-2.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+                {
+                  "text-danger hover:bg-danger/15": isLive(),
+                  "text-warning hover:bg-warning/20": isPaused(),
+                },
+              ]}
               onClick={() => runAction("stop recording", recorder.stop())}
               aria-label="Stop recording"
             >
               <span
-                class="w-1.5 h-1.5 rounded-full"
-                classList={{
-                  "bg-danger": isLive(),
-                  "bg-warning": isPaused(),
-                }}
+                class={[
+                  "w-1.5 h-1.5 rounded-full",
+                  {
+                    "bg-danger": isLive(),
+                    "bg-warning": isPaused(),
+                  },
+                ]}
               />
               <Show when={isPaused()}>
                 <span class="text-[0.625rem] font-semibold uppercase tracking-[0.12em] leading-none">
@@ -179,7 +190,7 @@ const RecordButton: Component = () => {
                 runAction("toggle webcam", recorder.toggleWebcam())
               }
               aria-label={webcamLabel()}
-              aria-pressed={recorder.webcamEnabled()}
+              aria-pressed={recorder.webcamEnabled() ? "true" : "false"}
             >
               <WebcamIcon />
             </button>

@@ -5,7 +5,18 @@
 
 import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
 import { describe, expect, it } from "vitest";
-import { fileHolders, fileTarget, holdsPath } from "./namedFiles";
+import {
+  type FileHolders,
+  fileTarget,
+  holdsPath,
+  mergeHolders,
+  pathsOf,
+} from "./namedFiles";
+
+/** THE INDEX OVER A COLLECTION, as the app builds it (`useFileHolders`):
+ *  each work's own paths, read once, and merged under the id holding them. */
+const fileHolders = (works: ReadonlyMap<WorkId, Work>): FileHolders =>
+  mergeHolders([...works].map(([id, one]) => [id, pathsOf(one)] as const));
 
 const AT = "2026-11-16T00:00:00.000Z";
 const PLAN = ".waterfall/plan.md";

@@ -28,15 +28,29 @@ export function mibText(
   return bytes === null ? fallback : formatMiB(bytes, 0);
 }
 
+/** This browser's JS-heap readout, in MiB to a tenth. */
+export type JsHeap = { usedMiB: number; totalMiB: number; limitMiB: number };
+
+/** Whether two heap readouts say the same thing — the three figures.
+ *
+ *  Beside {@link readJsHeap}, which mints a fresh record per read: a memo over
+ *  it needs this as its `equals`, or a diagnostics recompute that measured the
+ *  same heap re-publishes an equal record and re-renders the row. */
+export function sameJsHeap(a: JsHeap | null, b: JsHeap | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return (
+    a.usedMiB === b.usedMiB &&
+    a.totalMiB === b.totalMiB &&
+    a.limitMiB === b.limitMiB
+  );
+}
+
 /** `performance.memory` is Chromium-only and missing from the DOM type
  *  definitions — isolate the narrow cast here. Returns null on non-Chromium
  *  browsers (Firefox/Safari don't expose it), which is the honest "this browser
  *  can't tell us", not a degraded fallback. */
-export function readJsHeap(): {
-  usedMiB: number;
-  totalMiB: number;
-  limitMiB: number;
-} | null {
+export function readJsHeap(): JsHeap | null {
   const mem = (
     performance as {
       memory?: {

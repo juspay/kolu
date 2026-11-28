@@ -26,23 +26,14 @@
  *  WITH NOTHING IN FLIGHT, it says WHAT THE PANEL IS FOR — a welcome, not a
  *  count: never `0`, and never a bare line that teaches nobody anything. */
 
-import { Key } from "@solid-primitives/keyed";
-import {
-  finished,
-  inProgress,
-  type Work,
-  type WorkId,
-  type WorkRow,
-} from "kolu-work";
+import type { Work, WorkId, WorkRow } from "kolu-work";
+import type { JSX } from "@solidjs/web";
 import {
   type Component,
   createEffect,
   createMemo,
   For,
-  type JSX,
-  on,
-  onCleanup,
-  onMount,
+  onSettled,
   Show,
 } from "solid-js";
 import { MEMBERSHIP_BOUND_MS } from "../useDeepLinks";
@@ -50,7 +41,7 @@ import { layoutMode } from "../useMobile";
 import { askFromWelcome } from "./drafts";
 import { helpSheet } from "./helpContent";
 import { setPhoneView } from "./phoneView";
-import { useNeedsYou, useWorks } from "./useWorks";
+import { useNeedsYou, useWorks, useWorkSplit } from "./useWorks";
 import WorkCard from "./WorkCard";
 import {
   isFinishedOpen,
@@ -73,12 +64,12 @@ const Board: Component<{ children: JSX.Element }> = (props) => {
   let root!: HTMLDivElement;
   const scroller = () =>
     root.closest<HTMLElement>("[data-works-scroll]") ?? undefined;
-  onMount(() => {
+  onSettled(() => {
     const box = scroller();
     if (box !== undefined) box.scrollTop = boardScroll;
-  });
-  onCleanup(() => {
-    boardScroll = scroller()?.scrollTop ?? 0;
+    return () => {
+      boardScroll = scroller()?.scrollTop ?? 0;
+    };
   });
   return (
     <div ref={root} data-testid="works-board">
@@ -139,9 +130,9 @@ const Works: Component<{
         : "flex flex-col divide-y divide-edge overflow-hidden rounded-xl border border-edge"
     }
   >
-    <Key each={props.rows} by={([id]) => id}>
+    <For each={props.rows} keyed={([id]) => id}>
       {(row) => <WorkCard id={row()[0]} work={row()[1]} shape={props.shape} />}
-    </Key>
+    </For>
   </div>
 );
 
@@ -153,9 +144,6 @@ const PickedCard: Component<{ id: WorkId; record: Work | undefined }> = (
     {(work) => <WorkCard id={props.id} work={work()} shape="picked" />}
   </Show>
 );
-
-/** A watch keeps an eye on a terminal of yours; it is not building anything. */
-const isWatch = (work: Work): boolean => work.key.kind === "watch";
 
 /** THE THREE ASKS THE WELCOME OFFERS — requests, not commands: each one says
  *  what to do and where, which is the shape a waterfall needs to start. */
@@ -227,7 +215,14 @@ const Welcome: Component = () => {
 const WorkColumn: Component = () => {
   const works = useWorks();
   const needs = useNeedsYou();
-  const live = createMemo(() => inProgress(works()));
+  /** THE BOARD'S HALVES AND ITS WATCHES, as the app reads them once: whether
+   *  a work is still running, and whether it is a watch rather than work
+   *  being built, are that work's own readings off its snapshot — so neither
+   *  list moves for a timeline tick and this column reads no leaf of any
+   *  record. Reading `work.key.kind` per row here instead put two store
+   *  leaves per open work on the one memo below, past the development
+   *  build's 200-source judge at about a hundred of them. */
+  const { live, done, watching: watches } = useWorkSplit();
   /** On a phone every work is a card: a row needs a side to stand beside. */
   const rowShape = (): "card" | "row" =>
     layoutMode() === "phone" ? "card" : "row";
@@ -239,12 +234,11 @@ const WorkColumn: Component = () => {
     const watching: WorkRow[] = [];
     for (const row of live()) {
       if (waiting.has(row[0])) onYou.push(row);
-      else if (isWatch(row[1])) watching.push(row);
+      else if (watches().has(row[0])) watching.push(row);
       else moving.push(row);
     }
     return { onYou, moving, watching };
   });
-  const done = createMemo(() => finished(works()));
 
   /** Is the picked work in the list right now? */
   const pickedHere = createMemo(() => {
@@ -261,18 +255,19 @@ const WorkColumn: Component = () => {
     const now = works().find(([one]) => one === id);
     if (now !== undefined) return now;
     return last?.[0] === id ? last : undefined;
-  }, undefined);
+  });
   /** A PICKED WORK THAT IS NOT HERE IS LET GO, after the bound a link waits:
    *  a reload keeps the pick (`workListing.ts`) and the works reach the mirror
    *  one by one after it, and a work can be away for a moment, so a pick
    *  that is not here yet, or not here now, is not one that is gone. One
    *  that stays away — the oldest finished works are let go — is dropped. */
   createEffect(
-    on([pickedWork, pickedHere], ([id, here]) => {
+    () => [pickedWork(), pickedHere()] as const,
+    ([id, here]) => {
       if (id === null || here) return;
       const timer = setTimeout(unpickWork, MEMBERSHIP_BOUND_MS);
-      onCleanup(() => clearTimeout(timer));
-    }),
+      return () => clearTimeout(timer);
+    },
   );
   /** The sidebar's four groups, each read from its own reading here — the
    *  sidebar draws four fixed places, so nothing here is a list it keys. */
@@ -361,7 +356,7 @@ const WorkColumn: Component = () => {
                     <button
                       type="button"
                       data-testid="work-finished-toggle"
-                      aria-expanded={isFinishedOpen()}
+                      aria-expanded={isFinishedOpen() ? "true" : "false"}
                       class="mb-1.5 w-full cursor-pointer text-start font-mono text-[0.58rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
                       onClick={toggleFinished}
                     >

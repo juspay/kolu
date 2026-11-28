@@ -1,14 +1,8 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
 import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { MOONLIT } from "../terminal/moonlit";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
@@ -22,9 +16,14 @@ import {
   startTileDrag,
   startViewportDrag,
 } from "./minimapGestures";
-import type { TileLayout } from "./TileLayout";
+import { foldEach } from "@kolu/surface/solid";
+import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
+
+/** No tiles — a stable reference, so a hidden minimap does not re-key its
+ *  row memos on every read. */
+const NO_TILES: readonly string[] = [];
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -137,24 +136,43 @@ const CanvasMinimap: Component<{
   // shortens the window in one place shortens it everywhere.
   const isParked = useStaleCheck();
 
+  /** ONE ROW PER TILE — the box each tile stands in, folded a chunk at a
+   *  time ({@link foldEach}). Walked on the bounds memo itself, the layout
+   *  lookup plus the four corner leaves put five or six sources per tile on
+   *  one scope, and a board is unbounded in tiles: Solid's development build
+   *  judges that past 200.
+   *
+   *  The keys are empty while the minimap is HIDDEN, so a board nobody is
+   *  looking at keeps no row memos and the box below holds its last value —
+   *  the same withdrawal the `shown` gate always made. */
+  const tileBoxes = foldEach<string, TileLayout>(
+    "minimapTiles",
+    () => (props.shown ? props.tileIds : NO_TILES),
+    (id) => {
+      const l = props.getLayout(id);
+      return l === undefined ? undefined : { x: l.x, y: l.y, w: l.w, h: l.h };
+    },
+    layoutsEqual,
+  );
+
   // ── Bounding box of all tiles ──
   const bounds = createMemo(
-    (previous: {
-      minX: number;
-      minY: number;
-      maxX: number;
-      maxY: number;
-      w: number;
-      h: number;
-    }) => {
+    (
+      previous: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        w: number;
+        h: number;
+      } = { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 },
+    ) => {
       if (!props.shown) return previous;
       let minX = Infinity,
         minY = Infinity,
         maxX = -Infinity,
         maxY = -Infinity;
-      for (const id of props.tileIds) {
-        const l = props.getLayout(id);
-        if (!l) continue;
+      for (const l of tileBoxes()) {
         minX = Math.min(minX, l.x);
         minY = Math.min(minY, l.y);
         maxX = Math.max(maxX, l.x + l.w);
@@ -175,7 +193,7 @@ const CanvasMinimap: Component<{
         h: padMaxY - padMinY,
       };
     },
-    { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 },
+    { name: "bounds" },
   );
 
   // ── Scale factor: fit bounding box into MAP_W × MAP_H ──
@@ -306,17 +324,19 @@ const CanvasMinimap: Component<{
       {/* Minimap visualization */}
       <div
         data-testid="minimap-map"
-        class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
+        class={[
+          "rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden",
+          {
+            "cursor-default": !hoveringViewport() && !draggingViewport(),
+            "cursor-grab": hoveringViewport() && !draggingViewport(),
+            "cursor-grabbing": draggingViewport(),
+          },
+        ]}
         // `min-width` (not `width`) is fact (2) of the PANEL SEAM — see the
         // container comment above.
         style={{
           "min-width": `${mapDims().minW}px`,
           height: `${mapDims().h}px`,
-        }}
-        classList={{
-          "cursor-default": !hoveringViewport() && !draggingViewport(),
-          "cursor-grab": hoveringViewport() && !draggingViewport(),
-          "cursor-grabbing": draggingViewport(),
         }}
         onPointerDown={handleMapPointerDown}
         onPointerMove={handleMapPointerMove}
@@ -430,7 +450,7 @@ const CanvasMinimap: Component<{
             const isActive = () => tileStore.isActiveTile(id);
             const hasAgent = () => presence() === "agent";
             const badgeVisible = () => hasAgent();
-            // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
+            // Parked-bg comes from the `bg-fg-3/40` class (see `class`) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
             // color that can't be a static Tailwind token.
@@ -483,18 +503,20 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
-                    class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
-                    classList={{
-                      "rounded-full bg-fg-3/40": parked(),
-                      "rounded-sm hover:opacity-100": !parked(),
-                      "ring-1 ring-accent/60": isActive(),
-                      // Active needs solid chrome behind its ring; parked is
-                      // already dim from bg-color so don't double-dim. Other
-                      // inactive tiles fade to 70 % so the badge + active
-                      // tile dominate.
-                      "opacity-100": isActive() || parked(),
-                      "opacity-70": !isActive() && !parked(),
-                    }}
+                    class={[
+                      `absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`,
+                      {
+                        "rounded-full bg-fg-3/40": parked(),
+                        "rounded-sm hover:opacity-100": !parked(),
+                        "ring-1 ring-accent/60": isActive(),
+                        // Active needs solid chrome behind its ring; parked is
+                        // already dim from bg-color so don't double-dim. Other
+                        // inactive tiles fade to 70 % so the badge + active
+                        // tile dominate.
+                        "opacity-100": isActive() || parked(),
+                        "opacity-70": !isActive() && !parked(),
+                      },
+                    ]}
                     style={tileStyle(t())}
                     title={tooltip()}
                     onPointerDown={handleTilePointerDown}
@@ -505,11 +527,13 @@ const CanvasMinimap: Component<{
                     <Show when={hasAgent() || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
-                        class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
-                        classList={{
-                          "opacity-0": !badgeVisible(),
-                          "opacity-100": badgeVisible(),
-                        }}
+                        class={[
+                          `absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`,
+                          {
+                            "opacity-0": !badgeVisible(),
+                            "opacity-100": badgeVisible(),
+                          },
+                        ]}
                         style={{
                           "background-color": bucketDescriptor(state().bucket)
                             .accentVar,

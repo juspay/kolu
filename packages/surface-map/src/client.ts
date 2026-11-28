@@ -4,7 +4,7 @@
  * `entry(key)` is a PURE lens (partial application of the key — no owner, no I/O,
  * total), and whose `useEntry(accessor)` is the Solid reactive lens that owns
  * swap disposal (a key change disposes the old key's subscriptions and rebuilds
- * synchronously).
+ * on the flush that key change schedules).
  *
  * The per-key subtree is the runtime-keyed analogue of the compile-time sibling
  * client: a per-key `SurfaceClient<ES>` built over a {@link keyInjectingDispatch} —
@@ -28,6 +28,7 @@ import {
   buildSurfaceClient,
   createKeyedRoot,
   isLiveSignalHandle,
+  joinChunks,
   type ReadOnlyBoundCollection,
   resolveTransport,
   type Subscription,
@@ -328,8 +329,9 @@ export interface SurfaceMapClient<
    *  (`entry(key).odu.…`), each typed from that sibling's own spec. */
   entry(key: KS["Type"]): Entry<ES, Failure, Conn, Sibs>;
   /** Solid reactive lens — owns swap disposal (a keyed root disposes the old
-   *  key's subscriptions on switch and rebuilds synchronously). THROWS outside a
-   *  reactive owner. Sibling faces re-key with the entry's own. */
+   *  key's subscriptions on switch and rebuilds on the flush the key change
+   *  schedules). THROWS outside a reactive owner. Sibling faces re-key with the
+   *  entry's own. */
   useEntry(key: Accessor<KS["Type"]>): Entry<ES, Failure, Conn, Sibs>;
   dispose(): void;
 }
@@ -524,9 +526,10 @@ function reactiveFace<
                     // Events' `.use()` returns void — keep the keyed root live
                     // (and re-keying) even when the caller never reads a result.
                     if (prim === "events") {
-                      createEffect(() => {
-                        current();
-                      });
+                      createEffect(
+                        () => current(),
+                        () => {},
+                      );
                       return undefined;
                     }
                     // `BoundStream.use()`'s WHOLE result IS a `Subscription<T>` (unlike
@@ -543,11 +546,29 @@ function reactiveFace<
                     return reactiveDelegate(current);
                   };
                 }
-                // Imperative, lifecycle-free members (collection upsert/delete).
+                // Imperative, lifecycle-free members: a collection's
+                // `upsert`/`delete`, and the raw un-enrolled stream/keys refs
+                // (`streams.<k>.unenrolled`, `collections.<k>.unenrolledKeys`).
+                //
+                // The key is resolved with `untrack`, for the same reason
+                // `faceDelegate` resolves it that way: a call here is a
+                // point-in-time act that goes to the key active WHEN IT IS
+                // MADE, and never a dependency of whoever made it. Two things
+                // rest on that. A call made from a memo or an effect's compute
+                // must not subscribe that computation to the active key — the
+                // key change already re-keys this walk's `.use()` subscriptions
+                // through the keyed root, and a second, accidental dependency
+                // would re-run the caller as well. And a raw ref handed to
+                // `unenrolledStreamCall` is re-read inside its `Stream.suspend`
+                // on every subscribe and every retry, which runs under the
+                // effect-ts fiber of whichever effect callback opened it: a
+                // bare read there is a strict-read window, and the sample must
+                // not enrol the stream's key accessor as a dependency of it
+                // either.
                 return (...args: unknown[]) => {
-                  const fn = face(entryFor(keyAccessor()))[prim][member]?.[
-                    verb
-                  ];
+                  const fn = untrack(
+                    () => face(entryFor(keyAccessor()))[prim][member]?.[verb],
+                  );
                   if (fn === undefined) {
                     throw new Error(
                       `surface-map: no bound "${prim}.${member}.${verb}" on this face — the walk asked for a verb the spec never declared.`,
@@ -629,7 +650,13 @@ function makeReactiveEntry<
  *  the CURRENT key per call — so an imperative point-call through `useEntry` routes to
  *  the active host at call time. The `face` selector is the ONLY axis of variation
  *  between the two imperative subtrees; both are the same arbitrary-depth walk (rare for
- *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total). */
+ *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total).
+ *
+ *  The key is resolved with `untrack`: a call is a point-in-time act that goes to the
+ *  key active when it is made, never a dependency. A call made from a memo or an
+ *  effect's compute must not subscribe that computation to the active key, and a call
+ *  made from an effect callback (where reads are not tracked at all) is the same act —
+ *  so the resolution reads the key once, untracked, wherever the call comes from. */
 function faceDelegate<
   ES extends SurfaceSpec,
   K,
@@ -646,7 +673,7 @@ function faceDelegate<
       get: (_t, prop) => walk([...path, prop as string]),
       apply: (_t, _this, args) => {
         // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's face by the accumulated path
-        let node: any = face(entryFor(keyAccessor()));
+        let node: any = untrack(() => face(entryFor(keyAccessor())));
         for (const p of path) node = node[p];
         return node(...args);
       },
@@ -773,6 +800,50 @@ export function connectSurfaceMap<
   const rawEntries = entriesClient.collections
     .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure, Conn>>;
 
+  // THE MEMBERSHIP KEYSET, FOLDED ONCE AND IN CHUNKS — the one place this client
+  // walks the membership collection's keys.
+  //
+  // `rawEntries.use().keys()` hands back a Solid STORE-PROXY array (the per-key
+  // delivery path holds its value in a store), and walking one is a reactive read
+  // PER INDEX. Every membership question below used to walk it: `foldState` and
+  // `membershipIdOf` asked `.includes(enc)`, the external `entries` view mapped it
+  // to decode, and the departed-member prune spread it. So ONE `state()` read
+  // subscribed its scope to every member in the pool, and a scope folding over the
+  // pool was quadratic in it — which Solid's 200-source `WIDE_SCOPE_DEPS` judge
+  // caught at ~65 hosts folded or ~199 members for a single lookup, over a pool
+  // nothing caps.
+  //
+  // The walk lives here now, through `joinChunks` (`@kolu/surface/solid`, the
+  // repo's one chunked fold): one chunk memo per 128 consecutive slots
+  // (`1 + CHUNK` sources) and a join over the chunks (`1 + ⌈N / CHUNK⌉`). What
+  // comes out is a PLAIN array, so every question above it costs ONE source
+  // and keeps its own answer.
+  //
+  // LAZY, and the `.use()` is taken once INSIDE the client owner: the first
+  // membership question opens the membership subscription (as the prune effect
+  // below already did at client build), and no question opens a second one or
+  // re-registers a view on a re-fold.
+  let memberKeysFold: Accessor<readonly string[]> | undefined;
+  const memberKeys = (): readonly string[] => {
+    memberKeysFold ??= build(() => {
+      const view = rawEntries.use();
+      return joinChunks<string>(
+        "surfaceMap.members",
+        () => view.keys().length,
+        (start, end) => {
+          const all = view.keys();
+          const reading: string[] = [];
+          for (let at = start; at < end; at++) {
+            const one = all[at];
+            if (one !== undefined) reading.push(one);
+          }
+          return reading;
+        },
+      );
+    });
+    return memberKeysFold();
+  };
+
   // A key object has NO reference identity of its own (two independent decodes of
   // the same wire string are logically equal but never `===` — a schema decode
   // mints a fresh object even for an already-valid input). Every consumer that
@@ -813,8 +884,14 @@ export function connectSurfaceMap<
         ? () => opts.keys?.().map((k) => map.codec.encode(k)) ?? []
         : undefined;
       const result = rawEntries.use({ keys: rawKeys, onError: opts?.onError });
+      // The WHOLE-collection view reads the bounded fold rather than the raw
+      // store-proxy keyset: decoding is a walk, and a walk of the proxy charges
+      // this view's CALLER one source per member. A NARROWED view's keyset is
+      // the caller's own plain array (it is what they passed in, encoded), so
+      // there is nothing to terminate there.
+      const encoded = rawKeys === undefined ? memberKeys : result.keys;
       return {
-        keys: () => result.keys().map(decodeKey),
+        keys: () => encoded().map(decodeKey),
         byKey: (key: K) => {
           const sub = result.byKey(map.codec.encode(key));
           return sub === undefined
@@ -830,12 +907,15 @@ export function connectSurfaceMap<
   // `makeReactiveEntry`); `undefined` before the first status frame lands, or for a
   // key that is not a member. Callers that must stay non-reactive (`entry`'s pure
   // lens) read it through `untrack`.
+  //
+  // The membership question goes to the bounded fold, so a re-key driver tracks
+  // ONE source for "is this still a member" however large the pool is.
   const membershipIdOf = (key: K): MembershipId | undefined => {
     const enc = map.codec.encode(key);
-    const view = rawEntries.use();
-    if (!view.keys().includes(enc)) return undefined;
-    return (view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined)
-      ?.membershipId;
+    if (!memberKeys().includes(enc)) return undefined;
+    return (
+      rawEntries.use().byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined
+    )?.membershipId;
   };
 
   // The opaque re-key identity composite — an INJECTIVE `[enc, membershipId]` pairing.
@@ -985,27 +1065,39 @@ export function connectSurfaceMap<
   // owner (client-lifetime, like the caches); compares RAW encoded strings, side-stepping
   // the object-identity trap `K` itself would set.
   build(() => {
-    let prevMembers: string[] = [];
-    createEffect(() => {
-      const members = rawEntries.use().keys();
-      const present = new Set(members);
-      for (const enc of [...clients.keys()]) {
-        if (!present.has(enc)) {
-          for (const c of clients.get(enc)?.values() ?? []) disposeKeyed(c);
-          clients.delete(enc);
+    let prevMembers: readonly string[] = [];
+    createEffect(
+      // MATERIALIZED here, in the tracked compute: the fold's own array is held
+      // across re-folds when membership did not move, and the untracked effect
+      // phase must not be handed the SAME reference `prevMembers` already holds
+      // (the `keyCache` prune below compares the two and would find them equal
+      // by construction). The copy is the frame. The fold it copies is the
+      // bounded keyset, so this effect tracks one source rather than one per
+      // member — and, as before, it reads only the KEYSET and never a per-key
+      // `byKey`, so no member's status stream is lit by the prune.
+      () => [...memberKeys()],
+      (members) => {
+        const present = new Set(members);
+        for (const enc of [...clients.keys()]) {
+          if (!present.has(enc)) {
+            for (const c of clients.get(enc)?.values() ?? []) disposeKeyed(c);
+            clients.delete(enc);
+          }
         }
-      }
-      for (const enc of prevMembers) {
-        if (!present.has(enc)) keyCache.delete(enc);
-      }
-      prevMembers = members;
-    });
+        for (const enc of prevMembers) {
+          if (!present.has(enc)) keyCache.delete(enc);
+        }
+        prevMembers = members;
+      },
+    );
   });
 
   const foldState = (key: K): EntryState<Failure, Conn> => {
-    const view = rawEntries.use();
     const enc = map.codec.encode(key);
-    if (!view.keys().includes(enc)) return { kind: "not-a-member" };
+    // The membership question first, off the bounded fold: a chip that paints
+    // one key tracks ONE source for "is it a member", not one per member.
+    if (!memberKeys().includes(enc)) return { kind: "not-a-member" };
+    const view = rawEntries.use();
     const v = view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined;
     // A member whose per-key status frame hasn't landed yet is honestly warming; then
     // FLOOR the claim on the map's OWN transport liveness via {@link floorOnLiveness}: a
@@ -1092,6 +1184,21 @@ export function connectSurfaceMap<
     // this swap-root for no membership change at all. `canonicalizeKey` guarantees
     // one reference per encoded string map-wide, so the read below is a no-op read,
     // never a key change.
+    //
+    // ONE DIRECTION, and it is worth naming because this callback is handed
+    // across a boundary (into `makeReactiveEntry`, and from there into every
+    // proxy the walk mints): `stableKey` is read STRICTLY DOWNSTREAM of the
+    // caller's own key accessor and of nothing else. It reads `keyAccessor()`
+    // and a map-wide reference cache, and it reads no value any of its readers
+    // publishes — not the keyed root's view, not a bound member's subscription,
+    // not an entry's `state()`. So the lens cannot close a cycle back onto
+    // itself, and two `useEntry` lenses whose keys are peers (one lens's key
+    // derived from the other's entry, or an imperative call made from the
+    // other's compute) are still a DAG: each key flows one way into the walk
+    // that uses it. A cycle here would be a throw inside Solid's flush rather
+    // than a diagnostic, so it is pinned by a test
+    // (`imperativeKeyFromApplyArm.test.ts`, the peer-lens case) and not just by
+    // this paragraph.
     const stableKey = () => canonicalizeKey(keyAccessor());
     // The re-key identity the keyed root switches on: the per-key client's
     // `{enc, membershipId}` cache key. Reads `membershipIdOf` TRACKED (this runs inside

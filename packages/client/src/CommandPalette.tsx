@@ -10,9 +10,8 @@
  * internally with capture-phase listener to intercept before terminal.
  */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { Key } from "@solid-primitives/keyed";
 import { encodeHostKey } from "kolu-common/hostKey";
 import {
   type Accessor,
@@ -20,17 +19,23 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  createSelector,
   For,
-  on,
   Show,
+  untrack,
 } from "solid-js";
+import { createKeySelector } from "./createKeySelector";
 import { match } from "ts-pattern";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { ACTIONS } from "./input/actions";
 import type { Keybind } from "./input/keyboard";
 import CreateIdentityPreview from "./palette/CreateIdentityPreview";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import {
+  sameSegments,
+  type Segment,
+  segmentsForTokens,
+} from "./palette/highlightMatch";
+import { identityPrimary } from "./palette/identityPrimary";
 import PaletteRow, { type PaletteRowMeta } from "./palette/PaletteRow";
 import { notePointerMove, type PointerPos } from "./palette/pointerHoverGate";
 import {
@@ -41,6 +46,7 @@ import {
   type ResultKind,
 } from "./palette/rootIndex";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
+import { tokenize } from "./search";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
@@ -129,12 +135,57 @@ export type DisplayEntry =
       group: PaletteGroup;
       index?: never;
     }
-  | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
+  | {
+      kind: "row";
+      cmd: PaletteCommand | PaletteLabel;
+      index: number;
+      /** The row's headline, already split against the query. Computed HERE,
+       *  where the list tokenizes once for every row, so no row has to read
+       *  the query signal to paint its highlight. */
+      segments: readonly Segment[];
+    };
 
 /** A render entry paired with the identity the list retains its node by. */
 export interface KeyedDisplayEntry {
   key: string;
   entry: DisplayEntry;
+}
+
+/** Whether two render entries are the same entry — the same kind carrying the
+ *  same displayed content.
+ *
+ *  {@link displayed} mints fresh entry objects on every recompute, so a list
+ *  republished unchanged hands each keyed node a NEW entry with identical
+ *  fields. The narrowings below gate on this so an unchanged section header
+ *  (or host header, or row) stops the republish at the narrowing instead of
+ *  re-running every attribute under it. Rows and host headers carry live
+ *  command/group payloads, which are compared by reference: a fresh payload is
+ *  a real change, because its callbacks and status are what the node renders.
+ *  A row's segments are compared by content, because every keystroke mints a
+ *  fresh split and an unchanged one must not repaint. */
+export function sameDisplayEntry(
+  a: DisplayEntry | undefined,
+  b: DisplayEntry | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.kind === "header") {
+    return b.kind === "header" && a.section === b.section;
+  }
+  if (a.kind === "host-header") {
+    return (
+      b.kind === "host-header" &&
+      a.name === b.name &&
+      a.count === b.count &&
+      a.group === b.group
+    );
+  }
+  return (
+    b.kind === "row" &&
+    a.index === b.index &&
+    a.cmd === b.cmd &&
+    sameSegments(a.segments, b.segments)
+  );
 }
 
 /** The identity an entry WANTS — its logical name in the tree.
@@ -210,6 +261,14 @@ interface PaletteBase {
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
   onCancel?: () => void;
+  /** Highlighting this row previews something rendered BEHIND the dialog —
+   *  the active terminal's theme is the one case. The palette drops its
+   *  backdrop while such a row is highlighted, so the preview is visible.
+   *  Declared on the ROW rather than read back off the preview signal the
+   *  row's `onHighlight` writes: the backdrop and the highlight then settle in
+   *  one run instead of the overlay memo running once against its previous
+   *  opacity and again after the write. */
+  previewsBehind?: boolean;
 }
 
 /** A leaf that runs an action when selected. */
@@ -289,6 +348,69 @@ export type PaletteMode =
   | { kind: "filter" }
   | { kind: "value"; leaf: PaletteValueInput };
 
+/** The ONE filter-mode value. Filter mode carries no data, so every
+ *  construction of it is the same value; minting a fresh object per `mode()`
+ *  recompute would republish an equivalent object to every reader on each
+ *  keystroke. */
+const FILTER_MODE: PaletteMode = { kind: "filter" };
+
+/** Two modes are the same when they are the same arm over the same leaf —
+ *  `leaf` is a live tree node, compared by identity. */
+function sameMode(a: PaletteMode, b: PaletteMode): boolean {
+  if (a.kind === "value") return b.kind === "value" && a.leaf === b.leaf;
+  return b.kind === "filter";
+}
+
+/** One breadcrumb chip: the label at a path depth. */
+type BreadcrumbSegment = { name: string; depth: number };
+
+/** The empty breadcrumb — the root level, i.e. the common case. Returned by
+ *  reference so a palette that never leaves root never republishes the strip. */
+const NO_BREADCRUMBS: readonly BreadcrumbSegment[] = [];
+
+/** Whether two breadcrumb strips read the same. The segments are rebuilt from
+ *  `path()` on every recompute, so without this every keystroke republishes an
+ *  equal strip. */
+function sameBreadcrumbs(
+  a: readonly BreadcrumbSegment[],
+  b: readonly BreadcrumbSegment[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((s, i) => s.name === b[i]?.name && s.depth === b[i]?.depth)
+  );
+}
+
+/** Whether two "where the user already is" facts read the same. Both legs are
+ *  plain keys, so this is the whole value — the fact is rebuilt per recompute
+ *  and would otherwise republish an equal object. */
+function sameSelection(a: CurrentSelection, b: CurrentSelection): boolean {
+  return a.hostKey === b.hostKey && a.terminalId === b.terminalId;
+}
+
+/** Whether two drill paths name the same segments, by VALUE: a live-tree walk
+ *  rebuilds a path out of the tree's current objects, so segment identity is
+ *  not what "the user is still in the same place" means — the id (or name) a
+ *  segment is addressed by is. */
+function samePath(
+  a: readonly DrillableKind[],
+  b: readonly DrillableKind[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((s, i) => (s.id ?? s.name) === (b[i]!.id ?? b[i]!.name))
+  );
+}
+
+/** The ONE empty list every list memo below returns when it has nothing to
+ *  show, so a palette that matches nothing republishes the same reference
+ *  rather than a fresh equal array per recompute (`NO_BREADCRUMBS` above is
+ *  the same idea for the breadcrumb strip). */
+const NO_ENTRIES: readonly never[] = [];
+
+const orEmpty = <T,>(xs: T[]): T[] =>
+  xs.length === 0 ? (NO_ENTRIES as unknown as T[]) : xs;
+
 function isDrillable(item: PaletteItem): item is DrillableKind {
   return item.kind === "group" || item.kind === "value";
 }
@@ -311,30 +433,209 @@ const CommandPalette: Component<{
    *  `["Terminals", "zest"]`). Tracked reactively — updating while open
    *  re-targets the path. */
   initialPath?: readonly string[];
-  /** When true, the backdrop is transparent so content behind is visible. */
-  transparentOverlay?: boolean;
 }> = (props) => {
   const { peekAmbientTipText } = useTips();
   const view = useViewState();
-  let inputRef!: HTMLInputElement;
+  /** The search input, as a SIGNAL — `ModalDialog`/Corvu is handed it as
+   *  `initialFocusEl`, and a component prop that is a bare `let` compiles to a
+   *  value captured once, while the element only exists once the children have
+   *  rendered. Corvu would then read `undefined`, fall back to the FIRST
+   *  focusable element in the dialog content, and focus THAT — on an open at a
+   *  path, the breadcrumb's "Commands" chip sits ahead of the input. A signal
+   *  read (`inputRef()`) is a getter the whole way down, so the trap focuses
+   *  the input the palette actually means. */
+  const [inputRef, setInputRef] = createSignal<HTMLInputElement>();
   let listEl!: HTMLDivElement;
-  const [query, setQuery] = createSignal("");
-  const [ambientTip, setAmbientTip] = createSignal("");
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
+  /** THE OPEN EDGE'S RESETS, DERIVED. Each of these facts is "what the user
+   *  has done since the palette opened", so an open is where it goes back to
+   *  nothing. Written from the lifecycle effect's apply arm they would RELAY
+   *  the open: corvu's own dismiss effect and every memo reading `props.open`
+   *  run once in the flush `open` changed — against the previous tip and
+   *  hover arm, and the query, whose SECOND edge (the trim) spells it out
+   *  below — and again after the write lands, so each open ran TORN.
+   *  (Torn, not painted: the write's continuation drains inside the same
+   *  `flush()`, so no stale frame reaches the screen — what the double run
+   *  costs is the work, and Solid grades it `EFFECT_RELAY_TEAR`.) As writable
+   *  memos keyed on the edge (the same idiom as `pathState` below) the reset
+   *  arrives in the SAME flush as the open, and the keystroke/pointer writes
+   *  stay exactly as they were. `open` rides along as the edge's memory: the
+   *  derivation sees only `prev`. */
+  type EdgeReset<T> = { readonly open: boolean; readonly value: T };
+  function onOpenEdge<T>(
+    name: string,
+    empty: T,
+    /** The value this edge leaves behind. Reached only ON an edge, so
+     *  whatever it reads is a snapshot and never a dependency. */
+    next: (prev: T, open: boolean) => T,
+  ): [Accessor<T>, (value: T) => void] {
+    const [state, setState] = createSignal<EdgeReset<T>>(
+      (prev = { open: false, value: empty }): EdgeReset<T> => {
+        const open = props.open;
+        if (open === prev.open) return prev;
+        return { open, value: next(prev.value, open) };
+      },
+      { name: `${name}Edge` },
+    );
+    // A memo, so a reader wakes for a CHANGED value and not for an edge that
+    // left it alone (a close keeps the tip text it was showing). The setter
+    // holds the same line: a write of the value already held keeps `prev`, so
+    // the composite's identity — and with it the memo and everything under it
+    // — stays put, exactly as the plain signal this replaced did.
+    return [
+      createMemo(() => state().value, { name }),
+      (value: T) =>
+        setState((prev) =>
+          Object.is(prev.value, value) ? prev : { ...prev, value },
+        ),
+    ];
+  }
+  // The one-shot ambient tip: picked ONCE per open. `untrack` because the pick
+  // is random and reads the tip preferences — re-rolling it on a preference
+  // tick would change the footer under the reader.
+  const [ambientTip] = onOpenEdge("paletteAmbientTip", "", (prev, open) =>
+    open ? untrack(peekAmbientTipText) : prev,
+  );
   // Hover selection only after a real pointer delta — see pointerHoverGate.
   // Synthetic mousemove/enter under a stationary cursor must not steal the
-  // keyboard highlight (open-under-cursor shimmer).
-  const [mouseActive, setMouseActive] = createSignal(false);
+  // keyboard highlight (open-under-cursor shimmer), so an edge disarms it.
+  const [mouseActive, setMouseActive] = onOpenEdge(
+    "paletteMouseActive",
+    false,
+    () => false,
+  );
   let lastPointerPos: PointerPos | null = null;
-  const [path, setPath] = createSignal<DrillableKind[]>([]);
+  /** THE COMMAND TREE AS A SHUT PALETTE SEES IT — the last one it was given.
+   *
+   *  The palette's content is force-mounted and merely hidden while closed
+   *  (`ModalDialog`), so without this every read of `props.commands()` below —
+   *  the list, the path walk, the footer — republishes the whole palette chain
+   *  on each metadata tick for a surface nobody is looking at: `currentItems →
+   *  partitioned → filtered → displayed → keyedDisplay`, the per-entry
+   *  narrowings, and every mounted row beneath them. Holding the previous tree
+   *  ends THAT: the gate publishes no new value while shut, so nothing
+   *  downstream of it has a reason to run.
+   *
+   *  It does NOT stop the app's own tree from rebuilding. `createCommands` is a
+   *  memo in `<App>`'s body, owned for the app's lifetime, and such a memo
+   *  recomputes whenever its sources change whether or not anyone is reading
+   *  it. Narrowing that belongs upstream, where the rows are built.
+   *
+   *  Nothing a reader can see changes: the rows a hidden palette holds are not
+   *  on screen, and opening is itself a change to `props.open`, so the first
+   *  open frame reads the tree fresh. The rows stay MOUNTED meanwhile, which is
+   *  what force-mounting is for. */
+  const commandTree = createMemo<PaletteItem[]>(
+    (prev) => (props.open ? props.commands() : (prev ?? [])),
+    { name: "paletteCommandTree" },
+  );
 
-  /** Walk `path` against the live command tree; return the live
-   *  drillable segments that still resolve, in order. */
-  function resolveLivePath(p: DrillableKind[]): {
+  /** The drill PATH — the segments the user drilled into, derived from the
+   *  OPEN EDGE and trimmed to what the live command tree still resolves. A
+   *  WRITABLE MEMO, not a plain signal: the path FOLLOWS `props.open` and the
+   *  tree (the palette closes, a host disconnects, a group hides, and the dead
+   *  tail goes) while drill-in and drill-out still write it.
+   *
+   *  Deriving is what keeps the path out of an effect. An effect that reset it
+   *  on `props.open` would RELAY the open: everything reading both the open and
+   *  the path (the default-highlight rule, the level memo, the breadcrumb) runs
+   *  once in the flush where `open` changed — against the STALE path — and
+   *  again after the effect's write lands, so every open ran torn. As a
+   *  derivation the new path arrives in the SAME flush as the open.
+   *
+   *  So an open edge is where a deep link resolves (exactly, against the tree
+   *  as it stands at the open), and a close edge is where the path empties.
+   *  `open` and `link` ride along as the edge's memory: the derivation sees
+   *  only `prev`, and these are what tell a NEW open or a NEW deep link from a
+   *  tree tick while the palette stays open.
+   *
+   *  `dropped` rides along so the imperative half (the departed segments'
+   *  `onCancel`) knows what went away: the live-tree trim hands it to the
+   *  effect below, the close edge hands it to the open/close lifecycle — which
+   *  alone knows whether the close completed a selection and so must NOT
+   *  cancel. A drill write clears it: a drill-out cancels what it pops itself.
+   *  The derivation returns `prev` UNCHANGED when nothing was trimmed, so a
+   *  tree that churns without dropping a segment notifies nobody.
+   *
+   *  `resolveLivePath` and `resolveInitialPath` are hoisted below — the
+   *  derivation runs on read, never at this line. */
+  type PathState = {
+    /** `props.open` as of the derivation that produced this state. */
+    readonly open: boolean;
+    /** `props.initialPath`, joined, as of the last resolution. */
+    readonly link: string;
+    readonly segments: DrillableKind[];
+    readonly dropped: readonly DrillableKind[];
+  };
+  const NO_SEGMENTS: readonly DrillableKind[] = [];
+  const NO_PATH: PathState = {
+    open: false,
+    link: "",
+    segments: [],
+    dropped: [],
+  };
+  /** `props.initialPath` as one comparable value — the deep link's identity. */
+  const linkKey = (): string => props.initialPath?.join("\0") ?? "";
+  const [pathState, setPathState] = createSignal<PathState>(
+    (prev = NO_PATH): PathState => {
+      const open = props.open;
+      const link = linkKey();
+      // Closed: no drill path. What it abandons travels as `dropped`, for the
+      // lifecycle effect to cancel.
+      if (!open)
+        return prev.open
+          ? { open: false, link, segments: [], dropped: prev.segments }
+          : prev;
+      // THE LIVE TREE IS A DEPENDENCY OF EVERY OPEN RUN, deep link or not.
+      // The trim at the bottom of this derivation is only reachable on a run
+      // the tree WAKES it for, so a read it skipped is a trim that never
+      // happens: an empty link resolved without touching the tree left a plain
+      // ⌘K open with no tree dependency at all, and a group drilled into after
+      // that open could leave the live tree with the palette still standing
+      // inside it — dead breadcrumb, empty list — until the next open. (Master
+      // trimmed from a standalone effect, which re-subscribed on every run.)
+      const tree = commandTree();
+      // The open edge — and a NEW deep link handed in while it stays open: the
+      // path IS the resolved link. Exact resolution only, no prefix fallback (a
+      // missing host must not open the broader Terminals list as if the
+      // deep-link succeeded); a rejected link leaves the root list showing.
+      if (!prev.open || link !== prev.link)
+        return {
+          open: true,
+          link,
+          segments: resolveInitialPath(props.initialPath ?? [], tree) ?? [],
+          dropped: [],
+        };
+      const { valid } = resolveLivePath(prev.segments, tree);
+      if (valid.length === prev.segments.length) return prev;
+      return {
+        ...prev,
+        segments: valid,
+        dropped: prev.segments.slice(valid.length),
+      };
+    },
+  );
+  const path = (): DrillableKind[] => pathState().segments;
+  const setPath = (
+    next: DrillableKind[] | ((prev: DrillableKind[]) => DrillableKind[]),
+  ): void => {
+    setPathState((prev) => ({
+      ...prev,
+      segments: typeof next === "function" ? next(prev.segments) : next,
+      dropped: [],
+    }));
+  };
+
+  /** Walk `p` against `root` — the tree of record, handed in by the caller
+   *  that read it — and return the live drillable segments that still
+   *  resolve, in order. */
+  function resolveLivePath(
+    p: DrillableKind[],
+    root: PaletteItem[],
+  ): {
     valid: DrillableKind[];
     level: PaletteItem[];
   } {
-    let level: PaletteItem[] = props.commands();
+    let level: PaletteItem[] = root;
     const valid: DrillableKind[] = [];
     for (const segment of p) {
       const match = level.find(
@@ -349,32 +650,86 @@ const CommandPalette: Component<{
     return { valid, level };
   }
 
-  /** If a path segment disappears (host disconnect, group hidden), pop
-   *  to the deepest still-valid segment — never keep showing children
-   *  from a stale path object. */
-  createEffect(() => {
-    if (!props.open) return;
-    const p = path();
-    if (p.length === 0) return;
-    const { valid } = resolveLivePath(p);
-    if (valid.length === p.length) return;
-    for (const g of p.slice(valid.length)) g.onCancel?.();
-    setPath(valid);
-    setQuery("");
-  });
+  /** THE QUERY, reset by TWO DERIVED EDGES. An open clears it (the search you
+   *  left behind is not this one's), and a TRIM clears it (the query that
+   *  filtered inside a departed segment goes with the segment).
+   *
+   *  The trim is why this one is spelled out instead of reaching for
+   *  `onOpenEdge` above. The tree tick that drops a segment is read by the
+   *  LIST as well, so a query cleared from the trim effect's apply arm relayed
+   *  that tick: `partitioned` and the input's own binding ran once in the
+   *  flush the tree changed, against the stale query, and again once the clear
+   *  landed — Solid's `EFFECT_RELAY_TEAR`, `warn` from its third sighting.
+   *  Derived, the empty query arrives in the SAME flush as the popped path.
+   *
+   *  `open` and `dropped` ride along as the two edges' memory: a reset happens
+   *  on the run where one of them MOVED. So a tree tick that dropped nothing
+   *  never undoes what you are typing, a drill — which writes the path and
+   *  then the query itself — is left alone, and a close keeps the term it was
+   *  showing. A SHUT palette reads no path at all: a tree tick behind a closed
+   *  palette is not its business. */
+  type QueryState = {
+    readonly open: boolean;
+    readonly dropped: readonly DrillableKind[];
+    readonly value: string;
+  };
+  const [queryState, setQueryState] = createSignal<QueryState>(
+    (prev = { open: false, dropped: NO_SEGMENTS, value: "" }): QueryState => {
+      const open = props.open;
+      const dropped = open ? pathState().dropped : NO_SEGMENTS;
+      if (open !== prev.open)
+        return { open, dropped, value: open ? "" : prev.value };
+      if (dropped === prev.dropped || dropped.length === 0) return prev;
+      return { open, dropped, value: "" };
+    },
+    { name: "paletteQueryEdge" },
+  );
+  // A memo, so a reader wakes for a CHANGED query and not for an edge that
+  // left it alone.
+  const query = createMemo(() => queryState().value, { name: "paletteQuery" });
+  /** A write of the text the query already holds writes nothing: a drill-in
+   *  or a breadcrumb walk clears a filter that is already clear. A plain
+   *  string signal — what this was before it became a composite — drops such
+   *  a write, and the composite must too, so nothing wakes for the text it
+   *  was just given back (review 64 §6). */
+  const setQuery = (value: string): void => {
+    setQueryState((prev) => (prev.value === value ? prev : { ...prev, value }));
+  };
+
+  /** The TRIM's imperative half: a segment the live tree dropped (host
+   *  disconnect, group hidden) has its `onCancel` run. Everything the trim
+   *  RESETS is derived from it instead — the path above, the query just above
+   *  this — so this arm writes no reactive state at all, and no reader of the
+   *  tree tick that dropped the segment sees a stale one first.
+   *
+   *  A trim of an OPEN palette only: a close drops its segments too, and those
+   *  belong to the open/close lifecycle below, which alone knows whether the
+   *  close completed a selection. */
+  createEffect(
+    () => {
+      const state = pathState();
+      return state.open ? state.dropped : NO_SEGMENTS;
+    },
+    (dropped) => {
+      if (dropped.length === 0) return;
+      for (const g of dropped) g.onCancel?.();
+    },
+    { name: "paletteDroppedSegments" },
+  );
 
   /** Items at the current navigation level (may include hints).
    *
-   *  Resolves the drilled-in path by **name** against the fresh
-   *  `props.commands()` tree, not by object reference against the
+   *  Resolves the drilled-in path by **name** against the live
+   *  `commandTree()`, not by object reference against the
    *  snapshot captured in `path()`. */
   const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
-    if (p.length === 0) return props.commands();
-    const { valid, level } = resolveLivePath(p);
+    const tree = commandTree();
+    if (p.length === 0) return tree;
+    const { valid, level } = resolveLivePath(p, tree);
     // While the reconcile effect hasn't trimmed yet, render the deepest
     // still-valid level — never the stale missing segment's children.
-    if (valid.length === 0) return props.commands();
+    if (valid.length === 0) return tree;
     if (valid.length < p.length)
       return resolveChildren(valid[valid.length - 1]!);
     return level;
@@ -399,11 +754,14 @@ const CommandPalette: Component<{
     return { interactive, hints };
   });
 
-  const mode = createMemo<PaletteMode>(() => {
-    const last = path().at(-1);
-    if (last?.kind === "value") return { kind: "value", leaf: last };
-    return { kind: "filter" };
-  });
+  const mode = createMemo<PaletteMode>(
+    () => {
+      const last = path().at(-1);
+      if (last?.kind === "value") return { kind: "value", leaf: last };
+      return FILTER_MODE;
+    },
+    { equals: sameMode },
+  );
 
   /** The query AS A FILTER — `""` throughout value mode, where the input holds
    *  a value the user is composing rather than a narrowing term. Named once so
@@ -510,11 +868,22 @@ const CommandPalette: Component<{
    *  (never offer "go where you already are") applied at two levels — so both
    *  take this one value rather than two shapes of it. The host key comes off
    *  `encActiveHost`, the ONE memo every surface that keys on the active host
-   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk. */
-  const currentSelection = (): CurrentSelection => ({
-    hostKey: encActiveHost(),
-    terminalId: view.activeId(),
-  });
+   *  reads, not a re-derived `encodeHostKey(activeHost())` thunk.
+   *
+   *  GATED ON THE OPEN, like `commandTree` above, and for the same reason: a
+   *  shut palette ranks nothing, so the active tile moving on the canvas is
+   *  not its business. Without the gate this is the one dependency that
+   *  bypasses that gate — every activation on the host re-ran the whole
+   *  `filtered` → `displayed` → `keyedDisplay` chain for a surface nobody is
+   *  looking at. The creation run still answers a real value, and `equals`
+   *  keeps an open palette from republishing an equal fact per recompute. */
+  const currentSelection = createMemo<CurrentSelection>(
+    (prev) =>
+      props.open || prev === undefined
+        ? { hostKey: encActiveHost(), terminalId: view.activeId() }
+        : prev,
+    { equals: sameSelection, name: "paletteCurrentSelection" },
+  );
 
   /** Interactive rows at the current level (filter is bypassed in
    *  value mode). Filter mode produces `PaletteCommand[]`;
@@ -530,8 +899,10 @@ const CommandPalette: Component<{
     if (mode().kind !== "filter") {
       // Value mode doesn't search — preserve registration order with a
       // stable section sort for any tagged labels.
-      return [...items].sort(
-        (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+      return orEmpty(
+        [...items].sort(
+          (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+        ),
       );
     }
     const p = path();
@@ -552,20 +923,28 @@ const CommandPalette: Component<{
     // No `atRoot ?` gate on `current`: the ranker already returns early for a
     // drilled-in level, so re-stating that condition here would only teach the
     // call site the callee's own gating.
-    return filterAndRankPaletteItems(stamped, {
-      query: q,
-      atRoot,
-      current: currentSelection(),
-    });
+    return orEmpty(
+      filterAndRankPaletteItems(stamped, {
+        query: q,
+        atRoot,
+        current: currentSelection(),
+      }),
+    );
   });
 
   /** Breadcrumb labels — path names, plus a virtual host segment when a
    *  Terminals search highlight lands on a terminal (so the path reads
-   *  Commands › Terminals › zest without a real host drill). */
+   *  Commands › Terminals › zest without a real host drill).
+   *
+   *  Root — the common case, and every open/close edge rewrites the path —
+   *  answers the shared empty strip, and the gate below holds the rest: the
+   *  chips are rebuilt from `path()` on every move, and a drilled-in level's
+   *  labels almost never change. */
   const breadcrumbSegments = createMemo(
-    (): { name: string; depth: number }[] => {
-      const segments = path().map((s, i) => ({ name: s.name, depth: i + 1 }));
+    (): readonly BreadcrumbSegment[] => {
       const p = path();
+      if (p.length === 0) return NO_BREADCRUMBS;
+      const segments = p.map((s, i) => ({ name: s.name, depth: i + 1 }));
       if (
         p.length === 1 &&
         p[0]?.name === TERMINALS_GROUP_NAME &&
@@ -579,6 +958,7 @@ const CommandPalette: Component<{
       }
       return segments;
     },
+    { equals: sameBreadcrumbs },
   );
 
   const atRootFilter = createMemo(
@@ -616,6 +996,21 @@ const CommandPalette: Component<{
   }
 
   const displayed = createMemo((): DisplayEntry[] => {
+    // The query, tokenized ONCE for the whole list: every row's highlight is
+    // split here, so the rows themselves never read the query signal. This is
+    // the raw query, not `filterQuery` — in value mode the typed text is what
+    // the labels highlight against.
+    const tokens = tokenize(query());
+    const rowEntry = (
+      cmd: PaletteCommand | PaletteLabel,
+      index: number,
+    ): DisplayEntry => ({
+      kind: "row",
+      cmd,
+      index,
+      segments: segmentsForTokens(identityPrimary(cmd), tokens),
+    });
+
     // Terminals empty browse: host header (name · count) + that host's
     // terminals — visual grouping, no drill required. Clicking a header
     // optionally scopes to that host (breadcrumb Terminals › $host).
@@ -633,15 +1028,15 @@ const CommandPalette: Component<{
           group,
         });
         for (const child of kids) {
-          out.push({ kind: "row", cmd: child, index: index++ });
+          out.push(rowEntry(child, index++));
         }
       }
-      return out;
+      return orEmpty(out);
     }
 
     const items = filtered();
     if (!showSectionHeaders()) {
-      return items.map((cmd, index) => ({ kind: "row" as const, cmd, index }));
+      return orEmpty(items.map(rowEntry));
     }
     const out: DisplayEntry[] = [];
     let lastSection: SectionId | undefined;
@@ -651,25 +1046,32 @@ const CommandPalette: Component<{
         out.push({ kind: "header", section });
       }
       lastSection = section;
-      out.push({ kind: "row", cmd, index });
+      out.push(rowEntry(cmd, index));
     });
-    return out;
+    return orEmpty(out);
   });
 
   /** List has content to paint (rows and/or host headers with zero terms). */
   const hasListContent = createMemo(() => displayed().length > 0);
 
-  /** The render list paired with the identity `<Key>` retains nodes by.
+  /** The render list paired with the identity `<For keyed>` retains nodes by.
    *
-   *  `keyedDisplay` is what the list actually iterates, never `displayed()`:
-   *  `keyArray` stores one mapped node per key, so two entries sharing a key
-   *  are handed the SAME node on the next refresh — the list silently loses a
-   *  row and Solid's node bookkeeping stops matching the DOM. `entryKey` can
-   *  only fall back to a display name, and names are not unique (two agents
-   *  with one command, two rows a repo root does not separate), so uniqueness
-   *  has to be established over the whole list rather than hoped for per item.
+   *  `keyedDisplay` is what the list actually iterates, never `displayed()`.
+   *  Solid 2's keyed `mapArray` does NOT drop a repeated key — it indexes the
+   *  new window by key and chains the earlier occurrences
+   *  (`newIndices` / `newIndicesNext`, @solidjs/signals 2.0.4 `dist/dev.js`
+   *  :3537-3560), so same-key entries are paired with old nodes in occurrence
+   *  order and every entry still gets a node. What it cannot do is tell two
+   *  same-key rows apart: pairing by occurrence means a reorder moves a row's
+   *  node (its pending click, its hover) to whichever twin now sits in that
+   *  slot. `entryKey` can only fall back to a display name, and names are not
+   *  unique (two agents with one command, two rows a repo root does not
+   *  separate), so uniqueness has to be established over the whole list rather
+   *  than hoped for per item.
    */
-  const keyedDisplay = createMemo(() => keyDisplayEntries(displayed()));
+  const keyedDisplay = createMemo(() =>
+    orEmpty(keyDisplayEntries(displayed())),
+  );
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
@@ -680,13 +1082,15 @@ const CommandPalette: Component<{
     // the input, Enter on a div option doesn't restore it), so the user
     // can immediately type to filter the sub-mode. Deferred to rAF so the
     // input has rendered any new query value first (select() before the
-    // render highlights nothing). One rAF suffices here because the dialog
-    // is already open and Corvu's initialFocusEl is idle — no focus
-    // competition. The open-effect uses a double-rAF to outlast Corvu's
-    // own focus management on (re)open.
-    requestAnimationFrame(() =>
-      cmd.kind === "value" ? inputRef.select() : inputRef.focus(),
-    );
+    // render highlights nothing). One rAF suffices here because the dialog is
+    // already open, so Corvu's focus trap — which takes the input itself at
+    // every OPEN edge — is idle: no focus competition.
+    requestAnimationFrame(() => {
+      const el = inputRef();
+      if (!el) return;
+      if (cmd.kind === "value") el.select();
+      else el.focus();
+    });
   }
 
   function navigateTo(depth: number) {
@@ -708,14 +1112,17 @@ const CommandPalette: Component<{
   }
 
   /** From Terminals browse, drill into a named host group (breadcrumb or
-   *  deep-link). Resolves against the live tree so object identity stays fresh. */
+   *  deep-link). Resolves against `commandTree()` — the ONE tree of record for
+   *  this component, the same one the list, the path walk and the footer read —
+   *  so the segments it writes into the path are the objects already on screen.
+   *  Reached only from `navigateTo` with a one-segment Terminals path, which an
+   *  open palette is the only thing that has, so this always resolves against
+   *  the live tree. */
   function drillIntoHostUnderTerminals(hostName: string) {
-    const terminals = props
-      .commands()
-      .find(
-        (c): c is PaletteGroup =>
-          c.kind === "group" && c.name === TERMINALS_GROUP_NAME,
-      );
+    const terminals = commandTree().find(
+      (c): c is PaletteGroup =>
+        c.kind === "group" && c.name === TERMINALS_GROUP_NAME,
+    );
     if (!terminals) return;
     const hostGroup = resolveChildren(terminals).find(
       (c): c is PaletteGroup => c.kind === "group" && c.name === hostName,
@@ -723,43 +1130,46 @@ const CommandPalette: Component<{
     if (!hostGroup) return;
     setPath([terminals, hostGroup]);
     setQuery("");
-    requestAnimationFrame(() => inputRef.focus());
+    requestAnimationFrame(() => inputRef()?.focus());
   }
 
-  /** Walk `names` against the live command tree and set path. **Every**
-   *  segment must resolve — a partial match (e.g. Terminals without a
-   *  missing host) is rejected so deep-links never silently widen. */
-  function applyInitialPath(names: readonly string[]) {
-    if (names.length === 0) return false;
-    let level: PaletteItem[] = props.commands();
+  /** Resolve `names` against `root` — the read half. **Every** segment must
+   *  resolve — a partial match (e.g. Terminals without a missing host) is
+   *  rejected so deep-links never silently widen; `null` then. */
+  function resolveInitialPath(
+    names: readonly string[],
+    root: PaletteItem[],
+  ): DrillableKind[] | null {
+    if (names.length === 0) return null;
+    let level: PaletteItem[] = root;
     const built: DrillableKind[] = [];
     for (const name of names) {
       const match = level.find(
         (item): item is DrillableKind =>
           isDrillable(item) && item.name === name,
       );
-      if (!match) return false;
+      if (!match) return null;
       built.push(match);
       level = resolveChildren(match);
     }
-    setPath(built);
-    setQuery("");
-    const leaf = built.at(-1);
-    requestAnimationFrame(() =>
-      leaf?.kind === "value" ? inputRef.select() : inputRef.focus(),
-    );
-    return true;
+    return built;
   }
 
-  // Selection-initiated close: signals the close-effect to skip
-  // path.onCancel propagation. External closes (Escape, backdrop click,
-  // parent toggle via setPaletteOpen) leave this false so onCancel fires.
-  // Three close paths converge on the close-effect; this signal is the
-  // single discriminator that distinguishes "completed" from "cancelled".
-  const [closingForSelection, setClosingForSelection] = createSignal(false);
+  // Selection-initiated close: tells the close edge to skip path.onCancel
+  // propagation. External closes (Escape, backdrop click, parent toggle via
+  // setPaletteOpen) leave it false so onCancel fires. Three close paths
+  // converge on that edge; this box is the single discriminator that
+  // distinguishes "completed" from "cancelled".
+  //
+  // A PLAIN BOX, not a signal: its one reader is the lifecycle effect's
+  // compute, which must sample it rather than depend on it (a dependency
+  // would re-run the edge for a flag the edge itself consumes). So there is
+  // nothing reactive to write, and the edge's apply arm clears it without
+  // relaying anything.
+  let closingForSelection = false;
 
   function closeForSelection() {
-    setClosingForSelection(true);
+    closingForSelection = true;
     props.onOpenChange(false);
   }
 
@@ -843,115 +1253,223 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Open/close lifecycle — one effect so the read of `path()` for
-  // `onCancel` propagation is ordered explicitly before the path
-  // reset. Splitting open-vs-initialPath into two `on()` effects
-  // raced when both depended on `props.open` (the path-reset effect
-  // could fire first, clearing the segments the close branch was
-  // about to walk for cancellation).
+  // Open/close lifecycle — the IMPERATIVE half of an edge: the focus and the
+  // cancellation of what a close abandoned. Everything an edge RESETS is
+  // derived from it instead (the path, `pathState`; the query, the ambient tip
+  // and the hover arm, `onOpenEdge`), so this arm writes no reactive state at
+  // all and no reader of `props.open` sees a stale one first.
   createEffect(
-    on(
-      [() => props.open, () => props.initialPath?.join("\0") ?? ""],
-      ([isOpen, pathKey]) => {
-        if (isOpen) {
-          setQuery("");
-          setAmbientTip(peekAmbientTipText());
-          setMouseActive(false);
-          lastPointerPos = null;
-          setClosingForSelection(false);
-          setPath([]);
-          const names = props.initialPath ?? [];
-          if (names.length > 0) {
-            // Exact path only — no prefix fallback (a missing host must not
-            // open the broader Terminals list as if the deep-link succeeded).
-            // A rejected path leaves the root list showing; the highlight
-            // effect below lands on whichever path this run settles at.
-            if (!applyInitialPath(names)) {
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => inputRef.focus()),
-              );
-            }
-          } else {
-            // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-            // only fires on first mount. Re-focus explicitly on every root open.
-            // When a path is set, applyInitialPath is the sole focus owner —
-            // its rAF would otherwise race this double-rAF, and for a value-kind
-            // leaf the unconditional .focus() would clobber .select().
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => inputRef.focus()),
-            );
-          }
-          // pathKey keeps the effect subscribed to initialPath identity.
-          void pathKey;
+    () => {
+      const isOpen = props.open;
+      // The path this edge SETTLED at. Read untracked — a drill while the
+      // palette stays open must not re-run the edge — and read AFTER
+      // `props.open`, so the derivation has already resolved the deep link
+      // (open) or emptied the path (close) for this very flush.
+      const settled = untrack(pathState);
+      return {
+        isOpen,
+        // A dep, so a NEW initialPath while the palette stays open re-runs this
+        // — the derivation re-resolved it; this half takes the focus.
+        link: linkKey(),
+        segments: settled.segments,
+        // On a close, the segments the emptied path abandoned.
+        abandoned: settled.dropped,
+        // A snapshot, deliberately NOT a dependency: whether the close
+        // completed a selection. The box is cleared by the arm below, so a
+        // dependency would re-run this edge for its own bookkeeping.
+        closedBySelection: closingForSelection,
+      };
+    },
+    ({ isOpen, segments, abandoned, closedBySelection }) => {
+      if (isOpen) {
+        lastPointerPos = null;
+        closingForSelection = false;
+        const leaf = segments.at(-1);
+        if (leaf) {
+          // A resolved deep link is the sole focus owner — the double-rAF
+          // below would race this one, and for a value-kind leaf its
+          // unconditional .focus() would clobber .select(). Corvu's trap takes
+          // the SAME input a frame later, and .focus() on an already-focused
+          // input leaves the selection alone.
+          requestAnimationFrame(() => {
+            const el = inputRef();
+            if (!el) return;
+            if (leaf.kind === "value") el.select();
+            else el.focus();
+          });
         } else {
-          if (!closingForSelection()) {
-            for (const g of path()) g.onCancel?.();
-          }
-          // Always clear leaf highlight lifecycle (theme preview, etc.) —
-          // path onCancel only covers drill segments.
-          lastHighlight?.onCancel?.();
-          lastHighlight = undefined;
-          setClosingForSelection(false);
-          setPath([]);
+          // Corvu's trap does take the input at every open edge (it is keyed on
+          // `open`, not on the mount forceMount keeps alive) — but NOT when a
+          // new `initialPath` arrives while the palette stays open and resolves
+          // to nothing. Focus explicitly, so every root landing is covered — a
+          // rejected deep link included, since that lands on the root list.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef()?.focus()),
+          );
         }
-      },
-    ),
+      } else {
+        if (!closedBySelection) {
+          for (const g of abandoned) g.onCancel?.();
+        }
+        // Always clear leaf highlight lifecycle (theme preview, etc.) —
+        // path onCancel only covers drill segments.
+        lastHighlight?.onCancel?.();
+        lastHighlight = undefined;
+        closingForSelection = false;
+      }
+    },
+    { name: "paletteOpenEdge" },
   );
 
-  // THE default-highlight rule, applied reactively: whenever the SCOPE changes
-  // (open, drill-in, drill-out, path repair, deep-link, typed query) the list is
-  // freshly painted and the highlight re-lands. One rule, zero call sites — a
-  // future `setPath` cannot forget to follow it up, and reading `filtered()`
-  // here is guaranteed post-write rather than relying on read-after-write
-  // ordering at eight hand-held sites.
-  //
-  // Registered AFTER the open/close lifecycle effect above so it observes the
-  // FINAL `path` of an `applyInitialPath` run, not the intermediate one.
-  //
-  // `currentSelection` is a dep, not just a read: `on()` runs its callback
-  // untracked, and the "current" row CAN move while the palette stays open —
-  // Ctrl+Tab reaches the global dispatcher as well as this component, and the
-  // host-membership reconcile can bounce the canvas to local on its own. Both
-  // re-derive `filtered()` (the Recent band drops a different row), so a
-  // highlight left behind would point at a row that shifted under it, and Enter
-  // would run the wrong one. Tracking the fact re-lands the highlight instead.
-  //
-  // Still NOT keyed on `filtered` itself — that returns a new array reference on
-  // every recomputation, so tracking it would reset the index whenever upstream
-  // data (the commands memo) recomputes in the background.
-  createEffect(
-    on(
-      [path, filterQuery, () => props.open, currentSelection],
-      ([, , open]) => {
-        if (!open) return;
-        // A value leaf's children are passive labels, not a switcher: nothing
-        // there has a recency or a "current" row, so the highlight starts at the
-        // top. Keying on `filterQuery` (which is "" throughout value mode) is
-        // what keeps a keystroke from re-landing it off the label you picked,
-        // while a SCOPE change still does.
-        if (mode().kind === "value") {
-          setSelectedIndex(0);
-          return;
-        }
-        setSelectedIndex(
-          defaultSelectionIndex(filtered(), currentSelection(), query()),
-        );
-      },
-    ),
+  /** THE default-highlight rule, DERIVED — and the highlight itself. Whenever
+   *  the SCOPE changes (open, drill-in, drill-out, path repair, deep-link,
+   *  typed query) the list is freshly painted and the highlight re-lands. One
+   *  rule, zero call sites — a future `setPath` cannot forget to follow it up,
+   *  and the index is answered in one place rather than by read-after-write
+   *  ordering at eight hand-held sites.
+   *
+   *  A WRITABLE MEMO, the same idiom as `pathState` and `onOpenEdge` above and
+   *  for the same reason. As an effect this RELAYED the scope change: the
+   *  rule's sources ARE the list's sources, so everything folding the index
+   *  with the list — `effectiveIndex` below, and the highlight notification
+   *  under it — ran once in the flush the query (or the path) changed, against
+   *  the STALE index, and again after the write landed. Every keystroke paid
+   *  for both, and Solid grades it `EFFECT_RELAY_TEAR`. Derived, the new index
+   *  arrives in the SAME flush as the scope change it follows from.
+   *
+   *  Arrow keys, Tab and hover still write it — that is what keeps this a
+   *  writable memo rather than a plain one. Their index is what `prev` holds
+   *  until the scope moves again, which is exactly the lifetime a highlight
+   *  has.
+   *
+   *  The open/close lifecycle effect above no longer writes the path — the
+   *  derivation settles it, deep link included, in the flush `open` changed —
+   *  so this rule reads the FINAL path whichever order the two run in. A SHUT
+   *  palette keeps the index it had: re-opening is itself an edge, so the
+   *  first open frame re-lands it.
+   *
+   *  `currentSelection` is a dependency, not just a read-at-use: the "current"
+   *  row CAN move while the palette stays open — Ctrl+Tab reaches the global
+   *  dispatcher as well as this component, and the host-membership reconcile
+   *  can bounce the canvas to local on its own. Both re-derive `filtered()`
+   *  (the Recent band drops a different row), so a highlight left behind would
+   *  point at a row that shifted under it, and Enter would run the wrong one.
+   *  Tracking the fact re-lands the highlight instead.
+   *
+   *  AND THE LIST IS TRACKED TOO, with the scope riding along as the edge's
+   *  memory — the same shape as `pathState` and `onOpenEdge`. It cannot be an
+   *  `untrack` snapshot: this is a COMPUTE, and in Solid 2 an untracked read
+   *  is SERVED the last committed value rather than pulling a dirty computed
+   *  current (`read()` reaches `pullComputed` only inside `if (tracking)`).
+   *  `filtered` is never below this node, so from the second open of a
+   *  session on — once the list memos hold a committed value — the snapshot
+   *  was the SHUT-phase list: the previous level's rows at a deep-link open
+   *  (⌘⇧H landed on the first host in pool order instead of the one you came
+   *  from), and a list missing everything that arrived while the palette was
+   *  shut. Tracked, the read pulls and this node sits above the list, so the
+   *  rule sees the rows this very flush will paint.
+   *
+   *  What the tracking does NOT do is re-land the highlight on list churn:
+   *  `filtered` mints a fresh array per recomputation, and a run where no
+   *  SCOPE fact moved returns `prev` untouched. So a commands tick under an
+   *  open palette leaves the arrow keys', Tab's and hover's own row exactly
+   *  where the user put it. */
+  type HighlightState = {
+    readonly open: boolean;
+    /** The drill path this index was landed for, by segment identity. */
+    readonly path: readonly DrillableKind[];
+    readonly filter: string;
+    readonly selection: CurrentSelection;
+    readonly index: number;
+  };
+  const NO_HIGHLIGHT: HighlightState = {
+    open: false,
+    path: NO_SEGMENTS,
+    filter: "",
+    selection: { hostKey: "", terminalId: null },
+    index: 0,
+  };
+  const [highlightState, setHighlightState] = createSignal<HighlightState>(
+    (prev = NO_HIGHLIGHT): HighlightState => {
+      const open = props.open;
+      const drilled = path();
+      const filter = filterQuery();
+      const selection = currentSelection();
+      // Tracked — see above. Read on every run, scope move or not, so the
+      // dependency stands and the pull is a pull.
+      const rows = filtered();
+      if (
+        open === prev.open &&
+        samePath(drilled, prev.path) &&
+        filter === prev.filter &&
+        sameSelection(selection, prev.selection)
+      )
+        return prev;
+      // A value leaf's children are passive labels, not a switcher: nothing
+      // there has a recency or a "current" row, so the highlight starts at the
+      // top. Keying on `filterQuery` (which is "" throughout value mode) is
+      // what keeps a keystroke from re-landing it off the label you picked,
+      // while a SCOPE change still does.
+      const index = !open
+        ? prev.index
+        : mode().kind === "value"
+          ? 0
+          : defaultSelectionIndex(rows, selection, query());
+      return { open, path: drilled, filter, selection, index };
+    },
+    { name: "paletteHighlightEdge" },
   );
+  /** A memo, so a reader wakes for a CHANGED index and not for a scope move
+   *  that landed on the row the highlight was already on. */
+  const selectedIndex = createMemo(() => highlightState().index, {
+    name: "paletteSelectedIndex",
+  });
+  /** A move that lands on the row the highlight is already on writes
+   *  nothing: `ArrowUp` on the first row, `ArrowDown` on the last, a
+   *  re-hover of the highlighted row. A plain index signal — what this was
+   *  before it became a composite — drops such a write, and the composite
+   *  must too, so nothing wakes for the index it was just given back
+   *  (review 64 §6). */
+  const setSelectedIndex = (index: number): void => {
+    setHighlightState((prev) =>
+      prev.index === index ? prev : { ...prev, index },
+    );
+  };
 
   const effectiveIndex = createMemo(() =>
     Math.max(0, Math.min(selectedIndex(), filtered().length - 1)),
   );
-  const isSelected = createSelector(effectiveIndex);
+  // Per-key projection (Solid 2's selector): moving the highlight wakes the
+  // row it left and the row it reached, not the whole list.
+  const isSelected = createKeySelector(effectiveIndex);
+
+  /** THE BACKDROP, DERIVED FROM THE HIGHLIGHT. A row that previews something
+   *  behind the dialog (a theme) wants the overlay out of the way — which is
+   *  a fact about which row is highlighted, not news that has to travel. Read
+   *  back off the preview signal `onHighlight` writes, it was a relay of the
+   *  open edge: the dialog reads `open`, the highlight effect reads `open` and
+   *  wrote the preview, so every open ran the overlay twice — once against its
+   *  previous opacity, then again once the write landed in the same flush. The
+   *  preview signal keeps its tile-chrome readers, which do not read `open`. */
+  const transparentOverlay = createMemo(
+    () => props.open && filtered()[effectiveIndex()]?.previewsBehind === true,
+  );
 
   // Notify highlighted item when selection changes. Cancels the previous
   // leaf's onCancel first so root-flattened previews (theme) don't stick.
   // Tracks props.open so the effect re-fires on reopen with the same selection.
+  //
+  // THE LIST IS READ ONLY WHILE THE PALETTE IS OPEN. The apply arm already did
+  // nothing while closed, so this changes no outcome; what it drops is the
+  // compute re-running on the list churn a close itself produces (the path
+  // empties, the query clears). `props.open` is still a dependency, so
+  // re-opening recomputes and the first open frame is what it always was.
   let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
-    on([filtered, effectiveIndex, () => props.open], ([items, idx, open]) => {
-      if (!open) return;
+    () => (props.open ? ([filtered(), effectiveIndex()] as const) : null),
+    (seen) => {
+      if (seen === null) return;
+      const [items, idx] = seen;
       const next = items[idx];
       if (next === lastHighlight) {
         next?.onHighlight?.();
@@ -960,7 +1478,8 @@ const CommandPalette: Component<{
       lastHighlight?.onCancel?.();
       lastHighlight = next;
       next?.onHighlight?.();
-    }),
+    },
+    { name: "paletteHighlightNotify" },
   );
 
   // Auto-scroll the highlighted row into view. One effect outside <For>:
@@ -969,20 +1488,26 @@ const CommandPalette: Component<{
   // every way a fresh list lands its highlight (the effect above) — including
   // an open whose default row is not the first one — so there is no need to
   // re-scroll on `filtered()` reference churn.
-  createEffect(() => {
-    effectiveIndex();
-    if (!props.open) return;
-    listEl
-      ?.querySelector<HTMLElement>("[data-selected]")
-      ?.scrollIntoView({ block: "nearest" });
-  });
+  createEffect(
+    () => {
+      effectiveIndex();
+      return props.open;
+    },
+    (open) => {
+      if (!open) return;
+      listEl
+        ?.querySelector<HTMLElement>("[data-selected]")
+        ?.scrollIntoView({ block: "nearest" });
+    },
+    { name: "paletteHighlightScroll" },
+  );
 
   return (
     <ModalDialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      transparentOverlay={props.transparentOverlay}
-      initialFocusEl={inputRef}
+      transparentOverlay={transparentOverlay()}
+      initialFocusEl={inputRef()}
       // No `refocusOnClose`: the palette also closes itself programmatically
       // (selection → onOpenChange(false), Cmd+K → toggle()), paths that never
       // re-enter ModalDialog.handleOpenChange. So the refocus lives once in
@@ -1023,21 +1548,29 @@ const CommandPalette: Component<{
             >
               Commands
             </button>
-            <For each={breadcrumbSegments()}>
+            {/* The chips are POSITIONAL — chip n is path depth n, and a drill
+                that swaps the group at a depth relabels that chip rather than
+                replacing it. A republish of `breadcrumbSegments` carries fresh
+                objects, so identity keying would dispose and recreate the whole
+                strip for labels that did not move; index keying updates them in
+                place. */}
+            <For each={breadcrumbSegments()} keyed={false}>
               {(segment, i) => (
                 <>
                   <span class="text-fg-3/50">›</span>
                   <button
                     type="button"
-                    class="px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors"
-                    classList={{
-                      "text-accent font-medium":
-                        i() === breadcrumbSegments().length - 1,
-                      "hover:text-fg": i() !== breadcrumbSegments().length - 1,
-                    }}
-                    onClick={() => navigateTo(segment.depth)}
+                    class={[
+                      "px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors",
+                      {
+                        "text-accent font-medium":
+                          i === breadcrumbSegments().length - 1,
+                        "hover:text-fg": i !== breadcrumbSegments().length - 1,
+                      },
+                    ]}
+                    onClick={() => navigateTo(segment().depth)}
                   >
-                    {segment.name}
+                    {segment().name}
                   </button>
                 </>
               )}
@@ -1052,15 +1585,15 @@ const CommandPalette: Component<{
             ⏵
           </span>
           <input
-            ref={inputRef}
+            ref={setInputRef}
             type="text"
             data-value-input={mode().kind === "value" ? "" : undefined}
             data-value-invalid={valueError() ? "" : undefined}
             placeholder={placeholder()}
-            class="flex-1 min-w-0 bg-transparent text-fg text-base outline-none placeholder-fg-3/80"
-            classList={{
-              "text-danger": !!valueError(),
-            }}
+            class={[
+              "flex-1 min-w-0 bg-transparent text-fg text-base outline-none placeholder-fg-3/80",
+              { "text-danger": !!valueError() },
+            ]}
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
           />
@@ -1118,21 +1651,34 @@ const CommandPalette: Component<{
               {/* A refresh between mouse-down and mouse-up must not remove
                   the node that owns the pending click. Key by logical identity;
                   read the current entry for updated content and callbacks. */}
-              <Key each={keyedDisplay()} by={(keyed) => keyed.key}>
+              <For each={keyedDisplay()} keyed={(keyed) => keyed.key}>
                 {(keyed) => {
                   const entry = () => keyed().entry;
-                  const header = () => {
-                    const e = entry();
-                    return e.kind === "header" ? e : undefined;
-                  };
-                  const host = () => {
-                    const e = entry();
-                    return e.kind === "host-header" ? e : undefined;
-                  };
-                  const row = () => {
-                    const e = entry();
-                    return e.kind === "row" ? e : undefined;
-                  };
+                  // Each narrowing is a GATE: `keyedDisplay()` republishes a
+                  // fresh entry object for every refresh, so without
+                  // `sameDisplayEntry` an unchanged header would re-run every
+                  // attribute under its `<Show>` on every tick.
+                  const header = createMemo(
+                    () => {
+                      const e = entry();
+                      return e.kind === "header" ? e : undefined;
+                    },
+                    { equals: sameDisplayEntry },
+                  );
+                  const host = createMemo(
+                    () => {
+                      const e = entry();
+                      return e.kind === "host-header" ? e : undefined;
+                    },
+                    { equals: sameDisplayEntry },
+                  );
+                  const row = createMemo(
+                    () => {
+                      const e = entry();
+                      return e.kind === "row" ? e : undefined;
+                    },
+                    { equals: sameDisplayEntry },
+                  );
                   return (
                     <>
                       <Show when={header()}>
@@ -1188,7 +1734,7 @@ const CommandPalette: Component<{
                           <PaletteRow
                             cmd={row().cmd}
                             selected={isSelected(row().index)}
-                            query={query()}
+                            segments={row().segments}
                             showKindTag={showKindTag()}
                             drillable={isDrillable(row().cmd)}
                             onHover={() =>
@@ -1201,7 +1747,7 @@ const CommandPalette: Component<{
                     </>
                   );
                 }}
-              </Key>
+              </For>
             </div>
           </Show>
           <Show when={partitioned().hints.length > 0}>

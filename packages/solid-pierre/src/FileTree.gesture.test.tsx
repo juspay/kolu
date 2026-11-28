@@ -27,7 +27,7 @@
  * measure the SYNCHRONOUS happy-dom timing and so could not guard the deferred
  * production case anyway.
  */
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitStatusEntry } from "@pierre/trees";
 

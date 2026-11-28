@@ -12,6 +12,7 @@ import {
   DEFAULT_NEW_TERMINAL_POLICY,
   padiSurface,
 } from "@kolu/padi-client/surface";
+import { CheckRunSchema } from "anyforge/schemas";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -365,6 +366,25 @@ describe("the forwards cell declares what identifies a row", () => {
     const declared = koluSurface.spec.cells.forwards.arrayKey;
     expect(declared).toBe("key");
     expect(Object.keys(KoluForwardSchema.fields)).toContain(declared);
+  });
+});
+
+describe("the work-PR collection declares what identifies a check", () => {
+  it("names a field the check-run schema carries, required and non-nullable", () => {
+    // Same two-places problem as the forwards cell above, with one more
+    // condition: the merge reads a key of `undefined` as "merge this element by
+    // POSITION", so an optional field would hand one check's store row to
+    // another instead of simply declaring nothing. Pinned against the schema.
+    const declared = koluSurface.spec.collections.workPrs.arrayKey;
+    expect(declared).toBe("name");
+    expect(Object.keys(CheckRunSchema.fields)).toContain(declared);
+    expect(accepts(CheckRunSchema)({ outcome: "pass" })).toBe(false);
+    expect(accepts(CheckRunSchema)({ name: null, outcome: "pass" })).toBe(
+      false,
+    );
+    expect(accepts(CheckRunSchema)({ name: "ci::unit", outcome: "pass" })).toBe(
+      true,
+    );
   });
 });
 

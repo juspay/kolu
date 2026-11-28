@@ -21,7 +21,7 @@ for a `<figure>` holding a light and a dark `<img>`.
 
 Depended on by `kolu-client` and `@kolu/solid-fileview`. It depends on
 `@kolu/html-escape` and `@kolu/url-shape` inside the workspace, plus `marked`
-and three of its plugins, `dompurify`, `shiki`, `yaml`, `solid-js` and
+and three of its plugins, `dompurify`, `shiki`, `yaml`, `solid-js` 2 and `@solidjs/web` 2, and
 `mermaid`. Only mermaid's prebuilt single file is used, as an asset URL loaded
 into the frame.
 
@@ -71,7 +71,9 @@ the text and the button. kolu's Conductor uses it to open a file it names.
   NFC-normalized and the returned path is the verbatim repo entry.
 - `bindMarkdownLinks` is the single home for the `data-md-*` flag to handler
   mapping. Every consumer of sanitized Markdown DOM plugs into it rather than
-  re-deriving the routing.
+  re-deriving the routing. It returns its unbind and registers no cleanup of
+  its own: a caller binding from a `ref` callback (where Solid 2 forbids
+  `onCleanup`) keeps the unbind and runs it from its component body's cleanup.
 - `decorateInlineCode` runs after the sanitizer and only moves the `<code>`
   nodes the sanitizer produced into buttons it builds itself, so a span's text
   can never become markup. Code inside `<pre>` is never touched.

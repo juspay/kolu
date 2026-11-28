@@ -4,7 +4,7 @@
  *  is no "seen" state: zero terminals always shows it, opening a terminal is the
  *  dismissal, and this command is the explicit re-entry. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import type { Component } from "solid-js";
 import { createDisclosure } from "./ui/createDisclosure";

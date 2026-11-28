@@ -16,7 +16,7 @@
  *  covering the whole frame. These tests are what should stop that. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createComputed, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   forgetHostIndex,
@@ -37,22 +37,34 @@ beforeEach(() => {
 });
 
 /** Count how many times a reactive read of `fn` re-runs, driving `steps`
- *  between counts. Returns the count after each step. */
+ *  between counts. Returns the count after each step.
+ *
+ *  The owner holds the reader and nothing else: the steps run outside it, as
+ *  the app's writes do (a write inside an owned scope is a Solid 2 error). */
 function countReruns(fn: () => unknown, steps: readonly (() => void)[]) {
-  return createRoot((dispose) => {
-    let runs = 0;
-    createComputed(() => {
-      fn();
-      runs += 1;
-    });
-    const after: number[] = [];
-    for (const step of steps) {
-      step();
-      after.push(runs);
-    }
-    dispose();
-    return after;
+  let runs = 0;
+  const dispose = createRoot((disposeRoot) => {
+    createEffect(
+      () => {
+        fn();
+        runs += 1;
+      },
+      () => {},
+    );
+    return disposeRoot;
   });
+  // An effect runs in the flush AFTER it is created, and a step's writes are
+  // staged until the next one, so each count is taken on the flush that the
+  // step's frame would have.
+  flush();
+  const after: number[] = [];
+  for (const step of steps) {
+    step();
+    flush();
+    after.push(runs);
+  }
+  dispose();
+  return after;
 }
 
 function fixture(initial: Partial<Omit<HostMarks, "unseenFinished">> = {}) {
@@ -81,6 +93,10 @@ function fixture(initial: Partial<Omit<HostMarks, "unseenFinished">> = {}) {
     },
   }));
   writeHostMarks(HOST, {});
+  // Registration and the first marks write are staged; flush them so a reader
+  // built next starts from a settled frame rather than counting the setup's
+  // own commit as a wake.
+  flush();
   return (next: Partial<Omit<HostMarks, "unseenFinished">>) => {
     if (next.byClass) setByClass(next.byClass);
     if (next.liveIds) setLiveIds(next.liveIds);
@@ -120,19 +136,24 @@ describe("a class read does not wake on the live set", () => {
   it("still reports the right class either way", () => {
     // The separation is about WAKING, not about answers — pin the answers too,
     // so a future fix for one can't quietly break the other.
+    // Every write below is staged, so each reading is taken after a flush —
+    // the frame a consumer would read it on.
     const update = fixture({
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },
       liveIds: [],
     });
+    flush();
     expect(terminalClass(HOST, A)).toBe("working");
 
     update({ liveIds: [A] });
+    flush();
     expect(terminalClass(HOST, A)).toBe("working");
 
     update({
       byClass: { asking: [A], working: [], linger: [], finished: [] },
     });
+    flush();
     expect(terminalClass(HOST, A)).toBe("asking");
   });
 
@@ -146,8 +167,10 @@ describe("a class read does not wake on the live set", () => {
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },
     });
+    flush();
     const before = hostFrame(HOST).byClass;
     update({ liveIds: [A] });
+    flush();
     expect(hostFrame(HOST).byClass).toBe(before);
   });
 });
@@ -156,12 +179,15 @@ it("badge counts registered live host facts and follows liveness", () => {
   const update = fixture({
     byClass: { asking: [A], working: [], linger: [], finished: [] },
   });
+  flush();
   expect(liveAskingTotal()).toBe(1);
   update({ live: false });
+  flush();
   expect(liveAskingTotal()).toBe(0);
   update({
     live: true,
     byClass: { asking: [], working: [], linger: [], finished: [] },
   });
+  flush();
   expect(liveAskingTotal()).toBe(0);
 });

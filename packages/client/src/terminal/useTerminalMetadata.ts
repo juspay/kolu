@@ -19,22 +19,22 @@ import {
   type TerminalMetadata,
   tileTerminalOf,
 } from "@kolu/padi-client/surface";
-import { writeWrappedValue } from "@kolu/surface/solid";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Accessor,
-  createComputed,
   createMemo,
+  createProjection,
   mapArray,
-  onCleanup,
-  untrack,
 } from "solid-js";
-import { createStore, produce, unwrap } from "solid-js/store";
+import { sameFields } from "../conductor/sameItems";
 import { activeScope } from "../hostScope/hostScopes";
+import { foldEach } from "@kolu/surface/solid";
 import { activeHost, padiMap } from "../wire";
 import { reprojectTerminalClock } from "./reprojectClock";
 import {
   buildTerminalDisplayInfos,
+  type TerminalDisplayEntry,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 import {
@@ -42,8 +42,21 @@ import {
   descendantsByRoot,
   type PaneNode,
   paneTreeOf,
+  type ParentEdge,
   rootAncestorOf,
 } from "./terminalTree";
+
+/** Where one listed record stands: not yet yielded, a parked restore-card row,
+ *  or an active|sleeping tile. One row of the tri-state census. */
+type RecordPhase = "awaited" | "parked" | "live";
+
+/** One terminal's parent edge, carried with its id so the pure tree walks can
+ *  run over the joined list. `parent` is `undefined` for an absent or parked
+ *  record, `null` for a root, else the parent's id. */
+interface ParentRow {
+  readonly id: TerminalId;
+  readonly parent: TerminalId | null | undefined;
+}
 
 /** Whether two top-level terminal-id lists are identical — the same ids in the
  *  same order. Serves as the `equals` gate on the `terminalIds` memo below: a
@@ -106,7 +119,7 @@ export { isParkedTerminal as isParked } from "@kolu/padi-client/surface";
  *  one of which consumers already render as "unknown", never the raw value.
  *
  *  MODULE-PRIVATE (not exported, and the ONLY caller is the metadata projection's
- *  per-id computed in `useTerminalMetadata`). It mints a FRESH object and reads the
+ *  per-id projection in `useTerminalMetadata`). It mints a FRESH object and reads the
  *  active host's clock reactively — correct behaviour INSIDE the projection, where
  *  `reconcile` collapses an unchanged reprojection back to a stable reference. Calling
  *  it from any other tracking scope would reintroduce #1714's per-call identity churn,
@@ -121,23 +134,50 @@ const NO_SUB_IDS: TerminalId[] = [];
 /** Same stable-reference contract for the nested shape. */
 const NO_PANE_NODES: PaneNode[] = [];
 
-function sameDisplayInfo(
-  a: TerminalDisplayInfo | undefined,
-  b: TerminalDisplayInfo,
-): boolean {
+/** Merge one freshly built display row into the row standing in the projection's
+ *  draft, LEAF BY LEAF — never `draft[id] = row`.
+ *
+ *  The store tracks leaves: a row written whole makes every reader under that id
+ *  re-run for the one field that moved, and hands the row a new reference. That is
+ *  the #1714 shape one level down — a split opening under a tile (`subCount`)
+ *  would repaint its colours and its identity key, and a `<For>` keyed on the row
+ *  would rebuild it. Assigned only where the two differ, so a rebuild that changes
+ *  nothing — the common case, since every metadata tick re-derives the whole table
+ *  — touches no node at all and this stays the no-op it was.
+ *
+ *  TOTAL over the row's keys, in both directions, which is what the whole-row
+ *  write it replaces was for free: a field this merge did not know about would
+ *  otherwise never reach the store, and a field the fresh row DROPS (the
+ *  collision `suffix`, once the collision is gone) would stand forever. Nested
+ *  containers recurse rather than being replaced — `key` is the one today — so a
+ *  reader of one of their leaves is woken only by that leaf. */
+export function mergeDisplayInfo<T extends object>(into: T, next: T): void {
+  for (const key of Object.keys(next) as (keyof T)[]) {
+    const fresh = next[key];
+    const held = into[key];
+    if (isPlainBranch(fresh) && isPlainBranch(held)) {
+      mergeDisplayInfo(held, fresh);
+      continue;
+    }
+    if (held !== fresh) into[key] = fresh;
+  }
+  for (const key of Object.keys(into) as (keyof T)[])
+    if (!(key in next)) delete into[key];
+}
+
+/** A value this merge recurses INTO rather than assigns: a plain object. An
+ *  array, a `Date` or a class instance is one value, and is replaced whole. */
+function isPlainBranch(value: unknown): value is Record<string, unknown> {
   return (
-    !!a &&
-    a.repoColor === b.repoColor &&
-    a.annotationColor === b.annotationColor &&
-    a.subCount === b.subCount &&
-    a.key.group === b.key.group &&
-    a.key.label === b.key.label &&
-    a.key.suffix === b.key.suffix
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
   );
 }
 
 export function useTerminalMetadata(deps: {
-  list: Accessor<{ id: TerminalId }[] | undefined>;
+  list: Accessor<readonly TerminalId[] | undefined>;
 }) {
   // W1.R1: a terminal's record is served ALREADY COMPOSED. padi's `terminals`
   // collection folds the two halves that share the one registry entry — the
@@ -147,13 +187,18 @@ export function useTerminalMetadata(deps: {
   // `snapshotSession`). The client's former reader-join collapsed to this single
   // read; there is no client-side re-fusion. R9 (remote snapshots) swaps the
   // snapshot backing remote-side behind the server compose with no change here.
-  // Memoized so the id array is computed once per list change, not re-mapped on
-  // every `.use({ keys })` read, every `terminalIds` recompute, and every
-  // `getSplitPaneIds` call (the last runs O(terminals) times per display
-  // rebuild — which is why the descendant relation is INDEXED once below
-  // rather than re-walked per tile).
-  const keys = createMemo<TerminalId[]>(
-    () => deps.list()?.map((t) => t.id) ?? [],
+  //
+  // THE ONE COPY of the collection's key array, and it is a `mapArray`: the
+  // list a per-key collection serves is a store PROXY, so iterating it in user
+  // code costs `length` plus an index leaf per terminal, on whichever scope
+  // does the iterating — 197 panes to `WIDE_SCOPE_DEPS`, on every consumer
+  // that re-derived its own copy. `mapArray` reads the container and walks the
+  // backing raw, which is two sources flat; from here down every `keys()` fold
+  // is reading a plain array and costs one.
+  const keys = mapArray(
+    () => deps.list() ?? [],
+    (id) => id,
+    { name: "useTerminalMetadata.keys" },
   );
   // The composed `terminals` collection now RIDES the active host's RETAINED per-host
   // owner (`activeScope().wire.terminals`, W9) — opened once per host in `createHostWire`
@@ -191,15 +236,17 @@ export function useTerminalMetadata(deps: {
   // --- The metadata projection: identity-stable reprojected records ---
   //
   /** Per-id reconcile-backed projection: `id → { read }`, where `read()` is the
-   *  reprojected record `getMetadata` returns. One `createComputed` per live
-   *  terminal reprojects its raw record and writes THROUGH `writeWrappedValue`
-   *  (the framework's reconcile-or-assign gate — `surface/src/solid/writeValue.ts`,
-   *  the same one every subscription value rides) into a per-id `{ v }` store.
-   *  Because that gate `reconcile`s, `store.v`'s proxy stays STABLE across the
-   *  record's continuous lifetime — a changed field mutates the proxy in place and
-   *  notifies only that leaf (the `useTerminalMetadata.test.ts` `lastActivityAt`
-   *  case). The reference turns over only around absence/recreation: `undefined ⇄
-   *  record`, or a structural swap `reconcile` can't merge in place.
+   *  reprojected record `getMetadata` returns. One `createProjection` per live
+   *  terminal reprojects its raw record into a per-id `{ v }` store. A
+   *  projection commits its draft through Solid's reconcile channel, so
+   *  `store.v`'s proxy stays STABLE across the record's continuous lifetime —
+   *  a changed field mutates the proxy in place and notifies only that leaf
+   *  (the `useTerminalMetadata.test.ts` `lastActivityAt` case). The reference
+   *  turns over only around absence/recreation: `undefined ⇄ record`, or a
+   *  structural swap `reconcile` can't merge in place. `key: null` is the same
+   *  undeclared-merge rule `writeWrappedValue` applies to every subscription
+   *  value: an array element is REPLACED rather than recycled, so no object is
+   *  ever carried across records.
    *
    *  This restores an identity-stability GUARANTEE at the one knowing endpoint.
    *  #1714 broke it by having `getMetadata` return a fresh reprojected object
@@ -210,70 +257,70 @@ export function useTerminalMetadata(deps: {
    *  With the projection, consumers reading `meta.git.…` track that leaf again
    *  and are notified only on a real value change.
    *
-   *  `slots` is a keyed store (not a plain Map) so `getMetadata`'s `slots[id]`
-   *  read re-subscribes when THIS id's projection is created/removed WITHOUT
-   *  tracking the whole membership — adding an unrelated terminal (a split) never
-   *  notifies `slots[otherId]` readers, so `active` doesn't churn on split-add.
-   *  `mapArray` gives each live id a reactive owner disposed when it leaves the
-   *  set. In-repo precedent for the shared-reprojection remedy: `HostDaemonChips`
-   *  `daemon()`. */
-  const [slots, setSlots] = createStore<
-    Record<
-      TerminalId,
-      {
-        read: Accessor<TerminalMetadata | undefined>;
-        parent: Accessor<TerminalId | null | undefined>;
-      }
-    >
-  >({});
-  const driveProjections = mapArray(keys, (id) => {
-    const [store, setStore] = createStore<{ v: TerminalMetadata | undefined }>({
-      v: undefined,
-    });
+   *  `slots` is a keyed PROJECTION (not a plain Map) so `getMetadata`'s
+   *  `slots[id]` read re-subscribes when THIS id's projection is created or
+   *  removed WITHOUT tracking the whole membership — adding an unrelated
+   *  terminal (a split) never notifies `slots[otherId]` readers, so `active`
+   *  doesn't churn on split-add. `mapArray` gives each live id a reactive owner
+   *  disposed when it leaves the set, and the table's own derive is what adds
+   *  and drops its key — no slot writes from inside a mapped owner.
+   *
+   *  Both projections are PULLED, which is what keeps the old eager drive
+   *  honest without one: `getMetadata` is read in the same tick this is set up
+   *  (the `active` memo on first render, and the hook's own `displayInfos` /
+   *  `isWorktreeShared`), and a read computes the table and the per-id record
+   *  right there rather than waiting for a queue. In-repo precedent for the
+   *  shared-reprojection remedy: `HostDaemonChips` `daemon()`. */
+  interface MetadataSlot {
+    readonly id: TerminalId;
+    readonly read: Accessor<TerminalMetadata | undefined>;
+    readonly parent: Accessor<TerminalId | null | undefined>;
+  }
+  const slotList = mapArray(keys, (id): MetadataSlot => {
     // Reprojects on every change of this id's raw record OR the active host's
-    // clock; `writeWrappedValue`'s `reconcile` keeps `store.v`'s identity when the
-    // reprojected value is unchanged. Sole write path for reprojected metadata —
-    // the fresh-object read path is unspellable elsewhere.
-    createComputed(() => {
-      const record = rawTile(id);
-      writeWrappedValue<TerminalMetadata | undefined>(
-        setStore,
-        record === undefined
-          ? undefined
-          : reprojectTerminalClock(
-              padiMap.entry(activeHost()).clock.toLocal,
-              record,
-            ),
-      );
-    });
+    // clock. Sole write path for reprojected metadata — the fresh-object read
+    // path is unspellable elsewhere.
+    //
+    // The derive RETURNS its value; it does not assign it into a draft. That is
+    // what buys the identity stability below: a returned value is committed
+    // through Solid's reconcile channel (merged into the live store, leaf by
+    // leaf), whereas assigning a fresh object to a draft KEY replaces that key's
+    // value wholesale — a new proxy per reprojection, and every leaf reader woken
+    // (the #1714 flicker, exactly).
+    const projected = createProjection<{ v: TerminalMetadata | undefined }>(
+      () => {
+        const record = rawTile(id);
+        return {
+          v:
+            record === undefined
+              ? undefined
+              : reprojectTerminalClock(
+                  padiMap.entry(activeHost()).clock.toLocal,
+                  record,
+                ),
+        };
+      },
+      null,
+      { key: null },
+    );
     const parent = createMemo(() => {
       const tile = rawTile(id);
       return tile === undefined ? undefined : (tile.parentId ?? null);
     });
-    const slot = { read: () => store.v, parent };
-    setSlots(
-      produce((s) => {
-        const held = s[id];
-        if (held) Object.assign(held, slot);
-        else s[id] = slot;
-      }),
-    );
-    onCleanup(() =>
-      setSlots(
-        produce((s) => {
-          delete s[id];
-        }),
-      ),
-    );
+    return { id, read: () => projected.v, parent };
   });
-  // `mapArray` is lazy — drive it from a `createComputed` (not an effect) so the
-  // per-id owners are instantiated + reconciled SYNCHRONOUSLY: `getMetadata` is
-  // read in the same tick it's set up (the `active` memo on first render, and the
-  // hook's own `displayInfos`/`isWorktreeShared`), so the projection must be ready
-  // without waiting for the effect queue. Each per-id computed likewise reprojects
-  // eagerly, so a synchronous `getMetadata(id)` returns the value, not a transient
-  // `undefined`.
-  createComputed(driveProjections);
+  const slots = createProjection<Record<TerminalId, MetadataSlot>>(
+    (draft) => {
+      const live = slotList();
+      for (const slot of live)
+        if (draft[slot.id] !== slot) draft[slot.id] = slot;
+      const ids = new Set(live.map((slot) => slot.id));
+      for (const id of Object.keys(draft) as TerminalId[])
+        if (!ids.has(id)) delete draft[id];
+    },
+    {},
+    { key: null },
+  );
 
   /** The RAW composed tile record — presence + the parked-narrow, with NO clock
    *  reprojection. The ORDERING filters (`terminalIds`/`getSplitPaneIds`) read `parentId`
@@ -295,9 +342,14 @@ export function useTerminalMetadata(deps: {
    *  `terminalIds().length === 0` alone can't tell the two apart; this census keeps
    *  the states distinct so `resolveCanvasMode` owns the choice.
    *
-   *  Reading each record's own signal inside the memo IS the fine-grained
-   *  subscription that drives this — no polling, no effect: the memo re-runs as each
-   *  key yields. Arms:
+   *  Read ONE RECORD AT A TIME. Counting the fleet on one scope subscribes
+   *  that scope to every listed record, which Solid's development build
+   *  judges `WIDE_SCOPE_DEPS` past 200 sources — about 70 panes here, since a
+   *  record read costs two nodes before any field. So each id's phase is its
+   *  own row memo ({@link foldEach}), the rows are joined in chunks, and the
+   *  three counts are a fold over the JOINED list: one source, for any fleet.
+   *  The per-row subscription is the same fine-grained one — no polling, no
+   *  effect: a row re-runs as its key yields. Arms:
    *    - `awaited` — record not yet yielded (`byKey(id)?.()` undefined). An id absent
    *      from the collection reads undefined too, and counts as awaited (correct — we
    *      wait it out rather than treat it as settled).
@@ -312,18 +364,36 @@ export function useTerminalMetadata(deps: {
    *  `CanvasFacts.channelLive` (watchdog-backed ws ∧ the active entry) — a LIVE channel
    *  with a never-composing record is a padi/compose BUG that must surface loudly, not a UI
    *  state to tune around. */
-  const recordPhases = createMemo(() => {
-    let awaited = 0;
-    let parked = 0;
-    let live = 0;
-    for (const id of keys()) {
+  const recordPhaseRows = foldEach(
+    "useTerminalMetadata.recordPhase",
+    keys,
+    (id): RecordPhase => {
       const record = terminals()?.byKey(id)?.();
-      if (record === undefined) awaited++;
-      else if (isParkedTerminal(record)) parked++;
-      else live++;
-    }
-    return { awaited, parked, live };
-  });
+      if (record === undefined) return "awaited";
+      return isParkedTerminal(record) ? "parked" : "live";
+    },
+  );
+  const recordPhases = createMemo(
+    () => {
+      let awaited = 0;
+      let parked = 0;
+      let live = 0;
+      for (const phase of recordPhaseRows()) {
+        if (phase === "awaited") awaited++;
+        else if (phase === "parked") parked++;
+        else live++;
+      }
+      return { awaited, parked, live };
+    },
+    // Three counts, minted fresh on every census tick. Most ticks move a
+    // record's fields without moving any count, and the loading gate above
+    // this must not re-decide for that.
+    {
+      name: "useTerminalMetadata.recordPhases",
+      equals: (a, b) =>
+        a.awaited === b.awaited && a.parked === b.parked && a.live === b.live,
+    },
+  );
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
 
@@ -341,62 +411,101 @@ export function useTerminalMetadata(deps: {
     return slots[id]?.parent();
   }
 
+  /** EVERY listed terminal's parent edge, one row memo per id. A row tracks
+   *  its own `slots[id]` and that slot's `parent` memo and nothing else, so
+   *  the whole census is `1 + ⌈N / 128⌉` sources on the join rather than two
+   *  per terminal on each of the three walks below ({@link foldEach}). The
+   *  walks themselves need no reactivity at all: they are pure functions of
+   *  these edges, so {@link census} runs them over the JOINED list. */
+  const parentRows = foldEach(
+    "useTerminalMetadata.parentEdge",
+    keys,
+    (id): ParentRow => ({ id, parent: parentEdge(id) }),
+    (a, b) => a.id === b.id && a.parent === b.parent,
+  );
+
+  /** The three shapes of ONE membership fact — which terminals are tiles,
+   *  which panes hang under each tile, and the same panes nested by their true
+   *  parent — walked together from the joined edges. ONE source: the walks
+   *  read the edge out of a plain `Map`, never off the store, so adding a
+   *  terminal cannot widen this scope. Publishing the three together is also
+   *  what keeps them one fact: a surface that walks the parent edge itself is
+   *  how a split of a split came to exist in the roster while no surface gave
+   *  it a row. */
+  const census = createMemo(
+    () => {
+      const rows = parentRows();
+      const edges = new Map<TerminalId, TerminalId | null | undefined>(
+        rows.map((row) => [row.id, row.parent]),
+      );
+      // Total, exactly as `parentEdge` is: an id the census does not hold
+      // reads `undefined` (absent / parked), so a dangling parentId cannot
+      // invent a fake root.
+      const edgeOf: ParentEdge = (id) => edges.get(id);
+      const ids = rows.map((row) => row.id);
+      const splits = descendantsByRoot(ids, edgeOf);
+      // A terminal with no resolvable root (cycle, or parentId dangling at a
+      // missing node) paints as top-level too — otherwise it would fall out of
+      // both this set and every root's flat split list, which is the exact
+      // invisibility bug #2059 is about. True descendants of a live root stay
+      // out; an absent or parked record is no tile at all.
+      const topLevel = ids.filter((id) => {
+        if (edges.get(id) === undefined) return false;
+        const root = rootAncestorOf(id, edgeOf);
+        return root === id || root === null;
+      });
+      const panes = new Map<TerminalId, PaneNode[]>(
+        [...splits].map(([rootId, flat]) => [
+          rootId,
+          paneTreeOf(rootId, flat, edgeOf),
+        ]),
+      );
+      return { topLevel, splits, panes };
+    },
+    { name: "useTerminalMetadata.census" },
+  );
+
   /** Top-level terminal IDs in server-provided order.
    *  Terminals whose metadata hasn't arrived yet are excluded (still loading).
-   *
-   *  A terminal with no resolvable root (cycle, or parentId dangling at a
-   *  missing node) paints as top-level too — otherwise it would fall out of
-   *  both this set and every root's flat split list, which is the exact
-   *  invisibility bug #2059 is about. True descendants of a live root stay out.
    *
    *  The `equals` gate keeps the prior array reference whenever a metadata
    *  change leaves the top-level id set unchanged (the common case), so
    *  dependants keyed off the reference skip the no-op recompute an unchanged
    *  set would otherwise trigger — the reactivity keystone of the performance
-   *  map. The accessor re-runs cheaply on each metadata change; what it no
+   *  map. The accessor re-runs cheaply on each membership change; what it no
    *  longer does is *notify* downstream when the set is identical. */
-  const terminalIds = createMemo<TerminalId[]>(
-    () =>
-      keys().filter((id) => {
-        // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
-        // record, so presence alone excludes restore-card rows.
-        if (rawTile(id) === undefined) return false;
-        const root = rootAncestorOf(id, parentEdge);
-        // Root of its own tree, or no root at all (cycle / dangling) → tile.
-        return root === id || root === null;
-      }),
-    [],
-    { equals: sameTerminalIdOrder },
-  );
+  const terminalIds = createMemo<TerminalId[]>(() => census().topLevel, {
+    name: "useTerminalMetadata.terminalIds",
+    equals: sameTerminalIdOrder,
+  });
 
   /** Every descendant of a root tile, flattened, in server-provided order.
    *
    *  The canvas paints these as the tile's split tab strip — a grandchild looks
-   *  like a direct child; no indent, no breadcrumb. Built in one O(T) walk with
-   *  a path memo so a deep chain is not re-walked per node. */
-  const splitsByRoot = createMemo<Map<TerminalId, TerminalId[]>>((prev) => {
-    const next = descendantsByRoot(keys(), parentEdge);
-    for (const [id, ids] of next) {
-      const old = prev?.get(id);
-      if (old && sameTerminalIdOrder(old, ids)) next.set(id, old);
-    }
-    return next;
-  });
+   *  like a direct child; no indent, no breadcrumb. A root whose list did not
+   *  change keeps the ARRAY it had, so a consumer keyed on the reference (the
+   *  tab strip, the split badge) sleeps through a census that moved another
+   *  tile. */
+  const splitsByRoot = createMemo<Map<TerminalId, TerminalId[]>>(
+    (prev) => {
+      const next = new Map(census().splits);
+      for (const [id, ids] of next) {
+        const old = prev?.get(id);
+        if (old && sameTerminalIdOrder(old, ids)) next.set(id, old);
+      }
+      return next;
+    },
+    { name: "useTerminalMetadata.splitsByRoot" },
+  );
 
   /** The SAME panes, re-shaped into the true parent→child tree the Dock
-   *  indents — derived from `splitsByRoot`'s arrays, never from a second walk
-   *  of `parentId`. Membership is therefore one fact with two shapes: the flat
-   *  strip the canvas paints and the tree the Dock lists always cover the same
-   *  terminals. A surface that walks the parent edge itself is how a split of a
-   *  split came to exist in the roster while no surface gave it a row. */
+   *  indents — built in {@link census} from the flat lists, never from a second
+   *  walk of `parentId`. Membership is therefore one fact with two shapes: the
+   *  flat strip the canvas paints and the tree the Dock lists always cover the
+   *  same terminals. */
   const paneTreesByRoot = createMemo<Map<TerminalId, PaneNode[]>>(
-    () =>
-      new Map(
-        [...splitsByRoot()].map(([rootId, flat]) => [
-          rootId,
-          paneTreeOf(rootId, flat, parentEdge),
-        ]),
-      ),
+    () => census().panes,
+    { name: "useTerminalMetadata.paneTreesByRoot" },
   );
 
   /** Flat split-pane ids for a canvas tile (every descendant under its root).
@@ -461,28 +570,48 @@ export function useTerminalMetadata(deps: {
 
   // --- Derived accessors ---
 
-  // Tile badge / subCount is the FLAT descendant count (what the canvas shows,
-  // and what the Dock's sub-entries now cover), not the one-hop parent edge.
-  const [displayInfos, setDisplayInfos] = createStore<
-    Record<string, TerminalDisplayInfo>
-  >({});
-  createComputed(() => {
-    const next = buildTerminalDisplayInfos(
-      terminalIds(),
-      getMetadata,
-      getSplitPaneIds,
-    );
-    const previous = untrack(() => unwrap(displayInfos));
-    setDisplayInfos(
-      produce((table) => {
-        for (const id of Object.keys(previous))
-          if (!next.has(id)) delete table[id];
-        for (const [id, value] of next) {
-          if (!sameDisplayInfo(previous[id], value)) table[id] = value;
-        }
-      }),
-    );
-  });
+  /** ONE TILE'S IDENTITY PROJECTION — the canonical `(group, label)` pair for
+   *  its record, plus the flat descendant count the split badge shows (what
+   *  the canvas tab strip covers, not the one-hop parent edge).
+   *
+   *  Per id, because `git` and `cwd` are store leaves: projecting the fleet on
+   *  one scope subscribes it to every tile's git fact, which Solid's
+   *  development build judges `WIDE_SCOPE_DEPS` past 200 sources — about 30
+   *  tiles. A row holds its own record's leaves; what the table below reads is
+   *  the joined list of PLAIN strings, so the collision pass that needs every
+   *  tile at once costs one source. */
+  const displayEntries = foldEach(
+    "useTerminalMetadata.displayEntry",
+    terminalIds,
+    (id): TerminalDisplayEntry | undefined => {
+      const meta = getMetadata(id);
+      if (meta === undefined) return undefined;
+      const { group, label } = terminalKey(meta);
+      return { id, group, label, subCount: getSplitPaneIds(id).length };
+    },
+    sameFields,
+  );
+
+  /** The display table, derived per id. A projection rather than a store a
+   *  rule writes: the derive's `draft` IS the previous table (its reads are
+   *  not tracked, so diffing against it takes no untracking), and the commit
+   *  touches only the LEAVES that moved — a tile whose row is unchanged
+   *  notifies nobody, and a tile whose split count moved notifies the readers
+   *  of that count alone ({@link mergeDisplayInfo}). A row arriving for the
+   *  first time is the one write that assigns: there is nothing to merge into. */
+  const displayInfos = createProjection<Record<string, TerminalDisplayInfo>>(
+    (draft) => {
+      const next = buildTerminalDisplayInfos(displayEntries());
+      for (const id of Object.keys(draft)) if (!next.has(id)) delete draft[id];
+      for (const [id, value] of next) {
+        const row = draft[id];
+        if (row === undefined) draft[id] = value;
+        else mergeDisplayInfo(row, value);
+      }
+    },
+    {},
+    { key: null },
+  );
 
   function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {
     return displayInfos[id];

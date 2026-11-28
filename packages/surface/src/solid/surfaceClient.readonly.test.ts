@@ -265,24 +265,30 @@ describe("surfaceClient cell verbs", () => {
   it("does NOT auto-inject the spec-level `patch` merger as the local-authority applyPatch for a set-only cell", async () => {
     specPatchCalls.length = 0;
     const { dispatch } = stubDispatch();
-    await createRoot(async (dispose) => {
+    // The cell is minted under an owner (its subscription needs one); the WRITE
+    // runs outside it, as an event handler does — a store write inside an owned
+    // scope is the violation the dev build throws on.
+    const [cell, dispose] = createRoot((d) => {
       const app = surfaceClient(surface, dispatch);
       // Local authority over the set-only cell. The bound shape is
       // `BoundCell<T, T>`, so `.patch` carries the FULL value `{ n, label }`.
-      const cell = app.cells.explicitSet.use({
-        authority: "local",
-        initial: { n: 5, label: "seed" },
-      });
-      // A full-value local write. `surfaceClient` must NOT have injected the
-      // spec-level `patch` (a `P`-merger expecting `{ delta }`) as `applyPatch`;
-      // with no `applyPatch`, `useCell` full-replaces the store.
-      await Effect.runPromise(cell.patch({ n: 9, label: "next" }));
-      // Full replacement landed — NOT the merger's `current.n + delta` (which,
-      // fed a full `T`, would read `patch.delta === undefined` and corrupt `n`).
-      expect(cell.value()).toEqual({ n: 9, label: "next" });
-      // The `P`-merger was never wired in, so it was never called.
-      expect(specPatchCalls).toHaveLength(0);
-      dispose();
+      return [
+        app.cells.explicitSet.use({
+          authority: "local",
+          initial: { n: 5, label: "seed" },
+        }),
+        d,
+      ] as const;
     });
+    // A full-value local write. `surfaceClient` must NOT have injected the
+    // spec-level `patch` (a `P`-merger expecting `{ delta }`) as `applyPatch`;
+    // with no `applyPatch`, `useCell` full-replaces the store.
+    await Effect.runPromise(cell.patch({ n: 9, label: "next" }));
+    // Full replacement landed — NOT the merger's `current.n + delta` (which,
+    // fed a full `T`, would read `patch.delta === undefined` and corrupt `n`).
+    expect(cell.value()).toEqual({ n: 9, label: "next" });
+    // The `P`-merger was never wired in, so it was never called.
+    expect(specPatchCalls).toHaveLength(0);
+    dispose();
   });
 });

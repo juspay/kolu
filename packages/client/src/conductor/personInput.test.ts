@@ -1,4 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -35,6 +36,7 @@ describe("personInputAt", () => {
   it("refuses and raises the card while the Conductor drives a terminal on another host", () => {
     seam.membership.set(REMOTE_REF, member("conductor"));
     expect(personInputAt(REMOTE_REF)).toBe(false);
+    flush();
     expect(lockCardShown(REMOTE_REF)).toBe(true);
   });
 
@@ -53,6 +55,7 @@ describe("personInput", () => {
   it("still gates a terminal on the active host by its id", () => {
     seam.membership.set(LOCAL_REF, member("conductor"));
     expect(personInput(ID)).toBe(false);
+    flush();
     expect(lockCardShown(LOCAL_REF)).toBe(true);
   });
 });

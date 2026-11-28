@@ -116,25 +116,29 @@ export function createCodeHistories<K>(): CodeHistories<K> {
   };
 }
 
-/** The five history verbs of {@link CodeViewState}, over whichever stack is
- *  the place's NOW — `null` while there is no owner to have one (no pane),
- *  where every verb answers "nowhere to go". */
+/** The three history-WRITING verbs of {@link CodeViewState}, over whichever
+ *  stack is the place's NOW — `null` while there is no owner to have one (no
+ *  pane), where every verb answers "nowhere to go".
+ *
+ *  `browser` MUST NOT read reactive state: `recordNavigation` is called from
+ *  the EFFECT PHASE (a Code view records the front-door open its resolution
+ *  landed), where a signal/store read is STRICT_READ_UNTRACKED. A home whose
+ *  stack is keyed on something reactive (which pane has focus) keeps that key
+ *  in a plain field of its own and looks the stack up with it here. The two
+ *  ENABLEMENT accessors are NOT here: they are read in JSX, where this
+ *  write-phase key would answer about whichever pane was focused last, so each
+ *  home spells them itself — on its own live focus where the stack is keyed on
+ *  focus, on its fixed work where it is not (`conductor/workCodeView.ts`). */
 export function codeHistoryVerbs(
   browser: () => Browser<BrowserLocation> | null,
 ): Pick<
   CodeViewState,
-  | "recordNavigation"
-  | "navigateBack"
-  | "navigateForward"
-  | "canNavigateBack"
-  | "canNavigateForward"
+  "recordNavigation" | "navigateBack" | "navigateForward"
 > {
   return {
     recordNavigation: (loc) => browser()?.navigate(loc),
     navigateBack: () => browser()?.back() ?? null,
     navigateForward: () => browser()?.forward() ?? null,
-    canNavigateBack: () => browser()?.canBack() ?? false,
-    canNavigateForward: () => browser()?.canForward() ?? false,
   };
 }
 
@@ -148,7 +152,27 @@ export type SelectedFiles = NonNullable<
  *  mutation: the deselect arm drops the mode's key rather than writing
  *  `undefined` into it (an optional key on the wire refuses a present-but-
  *  undefined value), and an emptied map is `undefined` — absence is the only
- *  spelling of "no selection". */
+ *  spelling of "no selection".
+ *
+ *  `files` MUST BE A PLAIN SNAPSHOT, never a store's own map: the decision
+ *  below reads the map's leaves (`mode in cur`, `cur[mode]`, the rest spread),
+ *  and every caller is a WRITE-ONLY verb reached from the Code view's effect
+ *  phase, where a store read is STRICT_READ_UNTRACKED. Both homes hold their
+ *  merge base as plain values for exactly this reason
+ *  (`conductor/workCodeView.ts`'s `plainView`,
+ *  `right-panel/useRightPanel.ts`'s `plainRecord`).
+ *
+ *  The rebuilt map is the DECISION, not necessarily the write: a home whose
+ *  record lives in a store writes the one leaf it names, and reads this result
+ *  only to tell "unchanged" from "the last selection went away" (`undefined`).
+ *
+ *  ONE DIRECTION. The snapshot flows in, the decision flows out, and the
+ *  home's write callback is read DOWNSTREAM of it — snapshot → decision →
+ *  the one leaf written → the home folding the produced record back into its
+ *  own plain copy. Nothing reads this result back into `files`: the next
+ *  decision's base is that copy, never this map and never the store. A home
+ *  that fed its own output back in would be building a cycle, which 2.0.4
+ *  does not report — it crashes. */
 export function selectionWith(
   files: SelectedFiles | undefined,
   mode: CodeTabView,
@@ -178,10 +202,18 @@ export interface CodeViewState {
   readonly setCodeMode: (mode: CodeTabView) => void;
   /** The file selected in `mode`, repo-relative, or `null`. */
   readonly selectedFile: (mode: CodeTabView) => string | null;
-  /** Select `path` in `mode`; `null` drops the mode's selection. */
+  /** Select `path` in `mode`; `null` drops the mode's selection.
+   *
+   *  Called from the EFFECT PHASE as well as from clicks — a view lands a
+   *  front-door open there, through the open controller's `onResolved`.
+   *  So it may only WRITE: a read of a signal or a store property inside it
+   *  is STRICT_READ_UNTRACKED. A home that needs its current record to build
+   *  the next one keeps that record in a plain field it updates as it writes,
+   *  never by reading the reactive copy back. The same holds for
+   *  {@link recordNavigation}. */
   readonly setSelectedFile: (mode: CodeTabView, path: string | null) => void;
   /** Record a visit — idempotent on mode+path. Records only; the selected
-   *  file stays the render truth. */
+   *  file stays the render truth. Write-only, as {@link setSelectedFile} is. */
   readonly recordNavigation: (loc: BrowserLocation) => void;
   /** Step back / forward, returning the location to re-apply, or `null`. */
   readonly navigateBack: () => BrowserLocation | null;

@@ -66,7 +66,7 @@ no framework-internal state.
 ```tsx
 // packages/solid-pierre/src/FileTree.tsx (sketch)
 import { FileTree, type GitStatusEntry } from "@pierre/trees";
-import { createEffect, onCleanup, on } from "solid-js";
+import { createEffect, onSettled } from "solid-js";
 
 export type FileTreeProps = {
   paths: string[]; // canonical repo-relative
@@ -79,8 +79,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
 
-  // Mount once — class owns its DOM. Don't recreate on prop changes.
-  queueMicrotask(() => {
+  // Mount once, after the first render settles — the container is in the DOM
+  // then, and the class owns its DOM. Don't recreate on prop changes.
+  onSettled(() => {
     tree = new FileTreeClass({
       paths: props.paths,
       initialExpansion: "open",
@@ -89,26 +90,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       onSelectionChange: (paths) => props.onSelect?.(paths[0] ?? ""),
     });
     tree.render({ containerWrapper: container });
+    return () => tree?.cleanUp();
   });
 
   // Reactively push updates via setters — `resetPaths`, `setGitStatus` patch
-  // in place without rerenders.
+  // in place without rerenders. The compute reads the prop; the effect only
+  // acts on the value it is handed.
   createEffect(
-    on(
-      () => props.paths,
-      (paths) => tree?.resetPaths(paths),
-      { defer: true },
-    ),
+    () => props.paths,
+    (paths) => tree?.resetPaths(paths),
+    { defer: true },
   );
   createEffect(
-    on(
-      () => props.gitStatus,
-      (g) => tree?.setGitStatus(g),
-      { defer: true },
-    ),
+    () => props.gitStatus,
+    (g) => tree?.setGitStatus(g),
+    { defer: true },
   );
-
-  onCleanup(() => tree?.cleanUp());
 
   return <div ref={container!} class="h-full" />;
 };
@@ -116,15 +113,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
 Key points:
 
-- **Mount in `queueMicrotask`** (or `onMount`) — the container div must be in
-  the DOM before `render()`.
+- **Mount in `onSettled`** — the container div must be in the DOM before
+  `render()`, and `onSettled` runs after the first render settles. Return the
+  teardown from it.
 - **Pass callbacks through `props.onSelect?.()`** — don't capture at mount
   time, the prop ref may change. Pierre calls back through the current closure.
 - **Use setters for updates** (`resetPaths`, `setGitStatus`, `setIcons`,
   `setComposition`) — never reconstruct `FileTree` on prop change.
-- **`defer: true`** on the effects so the initial mount doesn't fire them.
-- **`onCleanup(() => tree?.cleanUp())`** is mandatory — leaks the shadow root
-  otherwise.
+- **Split effects with `defer: true`**: the compute reads the prop, the effect
+  applies it, and `defer` keeps the initial mount from firing them. An effect
+  callback must not read props or signals itself — Solid 2 warns
+  (`STRICT_READ_UNTRACKED`); hand it everything from the compute.
+- **The returned teardown (`tree?.cleanUp()`)** is mandatory — leaks the shadow
+  root otherwise.
 
 ### Git status mapping
 
@@ -179,6 +180,7 @@ import {
   type CodeViewOptions,
   DEFAULT_THEMES,
 } from "@pierre/diffs";
+import { createEffect, onSettled } from "solid-js";
 
 export type CodeViewProps = {
   items: readonly CodeViewItem[];
@@ -206,15 +208,15 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
   });
 
-  onMount(() => {
+  onSettled(() => {
     instance = new CodeViewClass(buildOptions());
     instance.setup(root);  // root IS the scroll container
     instance.setItems(props.items);
+    return () => instance?.cleanUp();
   });
 
-  createEffect(on(() => props.items, (items) => instance?.setItems(items), { defer: true }));
-  createEffect(on(() => props.theme,  () => instance?.setOptions(buildOptions()), { defer: true }));
-  onCleanup(() => instance?.cleanUp());
+  createEffect(() => props.items, (items) => instance?.setItems(items), { defer: true });
+  createEffect(() => buildOptions(), (options) => instance?.setOptions(options), { defer: true });
 
   return <div ref={root} class={props.class} style={props.style} />;
 };

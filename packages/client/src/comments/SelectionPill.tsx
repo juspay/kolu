@@ -10,7 +10,7 @@
 
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { PlusIcon } from "../ui/Icons";
 
 export type SelectionPillProps = {

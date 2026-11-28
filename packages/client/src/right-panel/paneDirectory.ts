@@ -42,3 +42,18 @@ export function paneDirectory(
     };
   return { root: shortenCwd(cwd), rest: "", full: cwd };
 }
+
+/** Whether two directory lines read identically — the three strings.
+ *
+ *  Beside the fold, because {@link paneDirectory} mints a fresh record on every
+ *  call and a reader re-reads it whenever ANY leaf of the pane's metadata
+ *  proxy ticks. A memo over it needs this as its `equals`, or the header's
+ *  whole subtree is re-published for a path that did not move. */
+export function samePaneDirectory(
+  a: PaneDirectory | null,
+  b: PaneDirectory | null,
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return a.root === b.root && a.rest === b.rest && a.full === b.full;
+}

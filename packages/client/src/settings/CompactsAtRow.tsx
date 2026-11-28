@@ -9,7 +9,6 @@ import {
   CONDUCTOR_COMPACTS_AT_MIN,
   CONDUCTOR_MODEL_LIMIT,
 } from "kolu-common/surface";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { type Component, createSignal, Show } from "solid-js";
 import { tokens } from "../conductor/tokens";
 import SegmentedControl, {
@@ -110,17 +109,15 @@ const CompactsAtRow: Component = () => {
             <input
               type="text"
               inputmode="numeric"
-              spellcheck={false}
+              spellcheck="false"
               autocomplete="off"
               aria-label="Compact the Conductor's conversation at, in thousands of tokens"
               data-testid="conductor-compacts-at-field"
               class="h-7 w-16 rounded-lg border border-edge bg-surface-1 px-2 text-right font-mono text-xs text-fg transition-colors focus:border-accent/50 focus:bg-surface-2 focus:outline-none"
               value={storedThousands()}
-              ref={(el) =>
-                makeEventListener(el, "keydown", (e) => {
-                  if (e.key === "Enter") enter(el.value);
-                })
-              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") enter(e.currentTarget.value);
+              }}
               onBlur={(e) => enter(e.currentTarget.value)}
             />
             k

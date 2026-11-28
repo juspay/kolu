@@ -41,7 +41,7 @@ export function findShadowRoot(el: Element): ShadowRoot | null {
  *  assertion has to yield first. Waiting cannot mask a repaint failure: a
  *  change that never bumps the view's revision never repaints, no matter how
  *  long the test waits. */
-export function flush(): Promise<void> {
+export function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 

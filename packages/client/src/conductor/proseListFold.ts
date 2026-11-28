@@ -37,7 +37,7 @@
  *  The copy in the ⋯ menu is untouched: it copies the row TEXT, never this
  *  DOM, so a copied transcript always has every item. */
 
-import { createStore, produce } from "solid-js/store";
+import { createStore } from "solid-js";
 
 /** Longer than this, and the list folds. Five fit in a glance; six do not. */
 export const PROSE_LIST_FOLD_OVER = 5;
@@ -59,15 +59,28 @@ const CONTROL_ATTR = "data-kolu-prose-more";
  *  closed. */
 const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
 
-/** Fold every over-long top-level list in `host`'s rendered prose.
+/** WHICH OF `rowId`'s LISTS ARE OPEN, by the same key {@link
+ *  applyProseListFold} folds under. Read it in the prose effect's COMPUTE:
+ *  the key set is tracked there, so pressing a control re-runs the effect and
+ *  the pass below repaints the one list that changed — an effect's imperative
+ *  half reads no reactive state of its own. */
+export function proseListFoldOpen(rowId: string): ReadonlySet<string> {
+  const prefix = `${rowId}#`;
+  return new Set(Object.keys(opened).filter((key) => key.startsWith(prefix)));
+}
+
+/** Fold every over-long top-level list in `host`'s rendered prose, with
+ *  {@link proseListFoldOpen}'s answer for which of them are open.
  *
  *  Call this from a reactive effect that re-runs after every rewrite of the
  *  prose's DOM (`<Markdown onRendered>` — a new chunk OR a diagram landing in
  *  unchanged text): a rewrite discards the fold, and may bring lists the last
- *  run never saw. The read of `opened[key]` below is tracked, so pressing a
- *  control re-runs the effect and this pass repaints the one list that
- *  changed. */
-export function applyProseListFold(host: HTMLElement, rowId: string): void {
+ *  run never saw. */
+export function applyProseListFold(
+  host: HTMLElement,
+  rowId: string,
+  openLists: ReadonlySet<string>,
+): void {
   topLevelLists(host).forEach((list, index) => {
     const items = directItems(list);
     // Five or fewer: untouched, and nothing to clean up — the only thing that
@@ -76,7 +89,7 @@ export function applyProseListFold(host: HTMLElement, rowId: string): void {
     if (items.length <= PROSE_LIST_FOLD_OVER) return;
 
     const key = `${rowId}#${index}`;
-    const open = opened[key] === true;
+    const open = openLists.has(key);
     const hiddenCount = items.length - PROSE_LIST_FOLD_SHOWS;
 
     items.forEach((item, position) => {
@@ -96,12 +109,10 @@ export function applyProseListFold(host: HTMLElement, rowId: string): void {
     // Assigned, not added: a re-run replaces this handler instead of stacking
     // a second one that would toggle the list straight back.
     button.onclick = () =>
-      setOpened(
-        produce((all) => {
-          if (open) delete all[key];
-          else all[key] = true;
-        }),
-      );
+      setOpened((all) => {
+        if (open) delete all[key];
+        else all[key] = true;
+      });
   });
 }
 

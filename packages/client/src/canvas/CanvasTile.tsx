@@ -18,10 +18,11 @@ import {
   createMemo,
   createSignal,
   For,
-  type JSX,
-  onMount,
+  onSettled,
+  runWithOwner,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { match } from "ts-pattern";
 import { createDraggable } from "../dnd";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
@@ -152,19 +153,41 @@ const CanvasTile: Component<{
   // shell instance (not re-armed without remount).
   const [landing, setLanding] = createSignal(false);
   const spendLanding = () => setLanding(false);
-  onMount(() => {
+  onSettled(() => {
     if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
       return;
     setLanding(true);
   });
-  createEffect(() => {
+  createEffect(
     // Mid-entrance loss of eligibility cancels CSS without animationend —
-    // spend so a later restore/wake never re-plays.
-    if (!landing()) return;
-    if (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()) {
-      spendLanding();
-    }
-  });
+    // spend so a later restore/wake never re-plays. The compute asks only
+    // about ELIGIBILITY, never about `landing()` itself: an effect whose
+    // compute reads the signal its effect phase writes would feed on its own
+    // write. Spending a cue that was never armed is an equal-value write, so
+    // the unguarded spend below costs nothing.
+    () => props.sleeping || props.mode !== "tiled" || prefersReducedMotion(),
+    (lostEligibility) => {
+      if (!lostEligibility) return;
+      // SETTLED, like the exhale below and for the same reason: the tile's
+      // chrome spread reads `landing` beside `props.mode` and `props.sleeping`
+      // — the very props this arm is answering — so an inline spend relays the
+      // cancel into a render effect that already ran for it, showing one frame
+      // of the new mode with the stale cue. From an UNOWNED `onSettled` the
+      // write lands in a later pass of the SAME flush (no extra frame) and
+      // carries no effect origin, so the attribute and the mode reach the DOM
+      // together. Unowned because an apply arm HAS an owner, under which
+      // `onSettled` would create a tracked effect right here — the relay
+      // again, plus a child per cancel. The callback writes one plain signal
+      // and returns nothing (a returned value reads as a cleanup, which an
+      // unowned `onSettled` forbids).
+      runWithOwner(null, () =>
+        onSettled(() => {
+          spendLanding();
+        }),
+      );
+    },
+    { name: "CanvasTile.spendLandingOnLostEligibility" },
+  );
   const onLandInAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
     e,
   ) => {
@@ -248,19 +271,42 @@ const CanvasTile: Component<{
   // a later re-show of `.tile-aura` on the same shell never re-plays.
   // Held ring stays on `data-aura="finished"` alone.
   const [exhale, setExhale] = createSignal(false);
-  let prevAura: TileAura = "none";
-  createEffect(() => {
-    const next = aura();
-    const enteredFinished = next === "finished" && prevAura !== "finished";
-    const eligible =
-      showAura() && props.active !== true && !prefersReducedMotion();
-    if (enteredFinished) {
-      setExhale(eligible);
-    } else if (next !== "finished" || !eligible) {
-      setExhale(false);
-    }
-    prevAura = next;
-  });
+  createEffect(
+    () => ({
+      tier: aura(),
+      eligible: showAura() && props.active !== true && !prefersReducedMotion(),
+    }),
+    ({ tier, eligible }, prev) => {
+      // `prev` is the previous compute result, so the tier TRANSITION is read
+      // off it rather than a mutable closure variable.
+      const enteredFinished = tier === "finished" && prev?.tier !== "finished";
+      const next = enteredFinished
+        ? eligible
+        : tier !== "finished" || !eligible
+          ? false
+          : undefined;
+      if (next === undefined) return;
+      // SETTLED, not inline: the tile's chrome spread reads `exhale` beside the
+      // very tier this arm is answering, so an inline write relays into a render
+      // effect that already ran — one frame of the new tier with the stale
+      // exhale. From `onSettled` the write lands in a later pass of the SAME
+      // flush (no extra frame) and carries no effect origin, so the attribute
+      // and the tier reach the DOM together.
+      //
+      // UNOWNED: under an owner — which an apply arm has — `onSettled` is a
+      // tracked effect created and run right there, so the write would carry the
+      // arm's own frame (the relay) and the tile would grow a child per
+      // transition. With no owner it enqueues, which is the deferral. The
+      // callback writes one plain signal and returns NOTHING (a returned value
+      // reads as a cleanup, which `onSettled` forbids unowned): no children, no
+      // cleanup.
+      runWithOwner(null, () =>
+        onSettled(() => {
+          setExhale(next);
+        }),
+      );
+    },
+  );
   const onAuraAnim: JSX.EventHandlerUnion<HTMLDivElement, AnimationEvent> = (
     e,
   ) => {
@@ -427,11 +473,14 @@ const CanvasTile: Component<{
       // Clip model is tier-independent: outer shell always overflow-visible so
       // outside-paint auras (working outer rail, future rings) are free; the
       // inner shell always clips title/body. Geometry does not branch on aura.
-      class="relative border transition-shadow duration-200 overflow-visible"
       // Geometry, layer, and visibility all live in `presentation().style` (one
-      // complete box per mode); the classList carries only non-geometric,
-      // mode-specific decoration (rounded corners vs. transparent border).
-      classList={presentation().classes}
+      // complete box per mode); the second `class` entry carries only
+      // non-geometric, mode-specific decoration (rounded corners vs.
+      // transparent border).
+      class={[
+        "relative border transition-shadow duration-200 overflow-visible",
+        presentation().classes,
+      ]}
       style={presentation().style}
       onMouseDown={(event) => {
         // A live terminal owns the more precise pane landing (main vs split).
@@ -469,10 +518,10 @@ const CanvasTile: Component<{
         <div
           ref={draggable.handleRef}
           data-testid="canvas-tile-titlebar"
-          class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
-          classList={{
-            "cursor-grab active:cursor-grabbing": !isMaximized(),
-          }}
+          class={[
+            "grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4",
+            { "cursor-grab active:cursor-grabbing": !isMaximized() },
+          ]}
           style={{
             "background-color": tileTitleBarBg(props.theme),
             "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,

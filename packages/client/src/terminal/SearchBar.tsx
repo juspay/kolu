@@ -6,15 +6,8 @@ import type {
   ISearchResultChangeEvent,
   SearchAddon,
 } from "@xterm/addon-search";
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  type JSX,
-  on,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import Tip from "../ui/Tip";
@@ -64,32 +57,50 @@ const SearchBar: Component<{
   const [resultIndex, setResultIndex] = createSignal(-1);
   const [resultCount, setResultCount] = createSignal(0);
 
-  const disposable = props.searchAddon.onDidChangeResults(
-    (e: ISearchResultChangeEvent) => {
-      setResultIndex(e.resultIndex);
-      setResultCount(e.resultCount);
+  // The addon is the tile's xterm instance's: a rebuilt xterm hands this same
+  // mounted component a NEW addon (the `<Show>` in `Terminal.tsx` is not
+  // keyed), so the result subscription follows the prop and the old one is
+  // disposed with it.
+  createEffect(
+    () => props.searchAddon,
+    (addon) => {
+      const disposable = addon.onDidChangeResults(
+        (e: ISearchResultChangeEvent) => {
+          setResultIndex(e.resultIndex);
+          setResultCount(e.resultCount);
+        },
+      );
+      return () => disposable.dispose();
     },
   );
-  onCleanup(() => disposable.dispose());
 
-  // Focus input when opened; clear decorations when closed
+  // Focus the input when the bar opens. Only `open` is tracked: an xterm
+  // rebuild hands this same mounted bar a new addon, and re-running this
+  // would select away what the person has typed.
   createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (open) {
-          // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
-          requestAnimationFrame(() => {
-            inputRef?.focus();
-            inputRef?.select();
-          });
-        } else {
-          props.searchAddon.clearDecorations();
-          setResultIndex(-1);
-          setResultCount(0);
-        }
-      },
-    ),
+    () => props.open,
+    (open) => {
+      if (!open) return;
+      // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
+      requestAnimationFrame(() => {
+        inputRef?.focus();
+        inputRef?.select();
+      });
+    },
+  );
+
+  // The count and the decorations belong to one addon and one opening, so they
+  // are dropped whenever either fact moves — the close, and an addon swap, so a
+  // replaced xterm never shows the matches of the one it replaced. On an OPEN
+  // this is a no-op: the close already cleared. The live addon speaks for the
+  // label again on its next result event.
+  createEffect(
+    () => ({ open: props.open, addon: props.searchAddon }),
+    ({ addon }) => {
+      addon.clearDecorations();
+      setResultIndex(-1);
+      setResultCount(0);
+    },
   );
 
   function findNext() {

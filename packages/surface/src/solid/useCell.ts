@@ -29,8 +29,13 @@
 
 import { debounce } from "@solid-primitives/scheduled";
 import { Effect } from "effect";
-import { type Accessor, createEffect, on } from "solid-js";
-import { createStore, type SetStoreFunction } from "solid-js/store";
+import {
+  type Accessor,
+  createEffect,
+  createStore,
+  getOwner,
+  snapshot,
+} from "solid-js";
 import {
   type StreamingProcedure,
   type UnaryEffect,
@@ -38,7 +43,12 @@ import {
 } from "../client";
 import type { Cell } from "../index";
 import { runDetached } from "../runStream";
-import { createSubscription, type Subscription } from "./createSubscription";
+import {
+  createSubscription,
+  noLifetimeRefusal,
+  type Subscription,
+} from "./createSubscription";
+import type { NoFn } from "./noFn";
 import { reconcileFrame } from "./writeValue";
 
 export type Authority = "server" | "local";
@@ -64,23 +74,16 @@ export interface UseCellServerOptions<T, P = T> {
 export interface UseCellLocalOptions<T extends object, P = T> {
   source: StreamingProcedure<undefined, T>;
   authority: "local";
-  /** Default value for the local store; used until the first server yield. */
-  initial: T;
+  /** Default value for the local store; used until the first server yield.
+   *  Never a FUNCTION — Solid 2 reads one handed to `createStore` as the
+   *  DERIVED-store form rather than as the value ({@link NoFn}). A cell's value
+   *  is wire data (schema-decoded), so the requirement costs a real call site
+   *  nothing; stating it here is what lets the store take it directly. */
+  initial: NoFn<T>;
   mutate: CellMutate<P>;
   /** Pure merge: returns the next value. Used when the patch shape `P`
    *  differs from `T` (otherwise `set` semantics suffice). */
   applyPatch?: (current: T, patch: P) => T;
-  /** Escape hatch for non-shallow merges (discriminated-union nested fields).
-   *  Receives Solid's `setStore` directly so callers can do nested path-form
-   *  writes that `applyPatch` + reconcile can't express cleanly.
-   *
-   *  Prefer flattening the storage shape so this hatch isn't needed — Solid's
-   *  setStore deep-merge can't preserve DU variant invariants without a
-   *  per-path `reconcile`, and the consumer-side cost is exporting Solid's
-   *  store API across the framework boundary. When you must use it, document
-   *  at the call site (1) why `applyPatch` is insufficient and (2) the
-   *  specific nested mutation required. */
-  mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
   /** Trailing-debounce window (ms) for writes that opt in via
    *  `patch(p, { coalesce: true })`. Such a write applies to the local store
    *  synchronously (the instant-UI guarantee local authority exists for) but
@@ -158,6 +161,17 @@ export function useCell<Name extends string, T, P = T>(
   cell: Cell<Name, T>,
   options: UseCellOptions<T, P>,
 ): UseCellResult<T, P> | UseCellLocalResult<T, P> {
+  // Both arms open a subscription whose ONLY lifetime is this caller's owner —
+  // neither exposes a `signal` — so an ownerless call is refused here, at birth,
+  // before a store or an effect exists. The refusal is worded from the consumer's
+  // spelling rather than from `createSubscription`'s: the seam underneath is
+  // shared and does take a `signal`, so its own wording would name a primitive
+  // this caller never called and offer an option this hook has no way to accept.
+  if (!getOwner())
+    throw noLifetimeRefusal({
+      name: "`.cells.X.use()` (useCell)",
+      acceptsSignal: false,
+    });
   if (options.authority === "local") {
     return useCellLocal(
       cell as Cell<Name, T & object>,
@@ -229,6 +243,9 @@ function useCellLocal<Name extends string, T extends object, P>(
   cellDescriptor: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
 ): UseCellLocalResult<T, P> {
+  // `createStore`'s value form takes `NoFn<T>` — a FUNCTION there is the
+  // derived-store spelling, not a value — and `initial` is declared with that
+  // same constraint, so the option arrives already proved and goes straight in.
   const [store, setStore] = createStore<T>(options.initial);
   // Mutable guard: once any server value arrives, seed the local store
   // from it and never overwrite again. Server echoes after init must not
@@ -248,25 +265,35 @@ function useCellLocal<Name extends string, T extends object, P>(
       arrayKey: cellDescriptor.arrayKey,
     },
   );
+  // The compute tracks the subscription's value and hands the effect a PLAIN
+  // snapshot of it; the seed itself is the effect phase's work (a store write, so
+  // it belongs there and nowhere else). The snapshot is not a formality: a
+  // subscription keeps its value in a STORE, and the merge below walks whatever
+  // it is handed — walking a store proxy from the effect phase is a strict read
+  // (`STRICT_READ_UNTRACKED`), and it would seed this store out of another
+  // store's child proxies. Guarded by `initialized`, so the copy is one walk,
+  // once, rather than one per server frame for a seed that already happened.
   createEffect(
-    on(
-      () => sub(),
-      (server) => {
-        if (server !== undefined && !initialized) {
-          initialized = true;
-          setStore(reconcileFrame(server as T, cellDescriptor.arrayKey));
-        }
-      },
-    ),
+    () => {
+      if (initialized) return undefined;
+      const server = sub();
+      return server === undefined ? undefined : (snapshot(server) as T);
+    },
+    (server) => {
+      if (server !== undefined && !initialized) {
+        initialized = true;
+        setStore(reconcileFrame(server, cellDescriptor.arrayKey));
+      }
+    },
   );
 
   function applyLocal(p: P): void {
-    if (options.mergeIntoStore) {
-      options.mergeIntoStore(setStore, p);
-      return;
-    }
     if (options.applyPatch) {
-      const next = options.applyPatch(store as T, p);
+      // A SNAPSHOT, not the proxy: `applyPatch` builds the next whole value,
+      // usually by spreading what it is given, and spreading the proxy would put
+      // this very store's child proxies inside the frame about to be merged back
+      // into it. The patch is a pure function of plain data in and plain data out.
+      const next = options.applyPatch(snapshot(store) as T, p);
       setStore(reconcileFrame(next, cellDescriptor.arrayKey));
       return;
     }

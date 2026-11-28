@@ -28,8 +28,8 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/terminalId";
 import { Schema } from "effect";
-import { createComputed, createRoot, untrack } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createProjection } from "solid-js";
+import { detachedRoot } from "../detachedRoot";
 import {
   defaultInvalidWarning,
   originStorageSync,
@@ -82,7 +82,7 @@ export function createAttentionRecord(opts: {
 }): AttentionRecord {
   const parse = (raw: string) => decodeSavedAttention(JSON.parse(raw));
   const onInvalid = defaultInvalidWarning(opts.name, BLANK);
-  const [saved, setSaved] = persistedPref<SavedAttention>({
+  const [saved, setSaved, loaded] = persistedPref<SavedAttention>({
     name: opts.name,
     fallback: BLANK,
     parse,
@@ -99,6 +99,15 @@ export function createAttentionRecord(opts: {
       ? BLANK
       : readWithFallback(raw, parse, BLANK, onInvalid);
   };
+  /** What this page last put into `saved` — its own writes, and a stored
+   *  record it took over below. Kept beside the signal because every write
+   *  path below runs in the IMPERATIVE phase (an effect's callback, a
+   *  command), where reading a reactive value is a strict-read defect, and
+   *  where a value just written reads back stale anyway. Seeded with what the
+   *  pref LOADED, not with a read of `saved`: hydration is a staged write, so
+   *  the signal still answers the blank fallback here and this page would
+   *  start out forgetting what the browser saved. */
+  let pageValue = loaded;
   /** Write `change` of the stored record, and take it as this page's value
    *  too, so the page is current with every page's writes as of this one.
    *  `change` answers `null` when the stored record already says it; the page
@@ -106,27 +115,22 @@ export function createAttentionRecord(opts: {
   const update = (change: (now: SavedAttention) => SavedAttention | null) => {
     const now = stored();
     const next = change(now);
-    if (next !== null) setSaved(() => next);
-    else if (JSON.stringify(untrack(saved)) !== JSON.stringify(now))
-      setSaved(() => now);
+    const value =
+      next ?? (JSON.stringify(pageValue) === JSON.stringify(now) ? null : now);
+    if (value === null) return;
+    pageValue = value;
+    setSaved(() => value);
   };
-  // The saved list, one store key per terminal: a write from this page or
-  // another moves only the keys whose mark changed, so only those rows wake.
-  const [unread, setUnread] = createStore<Partial<Record<TerminalId, true>>>(
-    {},
-  );
-  createComputed(() => {
-    const next = new Set(saved().unread);
-    setUnread(
-      produce((marks) => {
-        for (const id of Object.keys(marks) as TerminalId[])
-          if (!next.has(id)) delete marks[id];
-        for (const id of next) marks[id] = true;
-      }),
-    );
+  // The saved list, one store key per terminal: a DERIVED store, so a write
+  // from this page or another moves only the keys whose mark changed and only
+  // those rows wake.
+  const unread = createProjection<Partial<Record<TerminalId, true>>>(() => {
+    const marks: Partial<Record<TerminalId, true>> = {};
+    for (const id of saved().unread) marks[id] = true;
+    return marks;
   });
   return {
-    memory: () => untrack(saved).memory,
+    memory: () => pageValue.memory,
     remember: (memory) => update((now) => ({ ...now, memory })),
     isUnread: (id) => unread[id] === true,
     markUnread: (id) =>
@@ -151,7 +155,8 @@ export function createAttentionRecord(opts: {
 const KEY_BASE = "kolu-attention";
 
 /** The page's records, one per host, keyed by the encoded host — each under a
- *  root of its own, so the record outlives whichever view asked for it first. */
+ *  {@link detachedRoot} of its own, so the record outlives whichever view
+ *  asked for it first. */
 const records = new Map<
   string,
   { readonly record: AttentionRecord; readonly dispose: () => void }
@@ -162,7 +167,7 @@ const records = new Map<
 export function attentionRecordOf(encHost: string): AttentionRecord {
   let entry = records.get(encHost);
   if (entry === undefined) {
-    entry = createRoot((dispose) => ({
+    entry = detachedRoot((dispose) => ({
       record: createAttentionRecord({
         name: perHostName(KEY_BASE, decodeHostKey(encHost)),
         storage: localStorage,

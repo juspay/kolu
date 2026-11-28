@@ -14,13 +14,14 @@ import {
   type Component,
   createContext,
   createMemo,
-  type JSX,
+  untrack,
   useContext,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   type DragTransform,
   NO_TRANSFORM,
-  requireDragDropScope,
+  useDragDropScope,
 } from "./DragDropProvider";
 import {
   createDraggable,
@@ -36,24 +37,37 @@ type SortableList = {
 
 const SortableContext = createContext<SortableList>();
 
+/** Whether two id lists are the same ids in the same positions. The preview
+ *  order is positional, so a reorder must invalidate; a recompute that lands
+ *  on the same sequence must not, because every sortable's slot derives from
+ *  it and callers hand `ids` in as a fresh array on every publish. A bounded
+ *  leaf, deliberately local to this list rather than a generic array-equality
+ *  receptacle. */
+function sameIdOrder(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export const SortableProvider: Component<{
   ids: readonly string[];
   children: JSX.Element;
 }> = (props) => {
-  const scope = requireDragDropScope("SortableProvider");
-  const sortedIds = createMemo(() => {
-    const ids = props.ids;
-    const from = ids.indexOf(scope.activeId() ?? "");
-    const to = ids.indexOf(scope.overId() ?? "");
-    if (from === -1 || to === -1 || from === to) return ids;
-    const next = ids.slice();
-    next.splice(to, 0, ...next.splice(from, 1));
-    return next;
-  });
+  const scope = useDragDropScope();
+  const sortedIds = createMemo(
+    () => {
+      const ids = props.ids;
+      const from = ids.indexOf(scope.activeId() ?? "");
+      const to = ids.indexOf(scope.overId() ?? "");
+      if (from === -1 || to === -1 || from === to) return ids;
+      const next = ids.slice();
+      next.splice(to, 0, ...next.splice(from, 1));
+      return next;
+    },
+    { equals: sameIdOrder },
+  );
   return (
-    <SortableContext.Provider value={{ ids: () => props.ids, sortedIds }}>
+    <SortableContext value={{ ids: () => props.ids, sortedIds }}>
       {props.children}
-    </SortableContext.Provider>
+    </SortableContext>
   );
 };
 
@@ -69,22 +83,44 @@ export type SortableHandle = {
   transform: Accessor<DragTransform>;
 };
 
-export function createSortable(id: string): SortableHandle {
-  const scope = requireDragDropScope("createSortable");
+/** `id` is an ACCESSOR, read inside this hook's own derivations (the preview
+ *  slot below), so a caller hands the item's id straight through without
+ *  reading it in its component body. The dnd-kit registration cannot follow
+ *  it — a registered draggable keeps the id it was created with for this
+ *  owner's lifetime — so the id is sampled once and every later read is
+ *  checked against it: a sortable whose id changed would be registered under
+ *  the old id while its preview slot followed the new one, silently. Every
+ *  caller renders one sortable per keyed list item, so an instance IS its id. */
+export function createSortable(id: Accessor<string>): SortableHandle {
+  const scope = useDragDropScope();
+  // `SortableContext` has no default: a sortable outside a list throws
+  // (`ContextNotFoundError`).
   const list = useContext(SortableContext);
-  if (!list)
-    throw new Error(
-      `createSortable(${id}): no SortableProvider — a sortable belongs to a list`,
-    );
-  const draggable = createDraggable(id);
-  const droppable = createDroppable(id);
+  const registered = untrack(id);
+  const draggable = createDraggable(registered);
+  const droppable = createDroppable(registered);
+  /** This item's id, refused if it is no longer the one registered. */
+  const itemId = (): string => {
+    const now = id();
+    if (now !== registered) {
+      throw new Error(
+        `createSortable was given a changing id (${registered} -> ${now}) — ` +
+          "the dnd-kit draggable and droppable keep the id they were " +
+          "registered with for this owner's lifetime, so the drag would move " +
+          "one item while the preview shifted another. Render one sortable " +
+          "per id, under a keyed loop.",
+      );
+    }
+    return now;
+  };
   // The offset from this item's own start rect to the rect of the slot the
   // preview order puts it in.
   const slotOffset = (): DragTransform => {
-    const slot = list.sortedIds().indexOf(id);
-    const home = list.ids().indexOf(id);
+    const self = itemId();
+    const slot = list.sortedIds().indexOf(self);
+    const home = list.ids().indexOf(self);
     if (slot === -1 || slot === home) return NO_TRANSFORM;
-    const from = scope.startRect(id);
+    const from = scope.startRect(self);
     const to = scope.startRect(list.ids()[slot] ?? "");
     if (!from || !to) return NO_TRANSFORM;
     return { x: to.left - from.left, y: to.top - from.top };

@@ -15,7 +15,8 @@ import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import type { Driver } from "kolu-work";
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
-import { type Component, createMemo, type JSX, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { type Component, createMemo, Show } from "solid-js";
 import { hostLabel } from "../../host/hostChipTone";
 import { fleetTerminalStanding } from "../../palette/fleetTerminals";
 import { useDuration } from "../../terminal/staleness";
@@ -54,7 +55,7 @@ export const TerminalControls: Component<{
         <button
           type="button"
           data-testid={`${props.kind}-fit`}
-          aria-pressed={props.fit}
+          aria-pressed={props.fit ? "true" : "false"}
           class={
             props.fit
               ? "shrink-0 cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2 py-0.5 text-[0.7rem] text-accent"
@@ -90,6 +91,10 @@ export const TerminalControls: Component<{
  *  agent. Look's window is not sized from its body and keeps the old shape. */
 export const TerminalStatusLine: Component<{
   kind: HeadKind;
+  /** IS THERE A SCREEN UNDER THIS HEAD — the ONE gate, computed by the view
+   *  that owns the screen (`peek/lookable.ts`) and handed down, so a head and
+   *  its pane can never disagree about whether there is a screen to read out. */
+  lookable: boolean;
   host: string;
   id: TerminalId;
   /** The terminal's member ref, which the lock is kept under. */
@@ -124,7 +129,6 @@ export const TerminalStatusLine: Component<{
     const tokens = agent()?.contextTokens;
     return tokens == null ? null : { value: tokens };
   };
-  const lookable = () => liveArm(standing()) !== undefined;
   const offersResize = () =>
     props.kind === "live" && props.resize?.offered === true;
   const readout = (g: TerminalGrid): JSX.Element => (
@@ -176,7 +180,7 @@ export const TerminalStatusLine: Component<{
           </Show>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
-        <Show when={lookable() ? lock() : undefined}>
+        <Show when={props.lookable ? lock() : undefined}>
           {(who) => (
             <span
               data-testid={`${props.kind}-lock`}
@@ -203,7 +207,7 @@ export const TerminalStatusLine: Component<{
             </span>
           )}
         </Show>
-        <Show when={lookable() && props.grid}>
+        <Show when={props.lookable && props.grid}>
           {(g) => (
             <Show when={offersResize()} fallback={readout(g())}>
               {/* Text-sized, with no padding or border, so offering it
@@ -219,7 +223,7 @@ export const TerminalStatusLine: Component<{
             </Show>
           )}
         </Show>
-        <Show when={lookable()}>
+        <Show when={props.lookable}>
           <span
             data-testid={`${props.kind}-live`}
             data-phase={props.held ? "held" : props.phase}

@@ -138,13 +138,26 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
   let lastRange: Range | null = null;
   let debounceHandle = 0;
 
-  const evaluate = (): void => {
-    const host = opts.host();
+  /** The reactive facts an evaluation runs against, read at the ONE place each
+   *  caller can read them: the effect's compute phase, or the debounce timer
+   *  (which runs outside any computation). */
+  type SelectionInputs = {
+    host: HTMLElement | undefined;
+    path: string | null;
+    composing: boolean;
+  };
+  const selectionInputs = (): SelectionInputs => ({
+    host: opts.host(),
+    path: opts.path(),
+    composing: composer.isComposing(),
+  });
+
+  const evaluate = ({ host, path, composing }: SelectionInputs): void => {
     if (!host) {
       setCaptured(null);
       return;
     }
-    if (composer.isComposing()) return; // draft wins; ignore new selections
+    if (composing) return; // draft wins; ignore new selections
     const sel = getShadowAwareSelection(host);
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
       lastRange = null;
@@ -175,7 +188,6 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       setCaptured(null);
       return;
     }
-    const path = opts.path();
     const itemPath = codeViewItemIdAt(range.commonAncestorContainer);
     // Lazy-build the locator — extractQuote walks the DOM, so don't pay
     // for it on every selection tick if the user is just dragging. We
@@ -198,7 +210,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
   const onSelectionChange = (): void => {
     clearTimeout(debounceHandle);
     debounceHandle = window.setTimeout(
-      evaluate,
+      () => evaluate(selectionInputs()),
       DEBOUNCE_MS,
     ) as unknown as number;
   };
@@ -256,19 +268,22 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
   };
 
   const shown = useShown();
-  createEffect(() => {
-    if (!shown()) return;
-    document.addEventListener("selectionchange", onSelectionChange);
-    onCleanup(() => {
-      document.removeEventListener("selectionchange", onSelectionChange);
-      clearTimeout(debounceHandle);
-    });
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) return;
+      document.addEventListener("selectionchange", onSelectionChange);
+      return () => {
+        document.removeEventListener("selectionchange", onSelectionChange);
+        clearTimeout(debounceHandle);
+      };
+    },
+  );
 
   // Re-evaluate when composing closes — user may have selected text and
   // immediately opened another composer; we should be ready.
-  createEffect(() => {
-    if (!composer.isComposing()) evaluate();
+  createEffect(selectionInputs, (inputs) => {
+    if (!inputs.composing) evaluate(inputs);
   });
 
   onCleanup(() => {

@@ -9,13 +9,8 @@
  *  selection capture happens inside the opaque-origin iframe and arrives
  *  via postMessage, not native selectionchange on this side. */
 
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  type JSX,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { useHighlightOverlay } from "./highlightOverlay";
 import { SelectionPill } from "./SelectionPill";
 import type { CommentQueue } from "./types";

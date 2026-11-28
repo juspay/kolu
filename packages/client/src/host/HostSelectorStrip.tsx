@@ -59,7 +59,7 @@ import {
   SortableProvider,
   transformCss,
 } from "../dnd";
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { createEventListener } from "@solid-primitives/event-listener";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -72,21 +72,22 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createStore,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import { jumpToAsking } from "../attention/attentionNav";
 import DocLink from "../ui/DocLink";
+import { refWithRelease } from "../ui/refWithRelease";
 import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, hostKeys, padiMap, updatePreferences } from "../wire";
+import { foldEach } from "@kolu/surface/solid";
 import { selectHostTab } from "./selectHostTab";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -113,7 +114,11 @@ import { useHostKavalChain } from "./useHostKaval";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { runAction } from "../runAction";
-import { computeVisibleHosts, type HostFit } from "./hostOverflow";
+import {
+  computeVisibleHosts,
+  type HostFit,
+  sameHostKeyOrder,
+} from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { createDragClickGuard } from "./dragClickGuard";
 import { isPinnedHostKey, moveHostKey, reorderableHostKeys } from "./hostOrder";
@@ -179,7 +184,7 @@ const HostChip: Component<{
   const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain — a padi-up host
   // whose kaval is down must not paint the connected green.
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
   // Always-on connection status — also the diagnostics open control.
@@ -191,14 +196,48 @@ const HostChip: Component<{
   const isOpen = useHostDiagnosticsSelector();
   const diagOpen = () => isOpen(encKey);
 
-  let chipEl: HTMLDivElement | undefined;
+  // The chip's element as a SIGNAL, not a plain variable: the click guard is
+  // bound from the component body (a `ref` callback may not register a
+  // cleanup, which is what `makeEventListener` did here), so the binder needs
+  // a reactive target to attach to the frame the ref lands. Writing it from
+  // the ref callback is the one write a ref callback is allowed.
+  const [chipEl, setChipEl] = createSignal<HTMLDivElement>();
   // The drag transform, straight onto the node (see the `drag` prop's doc):
-  // only the carried chip and the chips its preview shifts re-run this.
-  createEffect(() => {
-    const drag = props.drag;
-    if (!drag || !chipEl) return;
-    chipEl.style.transform = transformCss(drag.transform());
-  });
+  // only the carried chip and the chips its preview shifts re-run this. The
+  // element comes from the compute too — the effect phase reads nothing.
+  createEffect(
+    () => ({ transform: props.drag?.transform(), el: chipEl() }),
+    ({ transform, el }) => {
+      if (!transform || el === undefined) return;
+      el.style.transform = transformCss(transform);
+    },
+  );
+  // A finished drag's trailing `click` can land on whichever of the chip's two
+  // buttons the gesture started on — switching host, or toggling diagnostics.
+  // Swallow it in the CAPTURE phase, before either button's (delegated)
+  // handler runs. The pinned chip passes no guard, so nothing is ever
+  // swallowed there. Bound here rather than in the ref: the binder's teardown
+  // is an effect's returned cleanup, which a ref callback cannot own.
+  createEventListener(
+    chipEl,
+    "click",
+    (e) => {
+      if (props.swallowClick?.() !== true) return;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+    { capture: true },
+  );
+  // This chip owns the element it hands the panel: when it unmounts (overflow
+  // fit, the `md` row going away) the panel must not stay floating against a
+  // detached node.
+  const chipRef = refWithRelease<HTMLDivElement>((el) => {
+    setChipEl(el);
+    // A re-orderable chip is the sortable AND its own drag handle: a
+    // press anywhere on it picks it up. The pinned chip has no sortable.
+    props.drag?.ref(el);
+    props.drag?.handleRef(el);
+  }, releaseHostDiagnosticsAnchor);
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
@@ -206,32 +245,7 @@ const HostChip: Component<{
   // diagnostics.
   return (
     <div
-      ref={(el) => {
-        chipEl = el;
-        // A re-orderable chip is the sortable AND its own drag handle: a
-        // press anywhere on it picks it up. The pinned chip has no sortable.
-        props.drag?.ref(el);
-        props.drag?.handleRef(el);
-        // A finished drag's trailing `click` can land on whichever of the
-        // chip's two buttons the gesture started on — switching host, or
-        // toggling diagnostics. Swallow it in the CAPTURE phase, before either
-        // button's (delegated) handler runs. The pinned chip passes no guard,
-        // so nothing is ever swallowed there.
-        makeEventListener(
-          el,
-          "click",
-          (e) => {
-            if (props.swallowClick?.() !== true) return;
-            e.stopPropagation();
-            e.preventDefault();
-          },
-          { capture: true },
-        );
-        // This chip owns the element it hands the panel: when it unmounts
-        // (overflow fit, the `md` row going away) the panel must not stay
-        // floating against a detached node.
-        onCleanup(() => releaseHostDiagnosticsAnchor(el));
-      }}
+      ref={chipRef}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encKey}
@@ -254,7 +268,7 @@ const HostChip: Component<{
         diagnostics={{
           "data-testid": "host-diagnostics-open",
           "aria-haspopup": "dialog",
-          "aria-expanded": diagOpen(),
+          "aria-expanded": diagOpen() ? "true" : "false",
           "aria-label": `Details for ${name()} — ${glance().title}${activeSuffix()}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`,
           title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
@@ -262,18 +276,19 @@ const HostChip: Component<{
             // The pip is INSIDE the chip, so the ref is set by the time it
             // can be clicked — fail loudly if that ever stops holding rather
             // than eating the click.
-            if (chipEl === undefined)
+            const el = chipEl();
+            if (el === undefined)
               throw new Error("host chip has no element to hang details off");
-            toggleHostDiagnostics(encKey, chipEl);
+            toggleHostDiagnostics(encKey, el);
           },
         }}
         select={{
           role: "tab",
-          "aria-selected": isActive(),
+          "aria-selected": isActive() ? "true" : "false",
           "data-testid": "host-select",
           // Picking a host tab is also how you LEAVE the conductor, which
           // is why the already-active tab is not a no-op — see `selectHostTab`.
-          // No `classList` here: the shell owns every element's one class
+          // No `class` here: the shell owns every element's one class
           // expression now (`HostChipShell`), and a bag that carried one would
           // be the second authority #2351 removed.
           onClick: () => selectHostTab(props.host),
@@ -315,7 +330,7 @@ const HostChip: Component<{
  *  first, is not draggable, and — not being a droppable — nothing can land
  *  before it. */
 const SortableHostChip: Component<{ hostKey: string }> = (props) => {
-  const sortable = createSortable(props.hostKey);
+  const sortable = createSortable(() => props.hostKey);
   // `props.hostKey` is this chip's identity for its whole lifetime (the row's
   // `<For>` is keyed by the encoded string), so the host decodes exactly once —
   // the referential stability `HostChip`'s per-host lenses rest on.
@@ -336,7 +351,7 @@ const HostSwitcherRow: Component<{
   const selectedHost = useActiveHostSelector();
   const isActive = () => selectedHost(props.hostKey);
   const state = () => padiMap.entry(host).state();
-  const kaval = useHostKavalChain(host);
+  const kaval = useHostKavalChain(() => host);
   const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
   const statusDot = () => chipStatusDot(host, state(), kaval());
@@ -348,13 +363,15 @@ const HostSwitcherRow: Component<{
 
   return (
     <div
-      class="group/host-row relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors"
-      classList={{
-        "bg-accent/20 ring-2 ring-accent/65": isActive() && !down(),
-        "bg-surface-1/55 ring-1 ring-edge/70 hover:bg-surface-2/85 hover:ring-edge-bright/80":
-          !isActive() && !down(),
-        "opacity-70 ring-1 ring-danger/40": down(),
-      }}
+      class={[
+        "group/host-row relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors",
+        {
+          "bg-accent/20 ring-2 ring-accent/65": isActive() && !down(),
+          "bg-surface-1/55 ring-1 ring-edge/70 hover:bg-surface-2/85 hover:ring-edge-bright/80":
+            !isActive() && !down(),
+          "opacity-70 ring-1 ring-danger/40": down(),
+        },
+      ]}
       data-active={isActive() ? "" : undefined}
       data-down={down() ? "" : undefined}
     >
@@ -378,12 +395,14 @@ const HostSwitcherRow: Component<{
         />
         <span class="min-w-0 flex-1">
           <span
-            class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
-            classList={{
-              "text-fg": isActive() && !down(),
-              "text-fg-2": !isActive() && !down(),
-              "text-fg-3": down(),
-            }}
+            class={[
+              "flex min-w-0 items-center gap-1.5 text-xs font-medium",
+              {
+                "text-fg": isActive() && !down(),
+                "text-fg-2": !isActive() && !down(),
+                "text-fg-3": down(),
+              },
+            ]}
           >
             <HostIdentityLabel
               host={host}
@@ -396,12 +415,14 @@ const HostSwitcherRow: Component<{
             </Show>
           </span>
           <span
-            class="block truncate text-[10px] leading-3"
-            classList={{
-              "text-accent": isActive() && !down(),
-              "text-fg-3": !isActive() && !down(),
-              "text-danger": down(),
-            }}
+            class={[
+              "block truncate text-[10px] leading-3",
+              {
+                "text-accent": isActive() && !down(),
+                "text-fg-3": !isActive() && !down(),
+                "text-danger": down(),
+              },
+            ]}
           >
             {glance().short}
           </span>
@@ -551,12 +572,14 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="host-tab -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50"
-        classList={{
-          "host-tab-active": current(),
-          "host-tab-idle": !current() && !down(),
-          "host-tab-down": down(),
-        }}
+        class={[
+          "host-tab -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50",
+          {
+            "host-tab-active": current(),
+            "host-tab-idle": !current() && !down(),
+            "host-tab-down": down(),
+          },
+        ]}
         style={{ "--host-hue": hostHue(active()) }}
         data-testid="host-dropdown-switcher"
         data-down={down() ? "" : undefined}
@@ -564,11 +587,13 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
         <button
           type="button"
           role="tab"
-          aria-selected={current()}
-          aria-expanded={open()}
+          aria-selected={current() ? "true" : "false"}
+          aria-expanded={open() ? "true" : "false"}
           ref={triggerEl}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer"
-          classList={{ "text-fg": !down(), "text-fg-3": down() }}
+          class={[
+            "pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer",
+            { "text-fg": !down(), "text-fg-3": down() },
+          ]}
           aria-label={`Switch host — currently ${hostLabel(active())}`}
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
@@ -626,9 +651,8 @@ const AddHostAffordance: Component = () => {
   // Focus the input the frame the popover mounts it (the ref isn't attached on
   // the tick `open()` flips, so defer past mount; `isConnected` guards a
   // dismiss that beats the microtask).
-  createEffect(() => {
-    if (!open()) return;
-    focusOnMount(inputEl);
+  createEffect(open, (isOpen) => {
+    if (isOpen) focusOnMount(inputEl);
   });
   // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
   // the shared `addHost`; this popover supplies only its own cleanup on success.
@@ -650,7 +674,7 @@ const AddHostAffordance: Component = () => {
         class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         aria-label="Add a host"
         title="Add a host (ssh target)"
-        aria-expanded={open()}
+        aria-expanded={open() ? "true" : "false"}
         onClick={() => setOpen((v) => !v)}
       >
         +
@@ -736,19 +760,25 @@ const HostSelectorStrip: Component = () => {
     (rect, el) => {
       const key = el.dataset.hostKey;
       if (key)
-        setChipWidths(
-          produce((widths) => {
-            widths[key] = rect.width;
-          }),
-        );
+        setChipWidths((widths) => {
+          widths[key] = rect.width;
+        });
     },
   );
 
-  const chipFits = createMemo<HostFit[]>(() =>
-    hostKeys().map((h) => {
-      const key = encodeHostKey(h);
-      return { key, width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS };
+  // ONE ROW PER HOST, joined a chunk at a time. Each chip's measured width is
+  // its own store leaf, so a single memo mapping the pool took a source per
+  // host — a pool a couple of hundred deep put this scope past Solid's
+  // 200-source `WIDE_SCOPE_DEPS` judge, and every measurement tick re-ran the
+  // whole fit. A row re-runs for its own chip alone.
+  const chipFits = foldEach(
+    "hostStrip.chipFits",
+    () => hostKeys().map(encodeHostKey),
+    (key): HostFit => ({
+      key,
+      width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS,
     }),
+    (a, b) => a.key === b.key && a.width === b.width,
   );
   // The "+ add a host" affordance is always present now, so its width is always
   // reserved from the chips' fit budget. Nothing else in the row needs room
@@ -777,17 +807,23 @@ const HostSelectorStrip: Component = () => {
 
   // ── Drag to re-order (desktop strip only) ─────────────────────────────
   // The sortable ids: the SEATED chips minus the pinned one, in rendered order —
-  // `SortableProvider` reads index positions off this list.
-  const draggableVisible = createMemo(() =>
-    hostFit().visible.filter((key) => !isPinnedHostKey(key)),
+  // `SortableProvider` reads index positions off this list. `hostFit()`
+  // republishes on every host switch, so the filter would mint a fresh array
+  // for an unchanged seating; the gate keeps the prior reference and spares the
+  // whole drag graph below it.
+  const draggableVisible = createMemo(
+    () => hostFit().visible.filter((key) => !isPinnedHostKey(key)),
+    { equals: sameHostKeyOrder },
   );
   // The first strip holding two SEATED remote tabs — the first moment a drag
   // changes anything (one remote beside the pinned local tab has nowhere to
   // go). The tip announces the gesture there, then never again.
-  createEffect(() => {
-    if (draggableVisible().length > 1)
-      showTipOnce(CONTEXTUAL_TIPS.hostRearrange);
-  });
+  createEffect(
+    () => draggableVisible().length > 1,
+    (dragWorthwhile) => {
+      if (dragWorthwhile) showTipOnce(CONTEXTUAL_TIPS.hostRearrange);
+    },
+  );
   /** A drop writes the WHOLE next arrangement — every re-orderable member,
    *  seated or overflowed — so the stored order stays a total list and the next
    *  merge rule stays one. `updatePreferences` owns the failure report (a toast
@@ -834,10 +870,10 @@ const HostSelectorStrip: Component = () => {
        *  `md:hidden`, which double-filled dual-daemon slots on the active
        *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
        *  mounts below `sm` (phone chrome). */}
-      <div classList={{ hidden: atMd() }} inert={atMd()}>
+      <div class={{ hidden: atMd() }} inert={atMd()}>
         <HostDropdownSwitcher hosts={hostKeys()} />
       </div>
-      <div classList={{ hidden: !atMd() }} inert={!atMd()}>
+      <div class={{ hidden: !atMd() }} inert={!atMd()}>
         {/* The strip's OWN drag scope, so a chip drag can never surface to
          *  the canvas's — sortables join the NEAREST drag scope, and the
          *  nest is the isolation (the dock makes the same nest for the same
@@ -894,25 +930,21 @@ const HostSelectorStrip: Component = () => {
         <For each={hostKeys()}>
           {(host) => {
             const key = encodeHostKey(host);
-            onCleanup(() =>
-              setMeasureRefs(
-                produce((refs) => {
+            // This twin's slot in the width table is its own: the item's
+            // render owner hands it back when the twin goes, so a departed
+            // host leaves no element for the measuring observer to hold.
+            const measureRef = refWithRelease<HTMLDivElement>(
+              (el) =>
+                setMeasureRefs((refs) => {
+                  refs[key] = el;
+                }),
+              () =>
+                setMeasureRefs((refs) => {
                   delete refs[key];
                 }),
-              ),
             );
             return (
-              <div
-                ref={(el) =>
-                  setMeasureRefs(
-                    produce((refs) => {
-                      refs[key] = el;
-                    }),
-                  )
-                }
-                data-host-key={key}
-                class="shrink-0"
-              >
+              <div ref={measureRef} data-host-key={key} class="shrink-0">
                 <div class="group -mb-px flex items-center shrink-0 text-xs">
                   <HostChipShell
                     host={host}

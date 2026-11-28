@@ -68,7 +68,7 @@ const Replaces: Component<{ replacing: MemoryEntry | null }> = (props) => {
               <button
                 type="button"
                 data-testid="memory-proposal-current"
-                aria-expanded={open()}
+                aria-expanded={open() ? "true" : "false"}
                 class="font-mono text-[0.62rem] text-accent cursor-pointer"
                 onClick={() => setOpen((was) => !was)}
               >
@@ -94,9 +94,12 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
   const [busy, setBusy] = createSignal(false);
   const waiting = () => memory.waiting(props.shown.proposal) !== undefined;
   const { showTipOnce } = useTips();
-  createEffect(() => {
-    if (waiting()) showTipOnce(CONTEXTUAL_TIPS.conductorMemory);
-  });
+  createEffect(
+    () => waiting(),
+    (asked) => {
+      if (asked) showTipOnce(CONTEXTUAL_TIPS.conductorMemory);
+    },
+  );
   const change = () => props.shown.change;
   const text = () => {
     const now = change();
@@ -217,7 +220,7 @@ const MemoryProposalCard: Component<{ shown: ProposalShown }> = (props) => {
               <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <button
                   type="button"
-                  aria-expanded={open()}
+                  aria-expanded={open() ? "true" : "false"}
                   data-testid="memory-proposal-unfold"
                   class="text-fg-3 cursor-pointer"
                   onClick={() => setOpen((was) => !was)}

@@ -9,14 +9,14 @@
 import { runAction, type UiAction } from "../runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import {
   type Component,
   createEffect,
   createSignal,
   For,
-  on,
   Show,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
@@ -59,13 +59,14 @@ const IntentEditorDialog: Component<{
   const canSave = () => trimmed().length > 0;
 
   createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (!open) return;
-        setDraft(props.value);
-      },
-    ),
+    // The draft is seeded from the value the dialog OPENED with: `props.value`
+    // is read as a one-time snapshot here (untracked), so a later change to the
+    // terminal's stored intent never clobbers what the user is typing.
+    () => ({ open: props.open, value: untrack(() => props.value) }),
+    ({ open, value }) => {
+      if (!open) return;
+      setDraft(value);
+    },
   );
 
   /** Insert `text` at the textarea's current cursor position; if there's

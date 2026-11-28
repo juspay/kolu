@@ -18,12 +18,12 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import Toggle from "../ui/Toggle";
 import { preferences, updatePreferences } from "../wire";
-import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_OFF_MEANS,
   type AgentsChange,
@@ -41,6 +41,7 @@ import {
 import AgentChips from "./AgentChips";
 import AgentsFleetLine from "./AgentsFleetLine";
 import AgentsProfileList from "./AgentsProfileList";
+import { agentDistroToastIcon } from "./toastMark";
 import {
   agentDistroListing,
   agentDistroSetting,
@@ -76,12 +77,12 @@ function choose(change: AgentsChange): void {
     if (change.on === false)
       toast(agentToast.off, {
         description: AGENTS_OFF_MEANS,
-        icon: AgentDistroLogo({ size: 16 }),
+        icon: agentDistroToastIcon(),
       });
     return;
   }
   toast.success(agentToast.on(next.profiles), {
-    icon: AgentDistroLogo({ size: 16 }),
+    icon: agentDistroToastIcon(),
   });
 }
 

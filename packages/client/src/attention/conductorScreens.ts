@@ -13,7 +13,7 @@
  *  Counted, not flagged: Look over a live pane of the same terminal is two
  *  screens, and closing one leaves the other showing. */
 
-import { createStore, produce } from "solid-js/store";
+import { createStore } from "solid-js";
 
 /** Screens held, by fleet ref (`<encodedHost>/<id>`). */
 const [held, setHeld] = createStore<Record<string, number>>({});
@@ -21,29 +21,19 @@ const [held, setHeld] = createStore<Record<string, number>>({});
 /** Hold a screen of the terminal at `ref` as showing; the returned function
  *  lets it go. */
 export function holdConductorScreen(ref: string): () => void {
-  setHeld(
-    produce((all) => {
-      all[ref] = (all[ref] ?? 0) + 1;
-    }),
-  );
+  setHeld((all) => {
+    all[ref] = (all[ref] ?? 0) + 1;
+  });
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    setHeld(
-      produce((all) => {
-        const left = (all[ref] ?? 1) - 1;
-        if (left > 0) all[ref] = left;
-        else delete all[ref];
-      }),
-    );
+    setHeld((all) => {
+      const left = (all[ref] ?? 1) - 1;
+      if (left > 0) all[ref] = left;
+      else delete all[ref];
+    });
   };
-}
-
-/** Is a screen of this terminal showing in the Conductor? Reactive, per
- *  terminal. */
-export function conductorScreenShowing(ref: string): boolean {
-  return (held[ref] ?? 0) > 0;
 }
 
 /** Every terminal a screen of which is showing, by fleet ref — reactive over

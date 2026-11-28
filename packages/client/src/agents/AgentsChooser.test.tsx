@@ -17,7 +17,8 @@
 
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import type { AgentDistroListing } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AgentsChooser, { type AgentsChooserParts } from "./AgentsChooser";
 
@@ -31,6 +32,8 @@ const h = vi.hoisted(() => ({
   prefs: undefined as (() => TestPrefs) | undefined,
   setPrefs: undefined as ((next: TestPrefs) => void) | undefined,
   writes: [] as unknown[],
+  /** What the mark builder makes — one node, as the real one returns. */
+  mark: document.createElement("span"),
 }));
 
 // `vi.mock`'s factory runs BEFORE this module's imports, so solid-js can only
@@ -68,12 +71,26 @@ vi.mock("./useAgentDistro", () => ({
   agentProfilesNow: () => undefined,
   localAgentReceipt: () => undefined,
 }));
+vi.mock("./toastMark", () => ({ agentDistroToastIcon: () => h.mark }));
+
+/** Every toast the chooser raises, with the options it raised it with — the
+ *  mark among them. */
+const sonner = vi.hoisted(() => ({
+  raised: [] as Array<{ readonly icon?: unknown }>,
+}));
+vi.mock("solid-sonner", () => {
+  const raise = (_words: unknown, options?: { readonly icon?: unknown }) => {
+    sonner.raised.push(options ?? {});
+  };
+  return { toast: Object.assign(raise, { success: raise }) };
+});
 
 let dispose: (() => void) | undefined;
 afterEach(() => {
   dispose?.();
   document.body.innerHTML = "";
   h.writes = [];
+  sonner.raised = [];
 });
 
 /** Write the one preferences cell the way another surface would. */
@@ -82,6 +99,7 @@ function writePrefs(patch: Partial<TestPrefs>): void {
   if (prefs === undefined || h.setPrefs === undefined)
     throw new Error("the wire mock did not install its preferences cell");
   h.setPrefs({ ...prefs, ...patch });
+  flush();
 }
 
 function mount(deferred: boolean) {
@@ -112,25 +130,31 @@ function mount(deferred: boolean) {
       ].map((r) => r.dataset.reference),
     input: () => q<HTMLInputElement>("[data-testid=agents-profile-input]"),
     juspay: () => q<HTMLButtonElement>("[data-testid=agents-add-juspay]"),
-    /** The field's suggestions, as focusing it opens them. */
+    /** The field's suggestions, as focusing it opens them — a frame later,
+     *  which is when the person sees them. */
     suggested: () => {
       q<HTMLInputElement>("[data-testid=agents-profile-input]")?.focus();
+      flush();
       return [
         ...document.querySelectorAll<HTMLElement>(
           "[data-testid=agents-profile-option]",
         ),
       ];
     },
-    remove: (i: number) =>
+    remove: (i: number) => {
       document
         .querySelectorAll<HTMLButtonElement>(
           "[data-testid=agents-profile-remove]",
         )
-        [i]?.click(),
-    up: (i: number) =>
+        [i]?.click();
+      flush();
+    },
+    up: (i: number) => {
       document
         .querySelectorAll<HTMLButtonElement>("[data-testid=agents-profile-up]")
-        [i]?.click(),
+        [i]?.click();
+      flush();
+    },
   };
 }
 
@@ -155,6 +179,7 @@ describe("Settings' list", () => {
     const input = ui.input();
     if (input === undefined) throw new Error("no add field");
     ui.suggested()[0]?.click();
+    flush();
     expect(h.prefs?.().agentDistro).toEqual({
       enabled: true,
       profiles: ["github:juspay/skills"],
@@ -167,9 +192,11 @@ describe("Settings' list", () => {
 
     input.value = "~/my-profile";
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    flush();
     input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     );
+    flush();
     expect(h.prefs?.().agentDistro).toEqual({
       enabled: true,
       profiles: ["github:juspay/skills", "~/my-profile"],
@@ -200,6 +227,7 @@ describe("Settings' list", () => {
     if (input === undefined) throw new Error("no add field");
     input.value = " github:me/p ";
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    flush();
     input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     );
@@ -226,12 +254,14 @@ describe("the welcome step's held list", () => {
       "github:juspay/skills",
     );
     ui.juspay()?.click();
+    flush();
     expect(ui.rows()).toEqual(["github:juspay/skills"]);
     expect(ui.juspay()).toBeUndefined();
     expect(h.writes).toEqual([]);
     expect(h.prefs?.().agentDistro).toBeNull();
 
     ui.parts().turnOn();
+    flush();
     expect(h.prefs?.().agentDistro).toEqual({
       enabled: true,
       profiles: ["github:juspay/skills"],
@@ -243,6 +273,7 @@ describe("the welcome step's held list", () => {
     const ui = mount(true);
     expect(ui.parts().canTurnOn()).toBe(true);
     ui.parts().turnOn();
+    flush();
     expect(h.prefs?.().agentDistro).toEqual({ enabled: true, profiles: [] });
   });
 
@@ -250,8 +281,21 @@ describe("the welcome step's held list", () => {
     writePrefs({ agentDistro: null });
     const ui = mount(true);
     ui.juspay()?.click();
+    flush();
     writePrefs({ seenTips: ["agents"] });
     writePrefs({ agentDistro: { enabled: false, profiles: ["github:me/p"] } });
     expect(ui.rows()).toEqual(["github:juspay/skills"]);
+  });
+});
+
+describe("the mark on what the chooser says", () => {
+  it("is agent-distro's, on every toast the switch raises", () => {
+    writePrefs({ agentDistro: null });
+    const ui = mount(true);
+    ui.parts().turnOn();
+    flush();
+    // The element the mark builder made — handed over as a NODE, which is
+    // what sonner holds (Solid 2's `JSX.Element` is never a function).
+    expect(sonner.raised.at(-1)?.icon).toBe(h.mark);
   });
 });

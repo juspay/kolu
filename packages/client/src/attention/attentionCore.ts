@@ -33,30 +33,39 @@ export interface AttentionMemory {
   readonly unseenFinished: readonly TerminalId[];
 }
 
-export interface AttentionHooks {
+/** ONE HOST'S VIEW FACTS, as of the frame being folded — everything the fold
+ *  needs to know about where the person is looking, what the Conductor drives
+ *  and whether alerts are on, plus the delivery that carries those same facts.
+ *
+ *  It is READ BY THE CALLER'S COMPUTE PHASE and handed in, because the fold
+ *  itself runs in an effect's imperative phase, where reading reactive state
+ *  is a strict-read defect: every accessor here is a plain closure over
+ *  values already read (a DOM question like "does the window have focus" is
+ *  not reactive and is still asked at the instant it matters). */
+export interface AttentionView {
   /** The master gate — the `attentionAlerts` preference. */
-  alertsEnabled(): boolean;
+  readonly alertsEnabled: boolean;
   /** Is this host the one on screen right now. */
-  isActiveHost(encHost: string): boolean;
+  readonly isActiveHost: boolean;
   /** Is the user looking right AT this terminal (active host + active tile +
    *  focus) — a live gate they've already "seen". */
-  isWatched(encHost: string, id: TerminalId): boolean;
+  isWatched(id: TerminalId): boolean;
   /** Is the Conductor driving this terminal? It answers its own agents (the
    *  Conductor is woken about them), so the terminal is never delivered and
    *  never in its host tab's unread count. Its needs-you count is not this
    *  engine's: a driven terminal blocked on a prompt still counts there. A
    *  terminal the human has taken over is theirs again and reaches them as
    *  any other. */
-  isDriven(encHost: string, id: TerminalId): boolean;
+  isDriven(id: TerminalId): boolean;
   /** Reach the user for one terminal — the channel the engine decides to
    *  fire. `loud` is the sound and the OS popup, held back only on a resumed
    *  first frame; the dock unread is drawn either way. */
-  deliver(
-    encHost: string,
-    id: TerminalId,
-    asking: boolean,
-    loud: boolean,
-  ): void;
+  deliver(id: TerminalId, asking: boolean, loud: boolean): void;
+}
+
+/** What the engine does to the world that does NOT depend on where the person
+ *  is looking — the writes, and the memory it carries across pages. */
+export interface AttentionHooks {
   /** Publish a host's unseen-finished count (the quiet host-tab dot). */
   writeMark(encHost: string, unseenFinished: number): void;
   /** Drop one terminal's dock unread mark — its episode is over (`ended`, whose
@@ -73,12 +82,14 @@ export interface AttentionHooks {
 }
 
 export interface AttentionCore {
-  /** Feed one host's latest attention frame. The FIRST frame per host either
+  /** Feed one host's latest attention frame, with the view facts it is folded
+   *  against ({@link AttentionView} — read by the caller's compute phase).
+   *  The FIRST frame per host either
    *  resumes from what an earlier page saved — diffing against that frame, with
    *  anything new marked but not rung — or, with nothing saved, is the baseline
    *  (records only, never fires — attention is a transition, not a discovery).
    *  Every later frame diffs and may fire. */
-  observe(encHost: string, cur: AttentionFrame): void;
+  observe(encHost: string, cur: AttentionFrame, view: AttentionView): void;
   /** The host left the pool — drop all its state. */
   forgetHost(encHost: string): void;
   /** The user switched TO this host — clear its unseen-finished dot ("you looked"). */
@@ -133,7 +144,11 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     hooks.remember(encHost, memory);
   };
 
-  const observe = (encHost: string, cur: AttentionFrame): void => {
+  const observe = (
+    encHost: string,
+    cur: AttentionFrame,
+    view: AttentionView,
+  ): void => {
     // The host's FIRST frame on this page? If an earlier page saved this host,
     // the engine carries on from there instead of starting blank. A RESUMED
     // first frame: what changed since the saved one happened while no page was
@@ -167,8 +182,8 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       unseenByHost.get(encHost) ?? new Set(),
       candidates,
       cur.finished,
-      hooks.isActiveHost(encHost),
-      (id) => hooks.isDriven(encHost, id),
+      view.isActiveHost,
+      (id) => view.isDriven(id),
     );
     unseenByHost.set(encHost, unseen);
     hooks.writeMark(encHost, unseen.size);
@@ -202,10 +217,10 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       // A terminal the Conductor drives raises nothing, and is not latched
       // either: should the person take it over mid-episode, a question it
       // then asks is the first they hear of it, and rings.
-      if (hooks.isDriven(encHost, id)) continue;
-      const seen = hooks.isWatched(encHost, id);
-      const alerted = hooks.alertsEnabled() && !seen;
-      if (alerted) hooks.deliver(encHost, id, asking, !resumed);
+      if (view.isDriven(id)) continue;
+      const seen = view.isWatched(id);
+      const alerted = view.alertsEnabled && !seen;
+      if (alerted) view.deliver(id, asking, !resumed);
       // Latch once the user has been MADE AWARE — an actual alert, OR looking
       // right at a live gate (eyes work with sound off). A `finished` seen
       // while watched is NOT latched, so a later real gate still fires (#1177).

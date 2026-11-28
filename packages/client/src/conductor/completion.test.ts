@@ -2,7 +2,7 @@
  *  arrows walk a wrapping list, and Tab can never send. Plus the rule that
  *  moves the highlight on its own — a new question, and nothing else. */
 
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import {
   completionIntent,
@@ -105,24 +105,28 @@ describe("completionQuestion", () => {
 });
 
 describe("createCompletionHighlight", () => {
-  it("survives a fleet tick and starts over on a new question", () =>
-    createRoot((dispose) => {
-      const [query, setQuery] = createSignal("fi");
-      // Stands in for `candidates()`: every terminal's intent, cwd and agent
-      // state feed the match list, so it ticks whenever any agent moves — while
-      // the menu is open and somebody is halfway through `↓↓⏎`.
-      const [fleetTick, setFleetTick] = createSignal(0);
+  it("survives a fleet tick and starts over on a new question", () => {
+    const [query, setQuery] = createSignal("fi");
+    // Stands in for `candidates()`: every terminal's intent, cwd and agent
+    // state feed the match list, so it ticks whenever any agent moves — while
+    // the menu is open and somebody is halfway through `↓↓⏎`.
+    const [fleetTick, setFleetTick] = createSignal(0);
+    const { selected, setSelected, dispose } = createRoot((disposeRoot) => {
       const [selected, setSelected] = createCompletionHighlight(() => {
         fleetTick();
         return completionQuestion(typed(query()), null);
       });
+      return { selected, setSelected, dispose: disposeRoot };
+    });
 
-      setSelected(2);
-      setFleetTick(1);
-      expect(selected()).toBe(2);
+    setSelected(2);
+    setFleetTick(1);
+    flush();
+    expect(selected()).toBe(2);
 
-      setQuery("fix");
-      expect(selected()).toBe(0);
-      dispose();
-    }));
+    setQuery("fix");
+    flush();
+    expect(selected()).toBe(0);
+    dispose();
+  });
 });

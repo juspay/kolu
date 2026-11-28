@@ -2,8 +2,8 @@
 /** Exercise the production Dock / DockList keyed loops with fresh tree objects.
  * Only the row's external services and paint are replaced; structural owners
  * (section, cluster, row) and their accessor props are the actual components. */
-import { createMemo, createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createMemo, createSignal, flush } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { expect, it, vi } from "vitest";
 import type { DockTree } from "./dockTree";
 import type { TerminalId } from "kolu-common/surface";
@@ -58,14 +58,16 @@ vi.mock("./dockRowData", () => ({
 }));
 vi.mock("./useDockRowBag", () => ({
   useDockRowBag:
-    () => (props: { id: string; recencyAt: () => number | null }) => {
+    () => (props: { id: () => string; recencyAt: () => number | null }) => {
       fixture.builds++;
       const value = createMemo(() => {
         fixture.wakes++;
         return props.recencyAt();
       });
       return {
-        id: props.id,
+        get id() {
+          return props.id();
+        },
         get recency() {
           return value();
         },
@@ -86,8 +88,12 @@ vi.mock("@kolu/solid-dockrow", () => ({
   DockCluster: (p: { label: string; children: JSX.Element }) => (
     <div data-cluster={p.label}>{p.children}</div>
   ),
+  // `String(...)`: the paint stand-in writes TEXT. Solid hands a bare number
+  // straight to `textContent`, and happy-dom's setter drops a falsy value — so
+  // a `0` recency would leave the span empty here while a real browser shows
+  // "0". The row's identity/update contract below is what this fixture pins.
   DockRow: (p: { id: string; recency: number }) => (
-    <span data-row={p.id}>{p.recency}</span>
+    <span data-row={p.id}>{String(p.recency)}</span>
   ),
 }));
 vi.mock("../../dnd", () => ({
@@ -139,6 +145,9 @@ for (const kind of ["desktop", "touch"] as const)
     const host = document.createElement("div");
     document.body.append(host);
     setDockMode("cards");
+    // Solid 2 stages the mode write — flush it where a real frame would land,
+    // so the dock renders in the mode this test selected.
+    flush();
     const dispose = render(
       () =>
         kind === "desktop" ? (
@@ -148,6 +157,8 @@ for (const kind of ["desktop", "touch"] as const)
         ),
       host,
     );
+    // The render's effects run on the flush after creation.
+    flush();
     try {
       const section = host.querySelector("section"),
         cluster = host.querySelector("[data-cluster]"),
@@ -157,6 +168,7 @@ for (const kind of ["desktop", "touch"] as const)
       if (kind === "desktop") expect(cluster).not.toBeNull();
       const builds = fixture.builds;
       setValue(tree(1));
+      flush();
       expect(host.querySelector("section")).toBe(section);
       expect(host.querySelector("[data-cluster]")).toBe(cluster);
       expect([...host.querySelectorAll("[data-row]")]).toEqual(rows);

@@ -298,13 +298,14 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  * `@odu/service-client`'s dial reaches `@kolu/surface-app` (declared for it in
  * `pnpm-workspace.yaml`'s `packageExtensions`, because a grafted manifest cannot
  * name the `@kolu/*` packages its source imports), and that package's own
- * closure is `solid-js`, two `@solid-primitives/*` and `ws` — all but `ws`
- * already here.
+ * closure is `solid-js`, `@solidjs/web`, two `@solid-primitives/*` and `ws` —
+ * all but `ws` already here.
  *
  * What is left, and where the remaining fat comes from — say it plainly rather
  * than let a reader assume this list is irreducible:
  *
  *  - `effect`, `@effect/platform-{node,browser}`, `ts-pattern`, `solid-js`,
+ *    `@solidjs/web` (Solid 2's renderer, which the `@solid-primitives/*` peer),
  *    `@solid-primitives/{rootless,scheduled}` — the framework tier, already
  *    installed by every `@kolu/surface` consumer (drishti, odu).
  *
@@ -328,6 +329,7 @@ const EXPECTED_EXTERNALS = [
   "@parcel/watcher",
   "@solid-primitives/rootless",
   "@solid-primitives/scheduled",
+  "@solidjs/web",
   "effect",
   "p-limit",
   "simple-git",

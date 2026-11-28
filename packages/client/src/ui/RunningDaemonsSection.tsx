@@ -9,7 +9,7 @@
  *  `renderRow` stays a prop (not a branch inside the section) so the two row strategies
  *  — {@link RunningKavalRow}/{@link RunningPadiRow} — stay uncomplected. */
 
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
 import { type DaemonScan, scanUnavailableText } from "../host/daemonScan";
 

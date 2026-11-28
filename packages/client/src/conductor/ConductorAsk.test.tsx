@@ -26,7 +26,8 @@ import {
   type ConductorAskRow,
   YES_NO,
 } from "kolu-common/conductor";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** What the agent is told. A settled card answers nothing — its buttons are
@@ -233,6 +234,12 @@ const option = (el: HTMLElement, field: string, value: string): HTMLElement => {
 const selected = (el: HTMLElement, field: string, value: string): boolean =>
   option(el, field, value).hasAttribute("data-active");
 
+/** A chip pressed, and the frame the card redraws in. */
+const pick = (el: HTMLElement, field: string, value: string): void => {
+  option(el, field, value).click();
+  flush();
+};
+
 /** The "Other" box of the question it is attached to. */
 const otherBox = (el: HTMLElement, field: string): HTMLInputElement => {
   const box = el.querySelector<HTMLInputElement>(
@@ -243,10 +250,11 @@ const otherBox = (el: HTMLElement, field: string): HTMLInputElement => {
 };
 
 /** Words typed, as the browser delivers them: the value lands on the element
- *  and one `input` event follows. */
+ *  and one `input` event follows — then the frame the card redraws in. */
 const type = (box: HTMLInputElement, words: string): void => {
   box.value = words;
   box.dispatchEvent(new Event("input", { bubbles: true }));
+  flush();
 };
 
 /** What the adapter was handed by the last Answer press. */
@@ -260,6 +268,7 @@ const submit = (el: HTMLElement): void => {
   el.querySelector<HTMLElement>(
     '[data-testid="conductor-ask-submit"]',
   )?.click();
+  flush();
 };
 
 describe("a question still waiting", () => {
@@ -267,7 +276,7 @@ describe("a question still waiting", () => {
     // The session that made this a bug: `OpenCode` pressed, `omp` typed, and
     // the agent told both.
     const el = mount(askRow());
-    option(el, "implementor", "omp").click();
+    pick(el, "implementor", "omp");
     type(otherBox(el, "implementor_other"), "anthropic/claude-opus-5-5");
     // The pick let go the moment the words arrived — on screen, before Answer.
     expect(selected(el, "implementor", "omp")).toBe(false);
@@ -280,7 +289,7 @@ describe("a question still waiting", () => {
   it("sends the pick alone when it replaces typed words", () => {
     const el = mount(askRow());
     type(otherBox(el, "implementor_other"), "anthropic/claude-opus-5-5");
-    option(el, "implementor", "omp").click();
+    pick(el, "implementor", "omp");
     expect(selected(el, "implementor", "omp")).toBe(true);
     expect(otherBox(el, "implementor_other").value).toBe("");
     submit(el);
@@ -294,6 +303,7 @@ describe("a question still waiting", () => {
     const el = mount(askRow());
     setAskDraft("ask:1", "implementor", ["omp"]);
     setAskDraft("ask:1", "implementor_other", ["opencode"]);
+    flush();
     submit(el);
     expect(sent()).toEqual([
       { key: "implementor_other", values: ["opencode"] },
@@ -309,8 +319,8 @@ describe("a question still waiting", () => {
         ],
       }),
     );
-    option(el, "harnesses", "omp").click();
-    option(el, "harnesses", "claude").click();
+    pick(el, "harnesses", "omp");
+    pick(el, "harnesses", "claude");
     type(otherBox(el, "harnesses_other"), "opencode");
     expect(selected(el, "harnesses", "omp")).toBe(true);
     expect(selected(el, "harnesses", "claude")).toBe(true);
@@ -335,7 +345,7 @@ describe("a question still waiting", () => {
     );
     // `YES_NO` rather than a spelling of our own: it is what a boolean's chips
     // carry and what the agent is sent.
-    option(el, "green", YES_NO.yes).click();
+    pick(el, "green", YES_NO.yes);
     expect(selected(el, "green", YES_NO.yes)).toBe(true);
     type(otherBox(el, "green_other"), "only if the PR is mine");
     expect(selected(el, "green", YES_NO.yes)).toBe(false);

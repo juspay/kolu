@@ -16,7 +16,8 @@
  *  state all wire the same way. */
 
 import { createEventListener } from "@solid-primitives/event-listener";
-import { createEffect, createSignal, type JSX } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 export type AnchorSide =
   | "bottom-start"
@@ -69,7 +70,11 @@ const VIEWPORT_PAD = 8;
 export function useAnchoredPopover(
   opts: UseAnchoredPopoverOpts,
 ): UseAnchoredPopover {
-  let panelEl: HTMLElement | undefined;
+  /** The panel element, as a SIGNAL: its ref callback may WRITE but may not
+   *  read (a ref runs inside a strict-read window), so the element becomes a
+   *  fact the positioning effect below depends on — which is also what makes
+   *  the first measure happen when the panel actually exists. */
+  const [panelEl, setPanelEl] = createSignal<HTMLElement | undefined>();
   const [pos, setPos] = createSignal<{
     top?: number;
     bottom?: number;
@@ -77,50 +82,71 @@ export function useAnchoredPopover(
     right?: number;
   }>({});
 
-  const updatePos = () => {
-    const t = opts.triggerRef();
-    if (!t) return;
-    const r = t.getBoundingClientRect();
-    const offset = opts.offset ?? 4;
+  /** The placement inputs, READ. Separate from the write below because the
+   *  effect that repositions must take its reads in its compute: a read from
+   *  the effect phase would see these props without depending on them. Event
+   *  handlers (scroll, resize, the panel ref) are not that kind of scope, so
+   *  they read through `updatePos` as before. */
+  type Placement = {
+    trigger: HTMLElement | undefined;
+    anchor: AnchorSide | undefined;
+    offset: number;
+    minW: number;
+    flip: boolean;
+  };
+  const placement = (): Placement => ({
+    trigger: opts.triggerRef(),
+    anchor: opts.anchor,
+    offset: opts.offset ?? 4,
+    minW: opts.panelMinWidth ?? 0,
+    flip: opts.flip === true,
+  });
+  /** The placement inputs, APPLIED — measurement and the one write. */
+  const applyPos = (
+    { trigger, anchor, offset, minW, flip }: Placement,
+    panel: HTMLElement | undefined,
+  ) => {
+    if (!trigger) return;
+    const r = trigger.getBoundingClientRect();
     // Upward anchors set `bottom` in viewport coordinates so the panel's
     // bottom edge sits above the trigger without measuring panel height.
-    if (opts.anchor === "top-end") {
+    if (anchor === "top-end") {
       setPos({
         bottom: window.innerHeight - r.top + offset,
         right: window.innerWidth - r.right,
       });
       return;
     }
-    if (opts.anchor === "bottom-end") {
+    if (anchor === "bottom-end") {
       setPos({ top: r.bottom + offset, right: window.innerWidth - r.right });
       return;
     }
     // Left-anchored variants share the viewport clamp; the only
     // distinction is whether to anchor by the trigger's top edge
     // (`top-start`, upward) or bottom edge (`bottom-start`, downward).
-    const minW = opts.panelMinWidth ?? 0;
     const maxLeft = window.innerWidth - minW - VIEWPORT_PAD;
     const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
     // Opt-in vertical flip: a `bottom-start` panel whose content is taller
     // than the room below the trigger flips to open upward when there's more
-    // room above. `panelEl` is measured (its height already capped by any
+    // room above. The panel is measured (its height already capped by any
     // `max-height`), so this reads the actual rendered extent rather than
     // guessing. Falls back to opening downward when neither side fits — the
     // panel's own `max-height` + scroll then keeps it on-screen.
-    const panelH = panelEl?.offsetHeight ?? 0;
+    const panelH = panel?.offsetHeight ?? 0;
     const roomBelow = window.innerHeight - r.bottom - offset - VIEWPORT_PAD;
     const roomAbove = r.top - offset - VIEWPORT_PAD;
     const flipUp =
-      opts.flip === true &&
-      opts.anchor !== "top-start" &&
+      flip &&
+      anchor !== "top-start" &&
       panelH > roomBelow &&
       roomAbove > roomBelow;
-    if (opts.anchor === "top-start" || flipUp) {
+    if (anchor === "top-start" || flipUp) {
       setPos({ bottom: window.innerHeight - r.top + offset, left });
       return;
     }
     setPos({ top: r.bottom + offset, left });
   };
+  const updatePos = () => applyPos(placement(), panelEl());
 
   // Document listeners exist only while the popover is open — passing
   // `undefined` as the target detaches them.
@@ -128,7 +154,7 @@ export function useAnchoredPopover(
   createEventListener(docTarget, "mousedown", (e) => {
     const node = e.target as Node;
     const t = opts.triggerRef();
-    if (panelEl?.contains(node) || t?.contains(node)) return;
+    if (panelEl()?.contains(node) || t?.contains(node)) return;
     if (opts.isInside?.(node)) return;
     opts.onDismiss();
   });
@@ -155,23 +181,26 @@ export function useAnchoredPopover(
   });
   createEventListener(winTarget, "resize", updatePos, { passive: true });
 
-  // Reposition when the trigger ref or open state changes — covers both
-  // first open and trigger remounts (e.g. a button that re-renders).
-  createEffect(() => {
-    if (opts.open() && opts.triggerRef()) updatePos();
-  });
+  // Reposition when the placement inputs, the panel element or the open state
+  // change — covers first open (the ref lands the element), trigger remounts
+  // (e.g. a button that re-renders) and a panel swap. The compute does the
+  // reading; the effect only measures and writes.
+  createEffect(
+    () => (opts.open() ? { place: placement(), panel: panelEl() } : undefined),
+    (now) => {
+      if (now) applyPos(now.place, now.panel);
+    },
+  );
 
-  const panelRef = (el: HTMLElement) => {
-    panelEl = el;
-    updatePos();
-  };
+  // Writes only: the measure and the position write are the effect's above.
+  const panelRef = (el: HTMLElement) => setPanelEl(el);
 
   const panelStyle = (): JSX.CSSProperties => {
     const p = pos();
     // `pointer-events: auto` is mandatory, not cosmetic. Callers render the
     // panel via `<Portal>` to `document.body`, so when the trigger lives
     // inside a Corvu modal layer (the mobile right-panel `Drawer`, built on
-    // `@corvu/dialog` with `modal: true`), that layer sets
+    // `@corvu-next/dialog` with `modal: true`), that layer sets
     // `body { pointer-events: none }` and only re-enables it on its own
     // dialog content. A body-level portal would otherwise inherit `none` and
     // swallow every tap — the panel opens but its items do nothing. Re-enable

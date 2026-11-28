@@ -20,23 +20,22 @@ function harness(init: {
   let asked = init.asked;
   let offered = false;
   const offer = createResizeOffer({
-    real: () => real,
-    asked: () => asked,
     settleMs: SETTLE,
     show: (next) => {
       offered = next;
     },
   });
-  offer.observe();
+  const observe = () => offer.observe({ real, asked });
+  observe();
   return {
     offered: () => offered,
     real(next: TerminalGrid | null) {
       real = next;
-      offer.observe();
+      observe();
     },
     asked(next: TerminalGrid | null) {
       asked = next;
-      offer.observe();
+      observe();
     },
     offer,
   };

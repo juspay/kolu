@@ -1,4 +1,5 @@
-import solid from "vite-plugin-solid";
+import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
+import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
 
 const rhaiGrammarPath = process.env.KOLU_RHAI_GRAMMAR;
@@ -10,27 +11,13 @@ if (!rhaiGrammarPath) {
 
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness compiles its JSX
-  // to real DOM. Harmless for the `.test.ts` files (no JSX).
+  // to real DOM. The plugin gives the `dom` project browser export conditions
+  // and Solid's development builds (the render test exercises real reactive
+  // effects). Harmless for the `.test.ts` files (no JSX).
   plugins: [solid()],
-  // solid-js' package.json picks `dist/server.cjs` (the SSR build) under Node's
-  // `"node"` export condition, where `createEffect` is a no-op. The render test
-  // exercises real reactive effects (onMount), so pin every solid import to the
-  // browser bundle directly — mirrors `packages/surface/vitest.config.ts`.
   resolve: {
     alias: {
       "kolu-rhai-grammar": rhaiGrammarPath,
-      "solid-js/store": new URL(
-        "./node_modules/solid-js/store/dist/store.js",
-        import.meta.url,
-      ).pathname,
-      "solid-js/web": new URL(
-        "./node_modules/solid-js/web/dist/web.js",
-        import.meta.url,
-      ).pathname,
-      "solid-js": new URL(
-        "./node_modules/solid-js/dist/solid.js",
-        import.meta.url,
-      ).pathname,
     },
   },
   test: {
@@ -46,6 +33,8 @@ export default defineConfig({
           name: "dom",
           environment: "happy-dom",
           include: ["src/**/*.test.tsx"],
+          // Fails a test on any Solid dev diagnostic (`@kolu/solid-test-setup`).
+          setupFiles: ["@kolu/solid-test-setup/setup"],
         },
       },
       {
@@ -57,6 +46,6 @@ export default defineConfig({
         },
       },
     ],
-    server: { deps: { inline: [/solid-js/] } },
+    server: { deps: { inline: [...SOLID_INLINE_DEPS] } },
   },
 });

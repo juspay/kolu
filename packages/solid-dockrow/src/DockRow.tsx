@@ -39,22 +39,23 @@ import {
   SLEEPING_RECEDE_CLASS,
 } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { JSX } from "@solidjs/web";
 import type { PrInfo } from "anyforge/schemas";
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
   DOCK_ROW_GAP,
   DOCK_ROW_GRID,
-  DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
+  DOCK_ROW_SURFACE,
   type DockRowSurface,
 } from "./geometry.ts";
-import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { PrPip } from "./PrPip.tsx";
+import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
-import { dockRowAttrs } from "./rowAttrs.ts";
 import { RowLabel } from "./RowLabel.tsx";
+import { dockRowAttrs } from "./rowAttrs.ts";
 import type { RowSubline } from "./rowSubline.ts";
 
 /** The DOM handles a consuming surface stamps on its rows, so its own e2e suite
@@ -159,9 +160,10 @@ export const DockRow: Component<DockRowProps> = (props) => {
   const s = () => DOCK_ROW_SURFACE[props.surface];
   return (
     // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see the module header
+    // biome-ignore lint/a11y/useFocusableInteractive: the row IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={0}` below), which this rule only recognises as React's `tabIndex`. Delete this line once the rule follows the JSX framework in use: biomejs/biome#13421.
     <div
       role="button"
-      tabIndex={0}
+      tabindex={0}
       ref={props.ref}
       data-testid={props.testIds?.row}
       // The shared row contract (`dockRowAttrs`) — wash hook, bucket, agent
@@ -191,11 +193,14 @@ export const DockRow: Component<DockRowProps> = (props) => {
           props.onSelect();
         }
       }}
-      class={`relative grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
-        props.depth === undefined
-          ? "w-full grid-cols-subgrid"
-          : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
-      }`}
+      class={[
+        `relative grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
+          props.depth === undefined
+            ? "w-full grid-cols-subgrid"
+            : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
+        }`,
+        { [SLEEPING_RECEDE_CLASS]: props.pip.sleeping },
+      ]}
       // A nested row indents by insetting its own tracks, and it CANNOT do that
       // as a subgrid item: a subgrid shares the parent's lines, so padding the
       // row slides only its first cell out from under the rest (measured —
@@ -217,7 +222,6 @@ export const DockRow: Component<DockRowProps> = (props) => {
           ? undefined
           : { "padding-left": `calc(0.75rem + ${treeIndent(props.depth)})` }
       }
-      classList={{ [SLEEPING_RECEDE_CLASS]: props.pip.sleeping }}
       title={props.title}
     >
       {/* The tree marker — a split's row sits directly under its parent in a
@@ -243,26 +247,31 @@ export const DockRow: Component<DockRowProps> = (props) => {
        *  there is no grip in the DOM at all without a handle — touch rows and
        *  rows whose terminal is not live have nothing to re-home. */}
       <Show when={props.handle}>
-        {(h) => (
-          // A native button, not a `role="button"` span: the grip IS clickable
-          // (a tap on it must not fall through to the row's own activation), and
-          // a real button is the element that can carry a click AND a label
-          // without the row root's div+role dance. `tabIndex={-1}` keeps it out
-          // of the tab order — a drag is a pointer gesture, and a focusable
-          // handle no keyboard can operate is worse than an honest mouse-only
-          // one. Nested in the row's `role="button"` div (never in a real
-          // button), so the HTML stays valid.
-          <button
-            type="button"
-            data-testid="dock-row-grip"
-            tabIndex={-1}
-            aria-label="Drag to nest this terminal"
-            class="dock-row-grip"
-            ref={h()}
-            // A grip tap is not a row activation — the click must not select.
-            onClick={(e) => e.stopPropagation()}
-          />
-        )}
+        {/* A native button, not a `role="button"` span: the grip IS clickable (a
+         *  tap on it must not fall through to the row's own activation), and a
+         *  real button is the element that can carry a click AND a label without
+         *  the row root's div+role dance. `tabindex={-1}` keeps it out of the tab
+         *  order — a drag is a pointer gesture, and a focusable handle no
+         *  keyboard can operate is worse than an honest mouse-only one. Nested in
+         *  the row's `role="button"` div (never in a real button), so the HTML
+         *  stays valid.
+         *
+         *  Plain children, not a `(handle) => …` narrowing callback: that body is
+         *  untracked (`untrack(…, "<Show>")`), so calling the accessor there to
+         *  hand the ref over is a strict read that never updates. These children
+         *  are evaluated inside `<Show>`'s own tracked memo, so the prop is read
+         *  THERE — handed to `ref` as the function it is, rather than read again
+         *  from inside a ref callback, which is not a tracking scope. */}
+        <button
+          type="button"
+          data-testid="dock-row-grip"
+          tabindex={-1}
+          aria-label="Drag to nest this terminal"
+          class="dock-row-grip"
+          ref={props.handle}
+          // A grip tap is not a row activation — the click must not select.
+          onClick={(e) => e.stopPropagation()}
+        />
       </Show>
       {/* Identity status indicator — one binder shared with title/list. */}
       <span class="row-span-2 flex self-center">

@@ -163,11 +163,13 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       // words already say what happened, and the chip took a third of the row
       // — so the track it sat in goes too; and the title WRAPS instead of
       // clipping, so no part of it runs past the screen's edge.
-      class="grid min-w-0 items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
-      classList={{
-        "grid-cols-[auto_minmax(0,1fr)_auto]": showChip(),
-        "grid-cols-[minmax(0,1fr)_auto]": !showChip(),
-      }}
+      class={[
+        "grid min-w-0 items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs",
+        {
+          "grid-cols-[auto_minmax(0,1fr)_auto]": showChip(),
+          "grid-cols-[minmax(0,1fr)_auto]": !showChip(),
+        },
+      ]}
     >
       <Show when={showChip()}>
         <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
@@ -175,8 +177,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
         </span>
       </Show>
       <span
-        class="min-w-0"
-        classList={{ truncate: !phone(), "wrap-anywhere": phone() }}
+        class={["min-w-0", { truncate: !phone(), "wrap-anywhere": phone() }]}
       >
         {/* WHICH MACHINE, first. One conversation drives terminals on every
             host, so `fix-parser` alone does not say where the agent typed —

@@ -35,16 +35,27 @@
  *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
-import { Key } from "@solid-primitives/keyed";
+import { hostListenersEqual } from "@kolu/terminal-vocab/schema";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
-import { samePortList, type TerminalId } from "kolu-common/surface";
 import {
+  type HostListeners,
+  type HostPort,
+  type KoluForward,
+  type PortBind,
+  samePortList,
+  type TerminalId,
+  UNKNOWN_HOST_LISTENERS,
+} from "kolu-common/surface";
+import {
+  type Accessor,
   type Component,
   createMemo,
   createSignal,
-  type JSX,
+  For,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { sameFields, sameItems } from "../conductor/sameItems";
 import { rowAction } from "../forwards/portAction";
 import {
   type PortRow as PortRowData,
@@ -57,15 +68,40 @@ import {
   viewerHost,
 } from "../forwards/useForwards";
 import { useHostListeners } from "../forwards/useHostListeners";
-import { sameSet, useHostTerminals } from "../forwards/useHostTerminals";
+import {
+  sameRows,
+  sameSet,
+  useHostTerminals,
+} from "../forwards/useHostTerminals";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { isTouch } from "../useMobile";
 import { ChevronRightIcon } from "../ui/Icons";
 import Section from "../ui/Section";
+import { foldEach } from "@kolu/surface/solid";
 import { activeHost } from "../wire";
 import { PortRow } from "./PortRow";
 
 const NO_PORTS: ReadonlySet<number> = new Set();
+const NO_LISTENERS: readonly HostPort[] = [];
+const NO_BINDS: readonly PortBind[] = [];
+/** The unclaimed half when the scanner could not see it — one value, so a
+ *  reading that keeps saying "blind" keeps its identity. */
+const BLIND_UNCLAIMED = { status: "unknown" } as const;
+
+/** One slot per row of a store-backed list, read off its `length` alone — the
+ *  key list each fold below is keyed by. A row is addressed by its SLOT and
+ *  reads the list through it, never off the raw item `mapArray` would hand it:
+ *  a cell merges a frame into the rows standing there (by key where the member
+ *  declares one, by position otherwise), so a row reading the raw item would
+ *  never be told that one of its fields moved. */
+const slotsOf = (
+  name: string,
+  rows: () => readonly unknown[],
+): Accessor<number[]> =>
+  createMemo(() => Array.from({ length: rows().length }, (_, at) => at), {
+    name,
+    equals: sameItems,
+  });
 
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const host = () => activeHost();
@@ -83,20 +119,14 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // exactly where a long-running server goes. `HostTerminals.tilePorts` folds
   // them. `equals` keeps the memo's IDENTITY across a recompute that produced
   // the same ports, so an unrelated terminal tick does not re-run the join below.
-  const ports = createMemo(
-    () => terminals.tilePorts(props.terminalId),
-    undefined,
-    {
-      equals: samePortList,
-    },
-  );
+  const ports = createMemo(() => terminals.tilePorts(props.terminalId), {
+    equals: samePortList,
+  });
 
   /** The ports this tile's panes printed a loopback URL for. */
-  const printedHere = createMemo(
-    () => terminals.printedBy(props.terminalId),
-    undefined,
-    { equals: sameSet },
-  );
+  const printedHere = createMemo(() => terminals.printedBy(props.terminalId), {
+    equals: sameSet,
+  });
 
   /** Is the browser sitting at the machine this host IS? One fact about the
    *  PAGE, so it is derived once per host change rather than inside every row.
@@ -108,36 +138,117 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   });
 
   const hostListeners = useHostListeners();
-  const groups = createMemo(() =>
-    portGroups({
-      terminals: {
-        tilePorts: ports(),
-        printedHere: printedHere(),
-        printedOnHost: terminals.printedOnHost(),
-      },
-      host: hostListeners(),
-      forwards: forwardsForHost(host()),
-      // kolu's relay listeners live on the kolu server's own machine, so only
-      // that host's list can contain them.
-      doorPorts: isActiveHostLocal() ? doorLocalPorts() : NO_PORTS,
-    }),
+  // The two halves of the host reading, as the cell's store serves them. Each
+  // read costs the store's `v` plus the arm leaves and nothing per socket —
+  // the SOCKETS are folded below, one row memo each, because a dev box
+  // commonly runs dozens to a couple of hundred and a join that walked them
+  // carried two to three sources each.
+  const claimedList = (): readonly HostPort[] => {
+    const reading = hostListeners();
+    return reading.status === "known" ? reading.claimed : NO_LISTENERS;
+  };
+  const unclaimedList = (): readonly PortBind[] => {
+    const reading = hostListeners();
+    return reading.status === "known" && reading.unclaimed.status === "known"
+      ? reading.unclaimed.list
+      : NO_BINDS;
+  };
+  /** Each listener as a PLAIN row — the join is a pure function of the two
+   *  lists, so a row's fields are read here and never off the store again. */
+  const claimed = foldEach(
+    "PortsSection.claimed",
+    slotsOf("PortsSection.claimedSlots", claimedList),
+    (at): HostPort | undefined => {
+      const row = claimedList()[at];
+      return row === undefined ? undefined : { ...row };
+    },
+    sameFields,
+  );
+  const unclaimed = foldEach(
+    "PortsSection.unclaimed",
+    slotsOf("PortsSection.unclaimedSlots", unclaimedList),
+    (at): PortBind | undefined => {
+      const row = unclaimedList()[at];
+      return row === undefined ? undefined : { ...row };
+    },
+    sameFields,
+  );
+
+  /** The whole host reading, re-assembled from the folded rows — the SAME
+   *  two-way the cell serves, so the join narrows on `status` exactly as it
+   *  did. `hostListenersEqual` is the member's own dedup gate, so a scan pass
+   *  that found the same machine keeps this value's identity and the join
+   *  below does not re-run. */
+  const hostReading = createMemo<HostListeners>(
+    () => {
+      const reading = hostListeners();
+      if (reading.status !== "known") return UNKNOWN_HOST_LISTENERS;
+      return {
+        status: "known",
+        claimed: claimed(),
+        unclaimed:
+          reading.unclaimed.status === "known"
+            ? { status: "known", list: unclaimed() }
+            : BLIND_UNCLAIMED,
+      };
+    },
+    { name: "PortsSection.hostReading", equals: hostListenersEqual },
+  );
+
+  /** This host's doors as plain rows, for the same reason: the join reads a
+   *  `remotePort` off every one of them. */
+  const hostForwards = (): readonly KoluForward[] => forwardsForHost(host());
+  const doors = foldEach(
+    "PortsSection.door",
+    slotsOf("PortsSection.doorSlots", hostForwards),
+    (at): KoluForward | undefined => {
+      const one = hostForwards()[at];
+      return one === undefined ? undefined : { ...one };
+    },
+    sameFields,
+  );
+
+  const groups = createMemo(
+    () =>
+      portGroups({
+        terminals: {
+          tilePorts: ports(),
+          printedHere: printedHere(),
+          printedOnHost: terminals.printedOnHost(),
+        },
+        host: hostReading(),
+        forwards: doors(),
+        // kolu's relay listeners live on the kolu server's own machine, so only
+        // that host's list can contain them.
+        doorPorts: isActiveHostLocal() ? doorLocalPorts() : NO_PORTS,
+      }),
+    { name: "PortsSection.groups" },
   );
 
   const [elsewhereOpen, setElsewhereOpen] = createSignal(false);
   /** The elsewhere rows on screen: all of them when open, and only the rows
    *  with an open door when folded. */
-  const elsewhereShown = createMemo(() =>
-    elsewhereOpen()
-      ? groups().elsewhere
-      : groups().elsewhere.filter((row) => row.forward !== undefined),
+  const elsewhereShown = createMemo(
+    () =>
+      elsewhereOpen()
+        ? groups().elsewhere
+        : groups().elsewhere.filter((row) => row.forward !== undefined),
+    // `sameRows` is identity per index, so it closes only when the filter
+    // selects the very same row objects — in practice the empty result a
+    // quiet host republishes on every pass, or a reference-equal selection.
+    // The join mints fresh rows, so a tick that CHANGES a row publishes, as
+    // it must; what the gate removes is the equal republish re-checking each
+    // row downstream.
+    { equals: sameRows },
   );
   const elsewhereFolded = () =>
     groups().elsewhere.length - elsewhereShown().length;
 
-  /** One row, KEYED by port (`<Key by={port}>`): the join rebuilds its row
-   *  objects whenever the host reading, a terminal's ports or a forward ticks,
-   *  and a reference-keyed `<For>` would tear down every row's DOM — and its
-   *  in-flight "opening…" state — on each of them. Keyed, a row updates in place. */
+  /** One row, KEYED by port (`<For keyed={(row) => row.port}>`): the join
+   *  rebuilds its row objects whenever the host reading, a terminal's ports or
+   *  a forward ticks, and a reference-keyed `<For>` would tear down every row's
+   *  DOM — and its in-flight "opening…" state — on each of them. Keyed, a row
+   *  updates in place. */
   const renderRow = (row: () => PortRowData): JSX.Element => {
     const decided = () =>
       rowAction({
@@ -166,22 +277,23 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     <Show when={groups().here.length + groups().elsewhere.length > 0}>
       <Section title="Ports">
         <div class="flex flex-col" data-testid="inspector-ports">
-          <Key each={groups().here} by={(row) => row.port}>
+          <For each={groups().here} keyed={(row) => row.port}>
             {renderRow}
-          </Key>
+          </For>
           <Show when={groups().elsewhere.length > 0}>
             <div
-              class="flex flex-col"
-              classList={{ "mt-1.5": groups().here.length > 0 }}
+              class={["flex flex-col", { "mt-1.5": groups().here.length > 0 }]}
               data-testid="inspector-ports-elsewhere"
             >
               <button
                 type="button"
-                class="-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
-                aria-expanded={elsewhereOpen()}
                 // A coarse pointer gets the WCAG 2.2 24px tap floor, like the
                 // Code-tab toolbar; a mouse keeps the compact header.
-                classList={{ "min-h-6": isTouch() }}
+                class={[
+                  "-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none",
+                  { "min-h-6": isTouch() },
+                ]}
+                aria-expanded={elsewhereOpen() ? "true" : "false"}
                 data-testid="inspector-ports-elsewhere-toggle"
                 onClick={() => setElsewhereOpen((open) => !open)}
               >
@@ -193,9 +305,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   · {groups().elsewhere.length}
                 </span>
               </button>
-              <Key each={elsewhereShown()} by={(row) => row.port}>
+              <For each={elsewhereShown()} keyed={(row) => row.port}>
                 {renderRow}
-              </Key>
+              </For>
               <Show when={elsewhereFolded() > 0 && elsewhereShown().length > 0}>
                 <span class="pl-4 text-[10px] text-fg-3/50">
                   +{elsewhereFolded()} more

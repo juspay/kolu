@@ -17,7 +17,8 @@
  *  viewport / terminal store / active-host signal are read from their singletons /
  *  modules exactly as the inlined block did. */
 
-import { createEffect, createSignal, on } from "solid-js";
+import type { TerminalId } from "kolu-common/surface";
+import { createEffect, createMemo } from "solid-js";
 import { activeScope } from "../hostScope/hostScopes";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost } from "../wire";
@@ -31,9 +32,24 @@ export function useCanvasCenterOnSwitch(
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
 
-  const [pendingCenter, setPendingCenter] = createSignal(false);
+  // The switch counter is DERIVED from `activeHost`, not written from the
+  // effect below: the resolver's compute reads it alongside `activeScope()` /
+  // `store.activeId()` / the tile layout, all of which move on the same switch
+  // write — so an epoch written in an effect's apply arm reached that compute
+  // one pass LATE, re-running it for the switch it had already seen (a relay
+  // tear). As a memo the epoch lands in the switch's own flush, so the switch
+  // is resolved in one pass. The mount run is epoch 0, which `servedEpoch`
+  // starts on: there is no switch to service yet.
+  const switchEpoch = createMemo(
+    (prev: number | undefined) => {
+      activeHost();
+      return prev === undefined ? 0 : prev + 1;
+    },
+    { name: "useCanvasCenterOnSwitch.switchEpoch" },
+  );
   createEffect(
-    on(activeHost, (_curr, prev) => {
+    activeHost,
+    () => {
       // A switch invalidates any input still aimed at the host we are leaving: an
       // in-flight center/pan animation or a queued gesture flush writes pan/zoom
       // through `activeScope()`, which has just re-keyed to the NEW host — so a
@@ -41,29 +57,44 @@ export function useCanvasCenterOnSwitch(
       // host's camera. Drop both up front so the switch cannot corrupt the retained
       // pose of the host switched to.
       viewport.abortTransientInput();
-      if (prev === undefined) return; // initial mount — no switch to service yet
-      setPendingCenter(true);
-    }),
+    },
+    { name: "useCanvasCenterOnSwitch.abortTransientInput" },
   );
-  createEffect(() => {
-    if (!pendingCenter() || !viewport.mounted()) return;
-    const activeTile = activeTileLayout();
-    if (!activeTile) return; // mount race — wait for the tile to be measured
-    const camera = activeScope()?.camera;
-    if (!camera) {
-      setPendingCenter(false);
-      return;
-    }
-    const { width, height } = viewport.viewportSize();
-    if (
-      switchInNeedsCenter(
-        camera.positioned() ? camera.snapshot() : null,
-        activeTile,
-        width,
-        height,
-      )
-    )
-      store.requestCenterActive();
-    setPendingCenter(false); // consume once resolved
-  });
+  let servedEpoch = 0;
+  createEffect(
+    (): {
+      epoch: number;
+      center: boolean;
+      tileId: TerminalId | null;
+    } | null => {
+      const epoch = switchEpoch();
+      if (epoch === servedEpoch || !viewport.mounted()) return null;
+      const activeTile = activeTileLayout();
+      if (!activeTile) return null; // mount race — wait for the tile to be measured
+      // The tile the centering impulse NAMES is resolved here, in the compute:
+      // `requestCenterActive` is an actor that takes the id, because the effect
+      // phase is not a window to read reactive state in.
+      const tileId = store.activeId();
+      const camera = activeScope()?.camera;
+      if (!camera) return { epoch, center: false, tileId };
+      const { width, height } = viewport.viewportSize();
+      return {
+        epoch,
+        tileId,
+        center: switchInNeedsCenter(
+          camera.positioned() ? camera.snapshot() : null,
+          activeTile,
+          width,
+          height,
+        ),
+      };
+    },
+    (verdict) => {
+      if (!verdict) return;
+      servedEpoch = verdict.epoch; // consume once resolved
+      if (verdict.center && verdict.tileId !== null)
+        store.requestCenterActive(verdict.tileId);
+    },
+    { name: "useCanvasCenterOnSwitch.resolveSwitchCenter" },
+  );
 }

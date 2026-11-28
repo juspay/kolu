@@ -2,7 +2,7 @@ import { LOCAL_LOCATION, type SavedSession } from "@kolu/padi-client/surface";
 import { describe, expect, it, vi } from "vitest";
 
 // `sessionTransfer` imports `solid-sonner` (for toast) at module scope, which
-// transitively pulls `solid-js/web`'s SSR build and fails to load under the
+// transitively pulls its SSR web build and fails to load under the
 // Node test runner. `parseSavedSession` is pure (no toast, no DOM) by design,
 // so stub the module out — the test never exercises the toast path.
 vi.mock("solid-sonner", () => ({ toast: {} }));

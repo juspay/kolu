@@ -8,6 +8,7 @@
  *  subscription, no DOM. See juspay/kolu#1365. */
 
 import type { DaemonState, DaemonStatus } from "@kolu/padi-client/surface";
+import { flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { persistedPref } from "../persistedPref";
 import {
@@ -171,6 +172,9 @@ describe("announceReattach — the persisted high-water mark", () => {
     announceReattach(adoptedStatus(1000), m0, set0, notify);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith(3);
+    // The mark's write is staged: it is the flush after the announce that
+    // publishes it (and writes it through to storage).
+    flush();
     expect(mark().local).toBe(1000);
     // Written THROUGH to storage under the app's key, HOST-KEYED — a mis-key fails here.
     expect(storage.getItem("kolu.kaval.reattachAnnouncedAt")).toBe(
@@ -191,12 +195,14 @@ describe("announceReattach — the persisted high-water mark", () => {
       const [mark, setMark] = persistedMark(storage);
       const [m, s] = markFor(mark, setMark, "local");
       announceReattach(adoptedStatus(1000), m, s, vi.fn());
+      flush();
     }
 
     // The reload: a BRAND-NEW signal reads the surviving mark from storage, and the
     // server replays the SAME sticky snapshot. The old module boolean reset here and
     // re-fired (juspay/kolu#1365); the persisted per-host mark keeps it silent.
     const [mark, setMark] = persistedMark(storage);
+    flush();
     expect(mark().local).toBe(1000);
     const notify = vi.fn();
     const [m, s] = markFor(mark, setMark, "local");
@@ -207,6 +213,7 @@ describe("announceReattach — the persisted high-water mark", () => {
     const [m2, s2] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(2000), m2, s2, notify);
     expect(notify).toHaveBeenCalledTimes(1);
+    flush();
     expect(mark().local).toBe(2000);
   });
 
@@ -223,6 +230,7 @@ describe("announceReattach — the persisted high-water mark", () => {
     const [mz, sz] = markFor(mark, setMark, "srid@zest");
     announceReattach(adoptedStatus(10_000), mz, sz, notify);
     expect(notify).toHaveBeenCalledTimes(1);
+    flush();
     expect(mark()).toEqual({ "srid@zest": 10_000 });
 
     // Switch back to local; local re-adopts at 5_000 (< zest's 10_000, but its OWN clock) →
@@ -230,6 +238,7 @@ describe("announceReattach — the persisted high-water mark", () => {
     const [ml, sl] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(5_000), ml, sl, notify);
     expect(notify).toHaveBeenCalledTimes(2);
+    flush();
     expect(mark()).toEqual({ "srid@zest": 10_000, local: 5_000 });
 
     // Re-run local on the same snapshot → silent (5_000 not > local's OWN 5_000).

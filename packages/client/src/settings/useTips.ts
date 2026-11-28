@@ -6,7 +6,7 @@
  */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
+import { type Accessor, createEffect, createSignal, onSettled } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
 import { preferences, preferencesArrived, updatePreferences } from "../wire";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
@@ -27,6 +27,13 @@ const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
 /** Reactive accessor for the tip currently displayed by `<TipBanner />`. */
 export const activeTip: Accessor<Tip | null> = activeTipSignal;
 
+/** WHICH TIP HAS THE BANNER, answered in the frame it was taken. The signal
+ *  above is the rendering mirror: a write to it is staged, so a reader in the
+ *  same frame — the pre-preferences queue drains in ONE synchronous loop — is
+ *  served the committed value and every queued tip would believe the banner
+ *  free. This plain variable is the authority those decisions read. */
+let bannerHolder: Tip | null = null;
+
 /** How long a tip stays on screen before the banner auto-dismisses it.
  *  Owned here (not in the banner) so the state module fully controls
  *  "how a tip is displayed and for how long" — the banner is just the
@@ -43,9 +50,11 @@ function cancelAutoDismiss() {
 
 function present(tip: Tip) {
   cancelAutoDismiss();
+  bannerHolder = tip;
   setActiveTip(tip);
   autoDismissTimer = window.setTimeout(() => {
     autoDismissTimer = null;
+    bannerHolder = null;
     setActiveTip(null);
   }, TIP_DURATION_MS);
 }
@@ -53,6 +62,7 @@ function present(tip: Tip) {
 /** Hide the active tip (banner slides away). */
 export const dismissTip = () => {
   cancelAutoDismiss();
+  bannerHolder = null;
   setActiveTip(null);
 };
 
@@ -83,14 +93,31 @@ function whenPreferencesArrive(fn: () => void) {
   else awaitingPreferences.push(fn);
 }
 
-/** Show a contextual tip once. Marks it seen so it never reappears. Raised
- *  before the saved preferences arrive, it waits for them; if another tip is
- *  showing by then, it is dropped unmarked, so its next trigger shows it. */
+/** Raise a contextual tip: show it once, ever, and mark it seen.
+ *
+ *  Callable from ANYWHERE — a click handler, a settle, and (the common shape)
+ *  the effect function of an effect that watches for the moment worth
+ *  announcing. The decision below READS reactive state (does this surface show
+ *  tips, have the saved preferences arrived, was this tip already seen), and
+ *  the effect phase is not a window to read reactive state in — so raising a
+ *  tip only SCHEDULES it. The consult runs at the settle that follows, the
+ *  same window the pre-preferences queue drains in, where a tip reads the
+ *  current preferences as any command would. */
 function showTipOnce(tip: Tip) {
+  onSettled(() => {
+    resolveTipOnce(tip);
+  });
+}
+
+/** The contextual-tip decision itself — the reads {@link showTipOnce} defers.
+ *  Raised before the saved preferences arrive, it waits for them; if another
+ *  tip is showing by then, it is dropped unmarked, so its next trigger shows
+ *  it. Only ever called from a settle or the preferences drain. */
+function resolveTipOnce(tip: Tip) {
   if (!showsAmbientTips()) return;
   if (!preferencesArrived()) {
     whenPreferencesArrive(() => {
-      if (activeTip() === null) showTipOnce(tip);
+      if (bannerHolder === null) resolveTipOnce(tip);
     });
     return;
   }
@@ -132,7 +159,7 @@ function showStartupTip() {
     whenPreferencesArrive(showStartupTip);
     return;
   }
-  if (activeTip() !== null) return;
+  if (bannerHolder !== null) return;
   if (preferences().startupTips) showAmbientTip();
 }
 
@@ -141,25 +168,33 @@ function showStartupTip() {
  * Event-driven tips (pill click, theme button) stay at their call sites.
  */
 function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
-  // Tips raised before the saved preferences arrived run once they have.
-  createEffect(() => {
-    if (!preferencesArrived()) return;
-    // Untracked: the tips read preferences, which must not re-run this.
-    untrack(() => {
-      for (const fn of awaitingPreferences.splice(0)) fn();
-    });
-  });
+  // Tips raised before the saved preferences arrived run once they have. The
+  // queued tips READ preferences themselves, which an effect callback is not
+  // the place for (effect-phase reads are untracked strict reads) — so the
+  // drain is scheduled for the settle that follows, where a tip reads the
+  // arrived preferences as any command would.
+  createEffect(
+    () => preferencesArrived(),
+    (arrived) => {
+      if (!arrived) return;
+      onSettled(() => {
+        for (const fn of awaitingPreferences.splice(0)) fn();
+      });
+    },
+  );
   // Startup tip — once, 1s after first terminal appears
   let startupFired = false;
-  createEffect(() => {
-    if (!startupFired && deps.terminalIds().length > 0) {
+  createEffect(
+    () => deps.terminalIds().length > 0,
+    (anyTerminals) => {
+      if (startupFired || !anyTerminals) return;
       startupFired = true;
-      // Fire-and-forget: the createEffect re-runs when terminalIds changes,
-      // and onCleanup would cancel the pending timeout before it fires.
-      // startupFired already guards against re-entry, so no cleanup needed.
+      // Fire-and-forget: the effect re-runs when terminalIds changes, and a
+      // returned cleanup would cancel the pending timeout before it fires.
+      // startupFired already guards against re-entry, so no cleanup is wanted.
       window.setTimeout(showStartupTip, 1000);
-    }
-  });
+    },
+  );
 }
 
 export function useTips() {

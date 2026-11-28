@@ -123,7 +123,6 @@ function init() {
     activeTheme,
     getTerminalTheme,
     getTerminalThemeName,
-    isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
     handleShuffleTheme,
     setThemeName,

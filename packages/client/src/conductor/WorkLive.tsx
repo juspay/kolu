@@ -13,6 +13,7 @@
 
 import { createMediaQuery } from "@solid-primitives/media";
 import type { WorkRole } from "kolu-work";
+import type { JSX } from "@solidjs/web";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useShown } from "../ui/shown";
 import LivePane from "./LivePane";
@@ -32,7 +33,15 @@ const WorkLive: Component<{
   const shown = useShown();
   const name = useMemberName();
   /** The terminals a pane can be drawn for — the ones this browser can
-   *  reach — by ref, in the order the waterfall runs them. */
+   *  reach — by ref, in the order the waterfall runs them.
+   *
+   *  ONE PANE PER MEMBER ROW, and one row per terminal: the rows come from
+   *  `membersByWork` (`workReadings.ts:309-320`), which reads the ONE members
+   *  map, keyed by terminal, so a ref cannot arrive twice. That invariant is
+   *  pinned where it is produced (`workReadings.test.ts`) rather than guarded
+   *  here: a ref that did arrive twice would attach its stream twice and
+   *  leave every readout matching two elements, and dropping the second row
+   *  here would hide that instead of showing it. */
   const refs = createMemo(() =>
     props.members.flatMap((one) => (one.split === null ? [] : [one.terminal])),
   );
@@ -56,8 +65,17 @@ const WorkLive: Component<{
   );
   const height = () => paneHeight(layout(), refs().length);
 
-  /** One pane, for the terminal at `ref`. */
-  const pane = (ref: string, at: MemberRef, withTabs: boolean) => (
+  /** One pane, for the terminal at `ref`.
+   *
+   *  The split ref is a VALUE, not an accessor: `ref` is the row's own
+   *  identity, and `splitMemberRef` is a pure split of that string, so the
+   *  pair cannot move while this pane lives. Handing an accessor down would
+   *  only pay a strict-read window — a component body that reads `props.host`
+   *  is such a window — for a change that cannot happen.
+   *
+   *  `role` IS reactive (`roleOf` reads `props.members`), so it keeps its
+   *  `<Show>`: it is read from tracked JSX alone. */
+  const pane = (ref: string, at: MemberRef, withTabs: boolean): JSX.Element => (
     <Show when={roleOf(ref)}>
       {(role) => (
         <LivePane
@@ -85,7 +103,7 @@ const WorkLive: Component<{
             data-ref={ref}
             data-role={roleOf(ref)}
             data-active={ref === front() ? "" : undefined}
-            aria-pressed={ref === front()}
+            aria-pressed={ref === front() ? "true" : "false"}
             class={`flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-t-lg px-2.5 text-[0.72rem] ${
               ref === front()
                 ? "border border-b-0 border-edge-bright bg-surface-1 font-semibold text-fg"
@@ -128,11 +146,10 @@ const WorkLive: Component<{
           when={layout() === "tabs"}
           fallback={
             <For each={refs()}>
-              {(ref) => (
-                <Show when={splitMemberRef(ref)}>
-                  {(at) => pane(ref, at(), false)}
-                </Show>
-              )}
+              {(ref) => {
+                const at = splitMemberRef(ref);
+                return at === null ? null : pane(ref, at, false);
+              }}
             </For>
           }
         >
@@ -140,11 +157,10 @@ const WorkLive: Component<{
               terminal's screen, read from the start, not the last one's
               screen relabelled. */}
           <Show when={front()} keyed>
-            {(ref) => (
-              <Show when={splitMemberRef(ref)}>
-                {(at) => pane(ref, at(), true)}
-              </Show>
-            )}
+            {(ref) => {
+              const at = splitMemberRef(ref);
+              return at === null ? null : pane(ref, at, true);
+            }}
           </Show>
         </Show>
       </Show>

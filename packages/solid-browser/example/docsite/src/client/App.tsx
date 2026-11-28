@@ -56,8 +56,7 @@ export default function App() {
             {([slug, doc]) => (
               <button
                 type="button"
-                class="toc-link"
-                classList={{ active: site.currentSlug() === slug }}
+                class={["toc-link", { active: site.currentSlug() === slug }]}
                 onClick={() => site.open(slug)}
               >
                 {doc.title}

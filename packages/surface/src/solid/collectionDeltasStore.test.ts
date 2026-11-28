@@ -17,12 +17,17 @@
  *   2. a reconnect snapshot whose entries are unchanged is a VISUAL NO-OP — the
  *      retry fence deliberately turns a transport drop into a fresh snapshot rather
  *      than an error, and a link flap must not repaint the screen;
- *   3. a changed entry is REPLACED, never merged into the object standing there —
- *      that object is the same one a `fold` consumer may be holding.
+ *   3. a changed entry is MERGED into the one standing there, leaf by leaf, so a
+ *      delta that moved one field does not wake the record's other readers — and
+ *      the frame object a `fold` consumer may be holding is still never written
+ *      through, because the merge ADOPTS the incoming frame rather than mutating
+ *      what it replaces.
  */
 
+import { Schema } from "effect";
 import { createEffect } from "solid-js";
 import { describe, expect, it } from "vitest";
+import { collection } from "../index";
 import { framesEqual } from "./createSubscription";
 import {
   type DeltasHarness,
@@ -36,9 +41,24 @@ const drive = (
   body: (ctx: DeltasHarness<string, V>) => Promise<void>,
 ): Promise<void> => driveDeltas(numberRows, body);
 
+/** An entry with MORE THAN ONE fact in it — the shape the leaf-grain claim needs,
+ *  and the shape a real collection's value has. The shared `NumberRow` fixture
+ *  carries one number on purpose, so it cannot tell "this field moved" from "this
+ *  record moved". Only `name` is read at runtime; the schema types `T` at the call
+ *  site. */
+interface Row {
+  readonly title: string;
+  readonly git: { readonly repoRoot: string };
+}
+const records = collection({
+  name: "records",
+  keySchema: Schema.String,
+  schema: Schema.Any,
+});
+
 describe("the deltas store — a frame re-notifies only what it named", () => {
   it("a delta wakes the keys it upserts and nothing else; keys() stays quiet on a values-only tick", async () => {
-    await drive(async ({ view, push }) => {
+    await drive(async ({ view, push, observe }) => {
       push({
         kind: "snapshot",
         entries: [
@@ -48,20 +68,33 @@ describe("the deltas store — a frame re-notifies only what it named", () => {
       });
       await settle();
 
-      // One effect per key plus one on the key set. Each counts its own runs, so a
-      // frame's blast radius is a number, not an impression.
+      // One effect per key plus one on the key set. The compute does the tracked
+      // read, the effect phase counts its own runs, so a frame's blast radius is a
+      // number, not an impression. Built through `observe` — the root's owner is
+      // out of scope after the `await` above.
+      // The computes read a LEAF, which is what a consumer reads: the store tracks
+      // leaves, so a record's reader is woken by the field it reads, not by the
+      // arrival of a container.
       const runs = { a: 0, b: 0, keys: 0 };
-      createEffect(() => {
-        view.byKey("a")?.();
-        runs.a++;
-      });
-      createEffect(() => {
-        view.byKey("b")?.();
-        runs.b++;
-      });
-      createEffect(() => {
-        view.keys();
-        runs.keys++;
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.()?.n,
+          () => {
+            runs.a++;
+          },
+        );
+        createEffect(
+          () => view.byKey("b")?.()?.n,
+          () => {
+            runs.b++;
+          },
+        );
+        createEffect(
+          () => view.keys(),
+          () => {
+            runs.keys++;
+          },
+        );
       });
       await settle();
       expect(runs).toEqual({ a: 1, b: 1, keys: 1 });
@@ -85,7 +118,7 @@ describe("the deltas store — a frame re-notifies only what it named", () => {
 
 describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
   it("re-serialized-but-equal entries do not re-notify; only the entry that actually changed does", async () => {
-    await drive(async ({ view, push }) => {
+    await drive(async ({ view, push, observe }) => {
       push({
         kind: "snapshot",
         entries: [
@@ -95,18 +128,28 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
       });
       await settle();
 
+      // Built through `observe`: the root's owner is out of scope after the
+      // `await` above, and an ownerless effect is never disposed.
       const runs = { a: 0, b: 0, keys: 0 };
-      createEffect(() => {
-        view.byKey("a")?.();
-        runs.a++;
-      });
-      createEffect(() => {
-        view.byKey("b")?.();
-        runs.b++;
-      });
-      createEffect(() => {
-        view.keys();
-        runs.keys++;
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.()?.n,
+          () => {
+            runs.a++;
+          },
+        );
+        createEffect(
+          () => view.byKey("b")?.()?.n,
+          () => {
+            runs.b++;
+          },
+        );
+        createEffect(
+          () => view.keys(),
+          () => {
+            runs.keys++;
+          },
+        );
       });
       await settle();
       expect(runs).toEqual({ a: 1, b: 1, keys: 1 });
@@ -139,7 +182,7 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
   });
 
   it("a snapshot that drops a key removes it and wakes keys(), leaving survivors alone", async () => {
-    await drive(async ({ view, push }) => {
+    await drive(async ({ view, push, observe }) => {
       push({
         kind: "snapshot",
         entries: [
@@ -149,13 +192,19 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
       });
       await settle();
       const runs = { a: 0, keys: 0 };
-      createEffect(() => {
-        view.byKey("a")?.();
-        runs.a++;
-      });
-      createEffect(() => {
-        view.keys();
-        runs.keys++;
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.(),
+          () => {
+            runs.a++;
+          },
+        );
+        createEffect(
+          () => view.keys(),
+          () => {
+            runs.keys++;
+          },
+        );
       });
       await settle();
 
@@ -169,11 +218,13 @@ describe("the deltas store — a reconnect snapshot is a visual no-op", () => {
 });
 
 describe("the deltas store — an adopted frame object is frozen, not recycled", () => {
-  it("a later frame REPLACES the leaf; the object the store previously adopted is untouched", async () => {
+  it("a later frame is MERGED over the leaf; the object the store previously adopted is untouched", async () => {
     // The aliasing contract folds lean on: `fold` receives the wire's own frame
-    // objects, and the store adopts those SAME objects. If the store merged a later
-    // value into the object standing there — Solid's own default for a nested store
-    // write — a fold holding it would silently watch its retained value mutate.
+    // objects, and the store adopts those SAME objects. The merge the store writes
+    // an entry with does not threaten them — `reconcile` adopts the incoming frame
+    // by pointer swap at every level it reaches and never writes through what stood
+    // there — and this pins that, because a merge that DID write through is how a
+    // fold would silently watch its retained value mutate.
     await drive(async ({ view, push }) => {
       const first = { n: 1 };
       push({ kind: "snapshot", entries: [["a", first]] });
@@ -195,28 +246,99 @@ describe("the deltas store — an adopted frame object is frozen, not recycled",
   });
 });
 
-describe("the frame comparator — store tags are not content, other symbols are", () => {
+describe("the deltas store — a changed entry moves its leaves, not the record", () => {
+  it("a delta that rewrites one field wakes that field's readers alone, keeps the record's identity, and leaves the frame it replaced untouched", async () => {
+    // A real entry carries several facts at once, and its readers read ONE of them:
+    // the dock reads a terminal's title while the right panel hangs its repo-keyed
+    // queries off `git.repoRoot`. A frame that rewrote the record WHOLE woke both
+    // for the one field that moved — the record's reference turned over, every leaf
+    // node under it was written, and a consumer keyed on the reference remounted.
+    await driveDeltas<string, Row>(records, async ({ view, push, observe }) => {
+      const first: Row = { title: "one", git: { repoRoot: "/p" } };
+      push({ kind: "snapshot", entries: [["a", first]] });
+      await settle();
+
+      const runs = { title: 0, repoRoot: 0, record: 0 };
+      let seen: Row | undefined;
+      observe(() => {
+        createEffect(
+          () => view.byKey("a")?.()?.title,
+          () => {
+            runs.title++;
+          },
+        );
+        createEffect(
+          () => view.byKey("a")?.()?.git.repoRoot,
+          () => {
+            runs.repoRoot++;
+          },
+        );
+        createEffect(
+          () => view.byKey("a")?.(),
+          (record) => {
+            runs.record++;
+            seen = record;
+          },
+        );
+      });
+      await settle();
+      expect(runs).toEqual({ title: 1, repoRoot: 1, record: 1 });
+      const recordBefore = seen;
+
+      push({
+        kind: "delta",
+        upserts: [["a", { title: "two", git: { repoRoot: "/p" } }]],
+        removes: [],
+      });
+      await settle();
+      expect(runs).toEqual({ title: 2, repoRoot: 1, record: 1 });
+      expect(view.byKey("a")?.()).toEqual({
+        title: "two",
+        git: { repoRoot: "/p" },
+      });
+      // The record keeps the proxy it had: a consumer holding the row does not
+      // see a new object for a field it does not read.
+      expect(view.byKey("a")?.()).toBe(recordBefore);
+      // And the frame the store adopted first is not written through.
+      expect(first).toEqual({ title: "one", git: { repoRoot: "/p" } });
+
+      // The nested fact moving wakes ITS reader, and only it.
+      push({
+        kind: "delta",
+        upserts: [["a", { title: "two", git: { repoRoot: "/q" } }]],
+        removes: [],
+      });
+      await settle();
+      expect(runs).toEqual({ title: 2, repoRoot: 2, record: 1 });
+    });
+  });
+});
+
+describe("the frame comparator — the store leaves no tag, so every symbol is content", () => {
   it("an object the store has wrapped still compares equal to identical fresh content", async () => {
-    // Solid plants `$PROXY` and its non-enumerable siblings on every object a
-    // consumer reads through a store proxy. Counting those as content inverts the
-    // law the value-diff serves: a reconnect snapshot would re-notify exactly the
-    // entries someone is watching, and nothing else. The "reconnect is a no-op"
-    // cases above are that pin end-to-end; this one names the mechanism.
+    // The law the value-diff serves: an entry someone is WATCHING must not
+    // re-notify on a reconnect that re-serialized the same content. The "reconnect
+    // is a no-op" cases above pin that end-to-end; this one names the mechanism,
+    // which is that there is no mechanism left to need. The store adopts a value
+    // by pointer swap, tracks the wrapping in a private lookup and clones before
+    // a draft write, so an object it has wrapped carries exactly the own symbols
+    // it arrived with — the comparator has nothing to exempt, and every own
+    // symbol it meets is frame content.
     await drive(async ({ view, push }) => {
       const first = { n: 1 };
       push({ kind: "snapshot", entries: [["a", first]] });
       await settle();
       // Force the store to wrap the value — the read a rendered row performs.
       expect(view.byKey("a")?.()).toEqual({ n: 1 });
-      expect(Object.getOwnPropertySymbols(first).length).toBeGreaterThan(0);
+      expect(Object.getOwnPropertySymbols(first)).toEqual([]);
       expect(framesEqual(first, { n: 1 })).toBe(true);
     });
   });
 
-  it("a symbol the store did NOT plant still forces inequality", async () => {
-    // The exclusion is by provenance, not by shape: on an object the store has
-    // never wrapped, every own symbol is content and the comparator refuses to
-    // claim an equality it cannot prove.
+  it("an own symbol forces inequality — there is no exception to carve out", async () => {
+    // Every own symbol is content: the comparator cannot see it through
+    // `getOwnPropertyNames`, nothing else compares it, and it refuses to claim an
+    // equality it cannot prove.
     const tagged: Record<string, number> = { n: 1 };
     Object.defineProperty(tagged, Symbol("app-tag"), { value: 7 });
     expect(framesEqual(tagged, { n: 1 })).toBe(false);

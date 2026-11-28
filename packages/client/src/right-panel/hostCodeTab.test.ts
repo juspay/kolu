@@ -31,7 +31,7 @@ import {
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
-import { batch, createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type PulseSubscription = {
@@ -196,7 +196,7 @@ const {
   localStatus: codeLocalStatus,
 } = rightPanelCodeQueries;
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const pulse = () => {
   for (const sub of [...pulseCtl.subs]) sub.emit();
 };
@@ -230,10 +230,8 @@ bag.repoRoot = driveRepo;
 bag.bare = driveBare;
 
 function switchTo(host: HostKey): void {
-  batch(() => {
-    addHost(host);
-    setDriveHost(host);
-  });
+  addHost(host);
+  setDriveHost(host);
 }
 
 // The mock `getStatus` returns a deliberately minimal shape carrying an identity
@@ -247,11 +245,11 @@ let releaseLease: () => void;
 afterEach(async () => {
   releaseLease();
   resetHosts();
-  await flush();
+  await settle();
 });
 beforeEach(async () => {
   resetHosts();
-  await flush();
+  await settle();
   setDriveHost(HOST_A);
   setDriveTermId("t1");
   setDriveRepo("/repo");
@@ -266,7 +264,7 @@ beforeEach(async () => {
   setCodeShown(true);
   createRoot((dispose) => {
     releaseLease = dispose;
-    leaseCodeQueries(codeShown);
+    leaseCodeQueries(codeShown, () => bag.selected());
   });
   // Build the lazy app-lifetime owner (a real consumer reads the facade at mount) so the
   // `scopedByEntry` reactive graph is live and reacts to `switchTo` before the first pulse.
@@ -276,70 +274,73 @@ beforeEach(async () => {
 describe("hostCodeTab — per-host query ownership (padi W9)", () => {
   it("retains each host's Code-tab query across switch-away, resumes with no blank, and refreshes on return", async () => {
     switchTo(HOST_A);
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(label()).toBe("local:local"); // A's local-status instance loaded
     const aLoads = read()?.n ?? 0;
 
     // Switch AWAY to B: A pauses (value held), B builds + blanks until its pulse.
     switchTo(HOST_B);
-    await flush();
+    await settle();
     expect(codeLocalStatus.pending()).toBe(true); // B is fresh — blank
     pulse();
-    await flush();
+    await settle();
     expect(label()).toBe("remote:B:local"); // B loaded
 
     // Switch BACK to A: its instance was RETAINED, so A's held value shows with NO blank
     // (not pending) — the instant switch-back — then the pulse refreshes it.
     switchTo(HOST_A);
-    await flush();
+    await settle();
     expect(codeLocalStatus.pending()).toBe(false); // resumed from held value, no blank
     expect(label()).toBe("local:local"); // A's retained value, instantly
     pulse();
-    await flush();
+    await settle();
     expect(read()?.n ?? 0).toBeGreaterThan(aLoads); // refreshed on activation
   });
 
   it("disposes a host's Code-tab query when it leaves the pool (a re-add rebuilds fresh)", async () => {
     switchTo(HOST_A);
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(label()).toBe("local:local");
 
     // Move to B, then A leaves the pool: A's owner (and its query instances) disposes.
     switchTo(HOST_B);
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     removeHost(HOST_A);
-    await flush();
+    await settle();
 
     // Re-add + re-visit A: scopedByEntry treats it as a FRESH member (its prior instance
     // was disposed on exit), so it rebuilds and blanks — the held value did NOT survive
     // membership exit (ownership: dropped when gone).
     switchTo(HOST_A);
-    await flush();
+    await settle();
     expect(codeLocalStatus.pending()).toBe(true); // rebuilt fresh, not resurrected
   });
 
   it("retains the value across a CONSUMER unmount/remount — the app-lifetime owner (defect 1 + 2)", async () => {
     switchTo(HOST_A);
-    await flush();
+    await settle();
 
     // Consumer #1 mounts (a CodeTab/BrowseFileDispatcher stand-in): its OWN reactive
     // root subscribes the facade. It gets A's loaded value.
     let seen1: string | undefined;
     const dispose1 = createRoot((d) => {
-      createEffect(() => {
-        seen1 = read()?.label;
-      });
+      createEffect(
+        () => {
+          seen1 = read()?.label;
+        },
+        () => {},
+      );
       return d;
     });
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(label()).toBe("local:local");
     expect(seen1).toBe("local:local");
 
@@ -347,18 +348,21 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     // `<Show>` re-key (BrowseFileDispatcher) does. On the pre-W9 component-scoped owner
     // this disposed the retention world; here the owner is app-lifetime, so it must not.
     dispose1();
-    await flush();
+    await settle();
 
     // Consumer #2 REMOUNTS and reads: the value SURVIVED the unmount — no blank, no
     // re-query needed. (Pre-fix, this reads `pending() === true` and the assertions fail.)
     let seen2: string | undefined;
     const dispose2 = createRoot((d) => {
-      createEffect(() => {
-        seen2 = read()?.label;
-      });
+      createEffect(
+        () => {
+          seen2 = read()?.label;
+        },
+        () => {},
+      );
       return d;
     });
-    await flush();
+    await settle();
     expect(codeLocalStatus.pending()).toBe(false); // retained through the unmount — no blank
     expect(label()).toBe("local:local");
     expect(seen2).toBe("local:local");
@@ -368,25 +372,25 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
   it("a BACKGROUND host's Code-tab value survives while the active host's tab is unmounted (mode-transit wipe)", async () => {
     // Load A, then switch to B and load it.
     switchTo(HOST_A);
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     switchTo(HOST_B);
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(label()).toBe("remote:B:local");
 
     // While B is active, its Code tab unmounts (B is a zero-terminal / warming host, so
     // `canvasMode` left `workspace` and the whole RightPanel came down). Simulate the
     // tab being absent: no consumer root is mounted at all. The OWNER is untouched.
-    await flush();
+    await settle();
 
     // Switch BACK to A: A was backgrounded (paused, frozen), so despite the active tab
     // having been unmounted, A's retained Code-tab value is intact — the pre-W9 bug
     // wiped EVERY host's state on that unmount.
     switchTo(HOST_A);
-    await flush();
+    await settle();
     expect(codeLocalStatus.pending()).toBe(false);
     expect(label()).toBe("local:local");
   });
@@ -395,15 +399,15 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     bag.selected = () => "report.html";
     switchTo(HOST_A);
     void codeFileContent.pending();
-    await flush();
+    await settle();
 
     const input = { repoPath: "/repo", filePath: "report.html" };
     expect(liveFileInputs()).toEqual([input]);
     filePulse(input);
-    await flush();
+    await settle();
     const before = codeFileContent();
     filePulse(input);
-    await flush();
+    await settle();
     const after = codeFileContent();
 
     expect(bag.previewTagInputs).toEqual([input, input]);
@@ -421,24 +425,24 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     bag.selected = selected;
     switchTo(HOST_A);
     void codeFileContent.pending();
-    await flush();
+    await settle();
 
     const indexInput = { repoPath: "/repo", filePath: "dist/index.html" };
     const secondInput = { repoPath: "/repo", filePath: "dist/second.html" };
     expect(liveFileInputs()).toEqual([indexInput]);
     filePulse(indexInput);
-    await flush();
+    await settle();
     expect(bag.previewTagInputs).toEqual([indexInput]);
 
     setSelected("dist/second.html");
-    await flush();
+    await settle();
     expect(liveFileInputs()).toEqual([secondInput]);
 
     // An event for the old path is no longer connected; only the navigated-to
     // file can refresh the preview.
     filePulse(indexInput);
     filePulse(secondInput);
-    await flush();
+    await settle();
     expect(bag.previewTagInputs).toEqual([indexInput, secondInput]);
   });
 
@@ -452,9 +456,9 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
   it("flipping the show-ignored toggle leaves the main file list untouched — no blank, no re-query", async () => {
     switchTo(HOST_A);
     void codeAllPaths.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
 
     const settled = codeAllPaths();
     expect(settled?.paths).toEqual(["src/app.ts"]);
@@ -464,7 +468,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(queriesBefore).toBeGreaterThan(0);
 
     setShowIgnoredFiles(true);
-    await flush();
+    await settle();
 
     // Same value object identity is not required, but the value must never go
     // absent (a blank) and the tracked listing must not be re-fetched.
@@ -473,7 +477,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(bag.counts.listAll).toBe(queriesBefore);
 
     setShowIgnoredFiles(false);
-    await flush();
+    await settle();
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     expect(codeAllPaths.pending()).toBe(false);
     expect(bag.counts.listAll).toBe(queriesBefore);
@@ -487,9 +491,9 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
   it("a pane switch inside one repo re-dispatches NOTHING and never blanks", async () => {
     switchTo(HOST_A);
     void codeAllPaths.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     const reads = bag.counts.listAll;
     // Guard against a vacuous pass: if the mock were never reached, the
@@ -497,7 +501,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(reads).toBeGreaterThan(0);
 
     setDriveTermId("t2"); // focus moves to a split in the SAME repo
-    await flush();
+    await settle();
 
     expect(bag.counts.listAll).toBe(reads); // ZERO new dispatches
     expect(codeAllPaths.pending()).toBe(false); // never blanked
@@ -507,18 +511,18 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
   it("a REPO change still blanks the listing and re-queries it", async () => {
     switchTo(HOST_A);
     void codeAllPaths.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     const reads = bag.counts.listAll ?? 0;
     expect(reads).toBeGreaterThan(0);
 
     setDriveRepo("/other-repo");
-    await flush();
+    await settle();
     expect(codeAllPaths.pending()).toBe(true); // blanked — a genuinely new query
 
     pulse();
-    await flush();
+    await settle();
     expect(bag.counts.listAll).toBeGreaterThan(reads);
     expect(codeAllPaths()?.repoRoot).toBe("/other-repo");
   });
@@ -530,9 +534,9 @@ it("pauses hidden Code queries and retains the browse snapshot through mode swit
   bag.selected = () => "src/app.ts";
   setShowIgnoredFiles(true);
   switchTo(HOST_A);
-  await flush();
+  await settle();
   pulse();
-  await flush();
+  await settle();
   const held = codeAllPaths();
   expect(held?.paths).toEqual(["src/app.ts"]);
   const reads = bag.counts.listAll;
@@ -540,21 +544,21 @@ it("pauses hidden Code queries and retains the browse snapshot through mode swit
   const content = codeFileContent();
   expect(content).toBeDefined();
   setMode("local");
-  await flush();
+  await settle();
   pulse();
-  await flush();
+  await settle();
   expect(codeAllPaths()).toBe(held);
   expect(bag.counts.listAll).toBe(reads);
   expect(bag.counts.listIgnored).toBe(ignoredReads);
   expect(codeFileContent()).toBe(content);
   setMode("browse");
-  await flush();
+  await settle();
   expect(codeAllPaths()).toBe(held);
   expect(codeAllPaths.pending()).toBe(false);
   setCodeShown(false);
-  await flush();
+  await settle();
   pulse();
-  await flush();
+  await settle();
   expect(codeAllPaths()).toBe(held);
   expect(bag.counts.listAll).toBe(reads);
   expect(bag.counts.listIgnored).toBe(ignoredReads);
@@ -567,22 +571,25 @@ it("one hidden or disposed consumer cannot pause another shown Code view", async
   let releaseOther!: () => void;
   createRoot((dispose) => {
     releaseOther = dispose;
-    leaseCodeQueries(() => true);
+    leaseCodeQueries(
+      () => true,
+      () => bag.selected(),
+    );
   });
   setCodeShown(false);
-  await flush();
+  await settle();
   pulse();
-  await flush();
+  await settle();
   const reads = bag.counts.listAll;
   expect(reads).toBeGreaterThan(0);
   pulse();
-  await flush();
+  await settle();
   expect(bag.counts.listAll).toBeGreaterThan(reads!);
   releaseOther();
-  await flush();
+  await settle();
   const paused = bag.counts.listAll;
   pulse();
-  await flush();
+  await settle();
   expect(bag.counts.listAll).toBe(paused);
 });
 
@@ -593,9 +600,9 @@ describe("a folder git cannot list (a bare repository's)", () => {
     switchTo(HOST_A);
     void codeDiskRootLevel.pending();
     void codeAllPaths.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
 
     expect(codeDiskRootLevel()).toEqual({
       repoRoot: "/repo",
@@ -614,7 +621,7 @@ describe("a folder git cannot list (a bare repository's)", () => {
     // A pane switch inside that root re-dispatches nothing and never blanks.
     const reads = bag.listDirectoryInputs.length;
     setDriveTermId("t2");
-    await flush();
+    await settle();
     expect(bag.listDirectoryInputs.length).toBe(reads);
     expect(codeDiskRootLevel.pending()).toBe(false);
     setShowIgnoredFiles(false);
@@ -624,9 +631,9 @@ describe("a folder git cannot list (a bare repository's)", () => {
     switchTo(HOST_A);
     void codeDiskRootLevel.pending();
     void codeAllPaths.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     expect(bag.listDirectoryInputs).toEqual([]);
   });
@@ -641,9 +648,9 @@ describe("a Branch comparison whose base branch was never fetched", () => {
     bag.mode = () => "branch";
     switchTo(HOST_A);
     void codeActiveStatus.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
 
     expect(codeActiveStatus.error()?.message).toBe(sentence);
     expect(codeActiveStatus.pending()).toBe(false);
@@ -654,9 +661,9 @@ describe("a Branch comparison whose base branch was never fetched", () => {
     bag.branchFailure = new GitFailed({ detail: "fatal: bad object" });
     switchTo(HOST_A);
     void codeActiveStatus.pending();
-    await flush();
+    await settle();
     pulse();
-    await flush();
+    await settle();
     expect(bag.toastError).toHaveBeenCalledWith(
       "Git status stream: fatal: bad object",
     );

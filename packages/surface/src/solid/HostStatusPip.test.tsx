@@ -13,8 +13,8 @@
  * see `surfaceClient.health.test.ts`).
  */
 
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, Errored, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { HostStatusPip } from "./HostStatusPip";
 import type { SurfaceHealth } from "./health";
@@ -49,13 +49,17 @@ afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose();
 });
 
-function mount(node: () => unknown): HTMLSpanElement {
+function mountIn(node: () => unknown): HTMLDivElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
   // biome-ignore lint/suspicious/noExplicitAny: render's JSX element type
   const dispose = render(node as any, container);
   disposers.push(dispose, () => container.remove());
-  return container.querySelector("span") as HTMLSpanElement;
+  return container;
+}
+
+function mount(node: () => unknown): HTMLSpanElement {
+  return mountIn(node).querySelector("span") as HTMLSpanElement;
 }
 
 describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
@@ -71,12 +75,15 @@ describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
     // Not ready: honest status, NOT the ready color.
     expect(dot.getAttribute("data-health")).toBe("connecting");
     expect(dot.style.background).not.toBe("#7ec699");
-    // Ready: green.
+    // Ready: green. The fact's write is STAGED — the dot repaints on its flush,
+    // which is the frame a user sees it in.
     setH(READY);
+    flush();
     expect(dot.getAttribute("data-health")).toBe("ready");
     expect(dot.style.background).toBe("#7ec699");
     // Back to dead: green gone.
     setH(DEAD);
+    flush();
     expect(dot.getAttribute("data-health")).toBe("connecting");
     expect(dot.style.background).toBe("#ff0000");
   });
@@ -86,16 +93,34 @@ describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
     // an app CAN hand back the ready color (pulam-web's transport∘mirror tone was
     // green for a connected link). The component refuses it LOUDLY rather than paint
     // a green dot over a not-ready fact — the #1564 lie, one prop over, made to crash.
+    //
+    // The refusal is a throw from the dot's own color memo, and an UNCAUGHT
+    // computation error halts Solid's reactive system — so it is observed where an
+    // app observes any render crash: at the `<Errored>` boundary over the dot. The
+    // fallback standing where the dot would be IS the "no green was painted"
+    // evidence.
     const [h] = createSignal<SurfaceHealth>(DEGRADED);
-    expect(() =>
-      mount(() => (
+    let caught: unknown;
+    const container = mountIn(() => (
+      <Errored
+        fallback={(why) => {
+          caught = why();
+          return <span data-health="crashed" />;
+        }}
+      >
         <HostStatusPip
           health={h}
           readyColor="#7ec699"
           notReadyTone={() => "#7ec699"}
         />
-      )),
-    ).toThrow(/notReadyTone returned the readyColor/);
+      </Errored>
+    ));
+    expect((caught as Error).message).toMatch(
+      /notReadyTone returned the readyColor/,
+    );
+    const span = container.querySelector("span") as HTMLSpanElement;
+    expect(span.getAttribute("data-health")).toBe("crashed");
+    expect(span.style.background).toBe("");
   });
 
   it("an error OUTRANKS a concurrent pending — a masked-error fact reads degraded, dot amber, never green", () => {
@@ -144,8 +169,10 @@ describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
     // Dead fact: green REFUSED despite the always-true predicate.
     expect(dot.getAttribute("data-health")).not.toBe("ready");
     expect(dot.style.background).not.toBe("#7ec699");
-    // The predicate still governs WITHIN a live fact: live → green.
+    // The predicate still governs WITHIN a live fact: live → green, on the flush
+    // the write lands in.
     setH(READY);
+    flush();
     expect(dot.getAttribute("data-health")).toBe("ready");
     expect(dot.style.background).toBe("#7ec699");
   });
@@ -170,10 +197,12 @@ describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
     expect(dot.style.background).toBe("#7ec699");
     // A sub errors → custom ready false → degraded amber, never green.
     setH(DEGRADED);
+    flush();
     expect(dot.getAttribute("data-health")).toBe("degraded");
     expect(dot.style.background).toBe("#e6a23c");
     // Transport dies → connecting tone, never green.
     setH(DEAD);
+    flush();
     expect(dot.getAttribute("data-health")).toBe("connecting");
     expect(dot.style.background).toBe("#ff0000");
   });

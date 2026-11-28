@@ -15,7 +15,7 @@
  *  terminate it — other views share the same instance.
  *
  *  Browser-only by construction: `getCodeViewWorkerPool()` is reached from
- *  `CodeView`'s `onMount`, so the `new Worker(...)` never runs during SSR
+ *  `CodeView`'s `onSettled`, so the `new Worker(...)` never runs during SSR
  *  (transcript-html's static export consumes `@pierre/diffs` directly, not this
  *  wrapper). */
 

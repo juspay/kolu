@@ -17,9 +17,6 @@ function harness(init?: { desktop?: boolean }) {
   let cancels = 0;
   let restates = 0;
   const pane = createPaneSize({
-    connected: () => connected,
-    desktop: () => desktop,
-    asked: () => asked,
     publish: (g) => published.push(g),
     cancelPublish: () => {
       cancels += 1;
@@ -28,26 +25,30 @@ function harness(init?: { desktop?: boolean }) {
       restates += 1;
     },
   });
+  // The gate hands the host's state to the publisher's latch; what the latch
+  // then does with it is `publishGrid.ts`'s own test. Here it is a constant.
+  const observe = () =>
+    pane.observe({ connected, desktop, asked, hostState: "connected" });
   return {
     /** The pane came on screen, or left it. */
     connect(next: boolean) {
       connected = next;
-      pane.observe();
+      observe();
     },
     /** The pane measured the grid it would ask for. */
     ask(next: TerminalGrid | null) {
       asked = next;
-      pane.observe();
+      observe();
     },
     layout(isDesktop: boolean) {
       desktop = isDesktop;
-      pane.observe();
+      observe();
     },
     /** Anything else that re-runs the pane's effect: a re-attach of its
      *  screen, someone else's resize, the scroll lock. None changes a fact
      *  the policy reads. */
     poke() {
-      pane.observe();
+      observe();
     },
     published,
     cancels: () => cancels,

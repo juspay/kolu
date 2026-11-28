@@ -22,12 +22,13 @@ import { LOCAL_HOST } from "kolu-common/hostKey";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import {
   type Component,
+  createEffect,
   createMemo,
   createSignal,
   For,
-  type JSX,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import AgentsChooser from "./agents/AgentsChooser";
 import {
@@ -226,6 +227,21 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
         e.preventDefault();
         parts.turnOn();
       });
+      // "Turn on" takes the focus as it mounts, while nothing is chosen. The
+      // element arrives through a signal and the focus is moved from an effect:
+      // a `ref` callback is no scope to read reactive state in, and "is
+      // anything chosen" is reactive state. Once per ELEMENT, as the ref was —
+      // a choice made and undone while the row stays up never re-steals focus.
+      const [turnOnEl, setTurnOnEl] = createSignal<HTMLButtonElement>();
+      let focusedEl: HTMLButtonElement | undefined;
+      createEffect(
+        () => (agentsChosen(agentDistroStored()) ? undefined : turnOnEl()),
+        (el) => {
+          if (!el || el === focusedEl) return;
+          focusedEl = el;
+          el.focus();
+        },
+      );
       return (
         <MomentShell
           testId="welcome-moment-choose-agents"
@@ -238,10 +254,7 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
               <div class="mt-2.5 flex items-center gap-3.5">
                 <Show when={parts.canTurnOn()}>
                   <button
-                    ref={(el) => {
-                      if (!agentsChosen(agentDistroStored()))
-                        queueMicrotask(() => el.focus());
-                    }}
+                    ref={setTurnOnEl}
                     type="button"
                     data-testid="welcome-agents-turn-on"
                     class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1"

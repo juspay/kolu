@@ -52,6 +52,7 @@ import {
   LINE_LIMIT,
   lockCardWords,
   lockWords,
+  membersByWork,
   membersIn,
   oneLine,
   otherDecisions,
@@ -59,6 +60,7 @@ import {
   repoName,
   SETUP_ROWS,
   setupLine,
+  sameStages,
   stagesOf,
   standingLine,
   timeSpentOnYou,
@@ -621,6 +623,22 @@ describe("which events an open card shows", () => {
     });
   });
 
+  it("says two readings of unmoved stages are the same, and a moved one is not", () => {
+    // The card re-folds on every tick of the clock and on every move of the
+    // record, and mints every cell, filing and visit afresh — so the gate on
+    // it has to read them rather than compare references.
+    const read = stagesOf(one, minute(40));
+    expect(sameStages(read, stagesOf(one, minute(40)))).toBe(true);
+    // A later clock moves the open stage's time, which is a real change.
+    expect(sameStages(read, stagesOf(one, minute(41)))).toBe(false);
+    // ... and so is an event that puts the work somewhere else.
+    const moved = work({
+      decisions: [mode("full")],
+      events: [...timeline, said("local/i", 35)],
+    });
+    expect(sameStages(read, stagesOf(moved, minute(40)))).toBe(false);
+  });
+
   it("shows a doubt's events when its mark is pressed, under the doubt's name", () => {
     // The same work saved before kolu kept hand-offs: no `told`, and the
     // upgrade's marker at its last event.
@@ -804,6 +822,36 @@ describe("the members of one work", () => {
     expect(membersIn(map, WORK).map((one) => one.terminal)).toEqual([
       "local/a",
       "local/b",
+    ]);
+  });
+
+  it("yields exactly one row per terminal, over every work", () => {
+    // THE INVARIANT EVERY PANE RESTS ON: the rows are read out of the ONE
+    // members map, keyed by terminal, so a terminal names exactly one row and
+    // appears under exactly one work. `conductor/WorkLive.tsx` draws a pane
+    // per row and keys it by that ref; a ref that came back twice would
+    // attach one terminal's stream twice and leave every readout matching two
+    // elements. Pinned here, where the rows are made.
+    const map = new Map<string, WorkMember>([
+      ["local/a", { work: WORK, role: "planner", joinedAt: AT }],
+      ["local/b", { work: WORK, role: "implementor", joinedAt: AT }],
+      ["local/c", { work: WORK, role: "implementor", joinedAt: AT }],
+      ["other/a", { work: "branch:local/x/y", role: "other", joinedAt: AT }],
+    ]);
+    const by = membersByWork(map);
+    const rows = [...by.values()].flat();
+    expect(rows).toHaveLength(map.size);
+    expect(rows.map((one) => one.terminal).sort()).toEqual([
+      "local/a",
+      "local/b",
+      "local/c",
+      "other/a",
+    ]);
+    // And within one work, each terminal once.
+    expect(membersIn(map, WORK).map((one) => one.terminal)).toEqual([
+      "local/a",
+      "local/b",
+      "local/c",
     ]);
   });
 
@@ -1320,8 +1368,11 @@ describe("the card's line for a work kept under its old key (T30)", () => {
       at: "2026-11-24T19:00:00.000Z",
       request: { kind: "none" },
     });
-  const mapOf = (...works: Work[]): ReadonlyMap<WorkId, Work> =>
-    new Map(works.map((one) => [workIdOf(one.key), one]));
+  /** The mirror as `heldWords` asks it: one work, by its id. */
+  const lookup =
+    (...works: Work[]) =>
+    (id: WorkId): Work | undefined =>
+      new Map(works.map((one) => [workIdOf(one.key), one])).get(id);
   const held = work(
     keyAt("/repo/.worktrees/csv", { kind: "held", root: "/repo" }),
     "old",
@@ -1329,21 +1380,21 @@ describe("the card's line for a work kept under its old key (T30)", () => {
 
   it("names the work holding the branch", () => {
     const holder = work(keyAt("/repo", { kind: "git" }), "holder");
-    expect(heldWords(held, mapOf(held, holder))).toEqual(
+    expect(heldWords(held, lookup(held, holder))).toEqual(
       Option.some("Kept under its old key: «holder» holds csv in repo"),
     );
   });
 
   it("says another work once the holder is gone", () => {
-    expect(heldWords(held, mapOf(held))).toEqual(
+    expect(heldWords(held, lookup(held))).toEqual(
       Option.some("Kept under its old key: another work holds csv in repo"),
     );
   });
 
   it("is absent for a key that is git's or not said", () => {
     const moved = work(keyAt("/repo", { kind: "git" }), "old");
-    expect(heldWords(moved, mapOf(moved))).toEqual(Option.none());
+    expect(heldWords(moved, lookup(moved))).toEqual(Option.none());
     const written = work(keyAt("/repo/sub", { kind: "as-written" }), "old");
-    expect(heldWords(written, mapOf(written))).toEqual(Option.none());
+    expect(heldWords(written, lookup(written))).toEqual(Option.none());
   });
 });

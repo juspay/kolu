@@ -13,8 +13,7 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createRoot } from "solid-js";
-import { unwrap } from "solid-js/store";
+import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
 import type { SurfaceDispatch } from "../link";
@@ -76,11 +75,33 @@ const readingOf = (keys: readonly string[]): Reading => ({
 
 /** Frames wait on a real fiber, so a micro-flush is not enough — two macrotask
  *  turns, the same margin `createSubscription.test.ts` uses. */
-async function flush(ticks = 2): Promise<void> {
+async function settle(ticks = 2): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await new Promise<void>((r) => setTimeout(r, 0));
   }
 }
+
+/** Observe every row of a member's value, the way a rendered list does. A merge
+ *  preserves a row's STORE IDENTITY (its proxy — the raw is always the newest
+ *  frame, since a merge adopts rather than mutates) only where a node lives
+ *  below that row: `@solidjs/signals` 2.0.4 `dist/dev.js` `descend` :6809 skips a
+ *  child nothing is watching, so an unobserved row is replaced whatever the key
+ *  says. Returns the disposer for the observing root. */
+function watchRows(read: () => Reading | undefined): () => void {
+  return createRoot((dispose) => {
+    createEffect(
+      () => (read()?.rows ?? []).map((r) => r.node.title).join("\u0000"),
+      () => {},
+    );
+    return dispose;
+  });
+}
+
+/** The rows as the store serves them — proxies, which is what a consumer holds
+ *  and therefore what "the same row" means across frames. */
+const rowsOf = (value: unknown): Reading["rows"] => [
+  ...(value as Reading).rows,
+];
 
 /** A dispatch serving each member from its own controllable stream, so a test
  *  pushes the frames itself. */
@@ -122,23 +143,27 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
   it("governs a COLLECTION's PER-KEY merge — the seam a cell's value goes through", async () => {
     // The path lowy's review found the first cut had foreclosed: an entry's value
     // is merged by `createSubscription`/`writeWrappedValue`, exactly as a cell's
-    // is, so the same declaration governs it. (The batched `deltas` path replaces
-    // leaves whole and has no merge to govern — see `CollectionSpec.arrayKey`.)
+    // is, so the same declaration governs it. (The batched `deltas` path merges
+    // each named entry through `writeEntryValue` under the same declaration —
+    // see `CollectionSpec.arrayKey`.)
     const { dispatch, feed } = stubDispatch();
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
       const boards = app.collections.boards.use();
-      await flush();
+      await settle();
       const value = boards.byKey("b1");
       if (value === undefined) throw new Error("no per-key subscription");
       feed("surface/boards/get").push(readingOf(["a", "b"]));
-      await flush();
-      const first = [...(unwrap(value()) as Reading).rows];
+      await settle();
+      const stop = watchRows(() => value() as Reading | undefined);
+      await settle();
+      const first = rowsOf(value());
       feed("surface/boards/get").push(readingOf(["a", "b"]));
-      await flush();
-      const second = [...(unwrap(value()) as Reading).rows];
+      await settle();
+      const second = rowsOf(value());
       expect(second[0]).toBe(first[0]);
       expect(second[1]).toBe(first[1]);
+      stop();
       dispose();
     });
   });
@@ -148,16 +173,19 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
       const sub = app.streams.page.use(() => ({ file: "a.md" }));
-      await flush();
+      await settle();
       feed("surface/page/get").push(readingOf(["a", "b", "c"]));
-      await flush();
-      const first = [...(unwrap(sub()) as Reading).rows];
+      await settle();
+      const stop = watchRows(() => sub() as Reading | undefined);
+      await settle();
+      const first = rowsOf(sub());
       feed("surface/page/get").push(readingOf(["a", "b", "c"]));
-      await flush();
-      const second = [...(unwrap(sub()) as Reading).rows];
+      await settle();
+      const second = rowsOf(sub());
       expect(second[0]).toBe(first[0]);
       expect(second[1]).toBe(first[1]);
       expect(second[2]).toBe(first[2]);
+      stop();
       dispose();
     });
   });
@@ -167,15 +195,18 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(surface, dispatch);
       const sub = app.streams.plainPage.use(() => ({ file: "a.md" }));
-      await flush();
+      await settle();
       feed("surface/plainPage/get").push(readingOf(["a", "b"]));
-      await flush();
-      const first = [...(unwrap(sub()) as Reading).rows];
+      await settle();
+      const stop = watchRows(() => sub() as Reading | undefined);
+      await settle();
+      const first = rowsOf(sub());
       feed("surface/plainPage/get").push(readingOf(["a", "b"]));
-      await flush();
-      const second = [...(unwrap(sub()) as Reading).rows];
+      await settle();
+      const second = rowsOf(sub());
       expect(second[0]).not.toBe(first[0]);
       expect(second[1]).not.toBe(first[1]);
+      stop();
       dispose();
     });
   });
@@ -186,19 +217,24 @@ describe("a declared arrayKey reaches the store it is declared for", () => {
       const app = surfaceClient(surface, dispatch);
       const shelf = app.cells.shelf.use();
       const plain = app.cells.plain.use();
-      await flush();
+      await settle();
       feed("surface/shelf/get").push(readingOf(["a", "b"]));
       feed("surface/plain/get").push(readingOf(["a", "b"]));
-      await flush();
-      const shelfFirst = [...(unwrap(shelf.value()) as Reading).rows];
-      const plainFirst = [...(unwrap(plain.value()) as Reading).rows];
+      await settle();
+      const stopShelf = watchRows(() => shelf.value() as Reading | undefined);
+      const stopPlain = watchRows(() => plain.value() as Reading | undefined);
+      await settle();
+      const shelfFirst = rowsOf(shelf.value());
+      const plainFirst = rowsOf(plain.value());
       feed("surface/shelf/get").push(readingOf(["a", "b"]));
       feed("surface/plain/get").push(readingOf(["a", "b"]));
-      await flush();
-      const shelfSecond = [...(unwrap(shelf.value()) as Reading).rows];
-      const plainSecond = [...(unwrap(plain.value()) as Reading).rows];
+      await settle();
+      const shelfSecond = rowsOf(shelf.value());
+      const plainSecond = rowsOf(plain.value());
       expect(shelfSecond[0]).toBe(shelfFirst[0]);
       expect(plainSecond[0]).not.toBe(plainFirst[0]);
+      stopShelf();
+      stopPlain();
       dispose();
     });
   });

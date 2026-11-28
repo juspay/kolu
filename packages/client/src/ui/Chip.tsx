@@ -6,7 +6,8 @@
  *  color carries state while text stays text-colored (status tones are the
  *  exception: the value IS the state). */
 
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 const TONES = {
   neutral: "border-edge bg-surface-1 text-fg-2",

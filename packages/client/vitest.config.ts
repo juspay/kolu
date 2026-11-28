@@ -1,51 +1,50 @@
-import solid from "vite-plugin-solid";
+import { SOLID_INLINE_DEPS } from "@kolu/solid-test-setup/vitest";
+import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
+
+// `@kolu/solid-pierre`'s barrel reaches `languages/rhai` through
+// `workerPool.ts`, which resolves the grammar through a Nix-backed alias —
+// the same line `packages/solid-pierre/vitest.config.ts:15-21` carries, so a
+// client test can mount the real wrapper.
+const rhaiGrammarPath = process.env.KOLU_RHAI_GRAMMAR;
+if (!rhaiGrammarPath) {
+  throw new Error(
+    "KOLU_RHAI_GRAMMAR is not set. Run tests inside the Nix dev shell.",
+  );
+}
 
 export default defineConfig({
   // The Solid JSX transform, so a `.test.tsx` render harness compiles its JSX to
   // real DOM under happy-dom (mirrors `packages/surface/vitest.config.ts`).
-  // `hot: false` — no solid-refresh under test (it needs the dev build and only
-  // warns to stderr; the render tests don't hot-reload).
-  plugins: [solid({ hot: false })],
-  // solid-js's package.json picks `dist/server.cjs` (the SSR build) under
-  // Node's `"node"` export condition, where `createEffect` is a no-op.
-  // Tests that exercise reactive primitives (e.g. `createReactiveSubscription`)
-  // need the browser build's real `createEffect`. Aliasing pins the import
-  // to the browser bundle directly — `resolve.conditions` alone is ignored
-  // for externalized CJS deps under Vitest 4 + Node ESM.
+  // `refresh: false` — no component hot replacement under test (the render
+  // tests don't hot-reload).
+  //
+  // The plugin gives vitest the client posture: browser export conditions and
+  // the DEVELOPMENT builds of `solid-js` and `@solidjs/web`, so Solid's dev
+  // diagnostics fire under test.
+  plugins: [solid({ refresh: false })],
   resolve: {
     alias: {
-      "solid-js/store": new URL(
-        "./node_modules/solid-js/store/dist/store.js",
-        import.meta.url,
-      ).pathname,
-      "solid-js/web": new URL(
-        "./node_modules/solid-js/web/dist/web.js",
-        import.meta.url,
-      ).pathname,
-      "solid-js": new URL(
-        "./node_modules/solid-js/dist/solid.js",
-        import.meta.url,
-      ).pathname,
+      "kolu-rhai-grammar": rhaiGrammarPath,
     },
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // The client is a BROWSER app: run its tests with a DOM so the browser
-    // `solid-js/web` build is honest (`isServer === false`) and module-load-time
+    // `@solidjs/web` build is honest (`isServer === false`) and module-load-time
     // DOM access (`window.matchMedia` in `@solid-primitives/media`, etc.) works.
-    // Required by `scopedByEntry`'s `keyArray` (`@solid-primitives/keyed`), which
-    // takes a non-reactive SERVER branch when `isServer` is true — under the old
-    // bare-node env its per-key roots never tracked, so a host's owner never
-    // re-keyed. (fs-scanning tests resolve paths via `fileURLToPath(import.meta.url)`
-    // — NOT `new URL(…, import.meta.url)`, which the happy-dom global `URL` rejects.)
+    // (fs-scanning tests resolve paths via `fileURLToPath(import.meta.url)` —
+    // NOT `new URL(…, import.meta.url)`, which the happy-dom global `URL`
+    // rejects.)
     environment: "happy-dom",
-    // Inline `solid-js` (+ `@solid-primitives/keyed`) so they are transformed with
-    // the aliases above and resolve to the ONE browser-build core. Without this,
-    // `@kolu/surface-map`'s `scopedByEntry` + `keyArray` load their own
-    // externalized `solid-js` whose reactive graph never connects to the client's
-    // signals (a cross-instance split — membership updates silently never re-run
-    // the owner's memos). Same fix `packages/surface-map/vitest.config.ts` applies.
-    server: { deps: { inline: [/solid-js/, "@solid-primitives/keyed"] } },
+    // Fails a test on any Solid dev diagnostic, and refuses a production
+    // Solid build (`@kolu/solid-test-setup`).
+    setupFiles: ["@kolu/solid-test-setup/setup"],
+    // Inline Solid so it is transformed under the posture above and resolves to
+    // the ONE browser-build core. Without this, `@kolu/surface-map`'s
+    // `scopedByEntry` loads its own externalized `solid-js` whose reactive graph
+    // never connects to the client's signals (a cross-instance split —
+    // membership updates silently never re-run the owner's memos).
+    server: { deps: { inline: [...SOLID_INLINE_DEPS] } },
   },
 });

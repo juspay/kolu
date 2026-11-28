@@ -18,7 +18,6 @@
  *  where the running turn it belongs to is reported (`ConductorStatus`). */
 
 import { formatBytes } from "@kolu/byte-units";
-import { Key } from "@solid-primitives/keyed";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type {
   ConductorMention,
@@ -33,8 +32,6 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
-  onCleanup,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -59,8 +56,8 @@ import {
   composerAttachments,
   composerText,
   dropComposerAttachment,
+  offerCompletionOpen,
   sendableAttachments,
-  setCompletionOpen,
   setComposerText,
   welcomeAsk,
 } from "./drafts";
@@ -76,10 +73,15 @@ import {
   withScopeMention,
   type WorkCandidate,
 } from "./mentions";
-import { chatScope, showAllChat } from "./chatScope";
+import { chatScope, showAllChat, shownDocument } from "./chatScope";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
-import { useMembership, useNeedsYou, useWorkMap, useWorks } from "./useWorks";
+import {
+  useMembership,
+  useNeedsYou,
+  useWorkMap,
+  useWorkMentions,
+} from "./useWorks";
 import { sendsAsSteer, steerOnOffer } from "./steer";
 import { thumbnailOf } from "./thumbnails";
 import { pinTranscript } from "./transcriptScroll";
@@ -97,6 +99,27 @@ const openMenu = (
     ? null
     : { trigger, token, words: rows.map((row) => row.name) };
 
+/** Two match lists are the SAME list when they hold the same rows, in the
+ *  same order. The rows are minted UPSTREAM — a command out of
+ *  `props.state`, a candidate out of `candidates` — and a filter hands back
+ *  the very objects it was given, so identity is the comparison that is both
+ *  right and cheap: a row whose contents changed is a new object, and a row
+ *  that did not change is the one that was there. Without this gate every
+ *  keystroke in the box — and every fleet metadata tick, which re-mints every
+ *  candidate — republishes a referentially-new-but-equal array (the `[]` of a
+ *  closed menu included). The menu's rows survive that either way (they are
+ *  keyed, `:465`/`:515-517`, or reference-keyed, `:598`); what the gate removes
+ *  is the SUBSCRIBER re-runs — `menu`, the completion effect below, `openMenu`,
+ *  and each `For`'s diff — and, for the steady `[]`, Solid's
+ *  `UNSTABLE_MEMO_OUTPUT`, which fires on four re-runs that publish an
+ *  equal-but-new value.
+ *
+ *  The lists' keys (`work`, `host/terminalId`) would also serve, but they are
+ *  coarser: two candidates may share a key and differ in what the row draws,
+ *  and keying the gate would hold the stale one on screen. */
+const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
+  a.length === b.length && a.every((row, at) => row === b[at]);
+
 /** The two arms of a mention, as `<Show>` takes them — the one it is, or
  *  nothing. A work chip and a terminal chip are different drawings of
  *  different facts, and this is what narrows one union to each. */
@@ -112,7 +135,7 @@ const ConductorComposer: Component<{
 }> = (props) => {
   const orch = useConductor();
   const fleet = useFleetTerminalIndex();
-  const works = useWorks();
+  const mentions = useWorkMentions();
   const needs = useNeedsYou();
   const workMap = useWorkMap();
   const membership = useMembership();
@@ -137,43 +160,56 @@ const ConductorComposer: Component<{
    *  fleet tick. */
   const terminalNames = createMemo<ReadonlySet<string>>(
     () => new Set(terminalCandidates().map((one) => one.name)),
-    new Set(),
     {
       equals: (a, b) => a.size === b.size && [...a].every((one) => b.has(one)),
     },
   );
   const workCandidates = createMemo<WorkCandidate[]>(() =>
-    workMentionCandidates(works(), needs(), terminalNames()),
+    workMentionCandidates(mentions(), needs(), terminalNames()),
   );
-  const candidates = createMemo<MentionCandidate[]>(() => [
-    ...workCandidates(),
-    ...terminalCandidates(),
-  ]);
+  const candidates = createMemo<MentionCandidate[]>(
+    () => [...workCandidates(), ...terminalCandidates()],
+    { equals: sameRows },
+  );
 
   const mentionToken = () => tokenQueryAt(composerText(), caret(), "@");
   const commandToken = () => tokenQueryAt(composerText(), caret(), "/");
-  const mentionMatches = createMemo(() => {
-    const token = mentionToken();
-    return token === null ? [] : filterMentions(candidates(), token.query);
-  });
-  const commandMatches = createMemo(() => {
-    const token = commandToken();
-    if (token === null) return [];
-    const needle = token.query.toLowerCase();
-    return props.state.commands.filter((command) =>
-      command.name.toLowerCase().startsWith(needle),
-    );
-  });
+  const mentionMatches = createMemo(
+    () => {
+      const token = mentionToken();
+      return token === null ? [] : filterMentions(candidates(), token.query);
+    },
+    { equals: sameRows },
+  );
+  const commandMatches = createMemo(
+    () => {
+      const token = commandToken();
+      if (token === null) return [];
+      const needle = token.query.toLowerCase();
+      return props.state.commands.filter((command) =>
+        command.name.toLowerCase().startsWith(needle),
+      );
+    },
+    { equals: sameRows },
+  );
   // The pane's `Escape` leaves the mode and this component's closes the menu,
-  // and exactly one of those may happen per press. The pane reads this fact
-  // rather than waiting for an event the composer stops — see `drafts.ts`.
-  createEffect(() => {
-    setCompletionOpen(
-      mentionMatches().length > 0 || commandMatches().length > 0,
-    );
+  // and exactly one of those may happen per press. The pane reads this
+  // derivation — not an answer copied out of it one flush later — so a press
+  // in the flush the menu opens in is judged against the menu that is open
+  // (see `drafts.ts`).
+  const menuOpen = createMemo(
+    () => mentionMatches().length > 0 || commandMatches().length > 0,
+  );
+  offerCompletionOpen(menuOpen);
+  // GATED too, and for the same reason: `armedMentions` returns a fresh `[]`
+  // whenever nothing in the box resolves, and a fleet metadata tick re-runs it
+  // — four idle ticks are four equal-but-new publishes. A NON-empty list mints
+  // fresh mention objects per run, so identity never holds there and the memo
+  // publishes exactly as it did before: that is correct, and it is also why the
+  // diagnostic cannot fire on it (its values are never shallowly equal either).
+  const armed = createMemo(() => armedMentions(composerText(), candidates()), {
+    equals: sameRows,
   });
-  onCleanup(() => setCompletionOpen(false));
-  const armed = createMemo(() => armedMentions(composerText(), candidates()));
 
   /** THE WORK THE CHAT IS POINTED AT: the chip over the box is its face, and
    *  a message sent while it is on carries it whether or not the words named
@@ -189,13 +225,19 @@ const ConductorComposer: Component<{
    *  every work ahead of every terminal, so a terminal's index in the FLAT
    *  list — the one the keyboard moves through — is its own plus the number
    *  of works above it. */
-  const workMatches = createMemo(() =>
-    mentionMatches().filter((one): one is WorkCandidate => one.kind === "work"),
+  const workMatches = createMemo(
+    () =>
+      mentionMatches().filter(
+        (one): one is WorkCandidate => one.kind === "work",
+      ),
+    { equals: sameRows },
   );
-  const terminalMatches = createMemo(() =>
-    mentionMatches().filter(
-      (one): one is TerminalCandidate => one.kind === "terminal",
-    ),
+  const terminalMatches = createMemo(
+    () =>
+      mentionMatches().filter(
+        (one): one is TerminalCandidate => one.kind === "terminal",
+      ),
+    { equals: sameRows },
   );
 
   /** THE OPEN MENU — read by the count the keyboard folds against and by the
@@ -227,10 +269,11 @@ const ConductorComposer: Component<{
   // its caret live: `write` sets the draft, the caret and the focus together,
   // so the caret cannot be left stale by a caller that only knew the text.
   createEffect(
-    on(welcomeAsk, (ask) => {
+    () => welcomeAsk(),
+    (ask) => {
       if (ask === null) return;
       write(ask.text, ask.text.length);
-    }),
+    },
   );
 
   /** Complete the token under the caret from one row of whichever menu is
@@ -245,11 +288,25 @@ const ConductorComposer: Component<{
   };
 
   /** Keep the highlighted row on screen — the menu scrolls at six or so rows,
-   *  and a selection you cannot see is a selection you cannot trust. */
-  const revealWhenSelected = (el: HTMLElement, mine: () => boolean): void => {
-    createEffect(() => {
-      if (mine()) el.scrollIntoView({ block: "nearest" });
-    });
+   *  and a selection you cannot see is a selection you cannot trust. Hands
+   *  back the `ref` the row writes its element to.
+   *
+   *  Called from a ROW's own scope (a `<For>` item callback owns its
+   *  children), never from its `ref`: a ref callback may create no memo, no
+   *  effect and no root. The element reaches the effect the way everything
+   *  else does — through the compute — so the row's `ref` only writes the
+   *  signal. */
+  const revealWhenSelected = (
+    mine: () => boolean,
+  ): ((el: HTMLElement) => void) => {
+    const [row, setRow] = createSignal<HTMLElement>();
+    createEffect(
+      () => ({ node: row(), mine: mine() }),
+      ({ node, mine: isMine }) => {
+        if (isMine) node?.scrollIntoView({ block: "nearest" });
+      },
+    );
+    return setRow;
   };
 
   /** A send already on the wire. The box never locks — you may keep typing —
@@ -269,9 +326,12 @@ const ConductorComposer: Component<{
   // to once per browser, and `shown()` keeps that one announcement from being
   // spent as a toast over a terminal: the pane is retained behind the host
   // tabs, so "it is offering now" can become true while nobody is reading it.
-  createEffect(() => {
-    if (shown() && offered()) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
-  });
+  createEffect(
+    () => shown() && offered(),
+    (announce) => {
+      if (announce) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
+    },
+  );
 
   /** Send what is in the box. `alt` is the chord that was held: it steers only
    *  where the offer stands, and is an ordinary send everywhere else — a
@@ -320,7 +380,7 @@ const ConductorComposer: Component<{
         // SENDING IS ASKING TO WATCH. Whatever the reader had scrolled up to
         // read, they have just spoken — so the answer, which starts arriving
         // in the next frames, must be the thing on screen.
-        pinTranscript();
+        pinTranscript(shownDocument());
         clearComposerAttachments();
         write("", 0);
       },
@@ -346,24 +406,26 @@ const ConductorComposer: Component<{
   // there is 0 — a height written from it would pin the box shut, and it
   // would stay shut until the next keystroke. `shown()` is a dependency
   // rather than a guard, so coming back re-measures with real boxes.
-  createEffect(() => {
-    const text = composerText();
-    if (!shown()) return;
-    if (text === "") {
-      box.style.height = "";
-      return;
-    }
-    box.style.height = "auto";
-    // `scrollHeight` is the CONTENT's height — padding in, border out — while
-    // the height written here is a border-box height (Tailwind's preflight
-    // sets `box-sizing: border-box`). Written bare, the box came up 2px short
-    // of its own one-line text and the browser drew a scrollbar with up/down
-    // arrows beside "lkjhn". The border the measurement left out is
-    // `offsetHeight - clientHeight`; adding it makes the box exactly its
-    // content's height, and `max-height` still turns a long message into a
-    // scroller once the content passes it.
-    box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
-  });
+  createEffect(
+    () => ({ text: composerText(), shown: shown() }),
+    ({ text, shown: isShown }) => {
+      if (!isShown) return;
+      if (text === "") {
+        box.style.height = "";
+        return;
+      }
+      box.style.height = "auto";
+      // `scrollHeight` is the CONTENT's height — padding in, border out —
+      // while the height written here is a border-box height (Tailwind's
+      // preflight sets `box-sizing: border-box`). Written bare, the box came
+      // up 2px short of its own one-line text and the browser drew a
+      // scrollbar with up/down arrows beside "lkjhn". The border the
+      // measurement left out is `offsetHeight - clientHeight`; adding it
+      // makes the box exactly its content's height, and `max-height` still
+      // turns a long message into a scroller once the content passes it.
+      box.style.height = `${box.scrollHeight + (box.offsetHeight - box.clientHeight)}px`;
+    },
+  );
 
   const stopButton = () => (
     <button
@@ -379,8 +441,10 @@ const ConductorComposer: Component<{
     <button
       type="button"
       data-testid="conductor-send"
-      class="shrink-0 whitespace-nowrap rounded-md bg-accent px-3 font-mono text-[0.65rem] font-semibold text-surface-0 cursor-pointer"
-      classList={{ "py-1": !phone(), "py-2": phone() }}
+      class={[
+        "shrink-0 whitespace-nowrap rounded-md bg-accent px-3 font-mono text-[0.65rem] font-semibold text-surface-0 cursor-pointer",
+        { "py-1": !phone(), "py-2": phone() },
+      ]}
       // Alt-CLICK steers too, for the same reason Alt+Enter does: the chord is
       // a decision about the message, and a person who holds Alt means it
       // whichever way they then send.
@@ -414,36 +478,39 @@ const ConductorComposer: Component<{
             >
               Works
             </div>
-            <Key each={workMatches()} by="work">
-              {(candidate, index) => (
-                <button
-                  ref={(el) =>
-                    revealWhenSelected(el, () => index() === selected())
-                  }
-                  type="button"
-                  data-testid="conductor-mention-row"
-                  data-kind="work"
-                  data-work={candidate().work}
-                  data-selected={index() === selected() ? "" : undefined}
-                  class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                  classList={{ "bg-surface-2": index() === selected() }}
-                  onPointerEnter={() => setSelected(index())}
-                  onClick={() => accept(index())}
-                >
-                  {/* THE CHIP'S OWN FACE, drawn by the one component every
-                      chip of a work is drawn by — a face only: this row is
-                      the control. */}
-                  <WorkChipFace work={candidate().record} />
-                  <span
-                    data-testid="conductor-mention-detail"
+            <For each={workMatches()} keyed={(candidate) => candidate.work}>
+              {(candidate, index) => {
+                const reveal = revealWhenSelected(() => index() === selected());
+                return (
+                  <button
+                    ref={reveal}
+                    type="button"
+                    data-testid="conductor-mention-row"
                     data-kind="work"
-                    class="min-w-0 truncate text-fg-2"
+                    data-work={candidate().work}
+                    data-selected={index() === selected() ? "" : undefined}
+                    class={[
+                      "w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                      { "bg-surface-2": index() === selected() },
+                    ]}
+                    onPointerEnter={() => setSelected(index())}
+                    onClick={() => accept(index())}
                   >
-                    {candidate().standing}
-                  </span>
-                </button>
-              )}
-            </Key>
+                    {/* THE CHIP'S OWN FACE, drawn by the one component every
+                        chip of a work is drawn by — a face only: this row is
+                        the control. */}
+                    <WorkChipFace work={candidate().record} />
+                    <span
+                      data-testid="conductor-mention-detail"
+                      data-kind="work"
+                      class="min-w-0 truncate text-fg-2"
+                    >
+                      {candidate().standing}
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
           </Show>
           <Show when={terminalMatches().length > 0}>
             <div
@@ -452,35 +519,37 @@ const ConductorComposer: Component<{
             >
               Terminals
             </div>
-            {/* KEYED, never `<For>`. `candidates` mints fresh objects on every
-                fleet notification and the fleet index notifies on ANY metadata
-                change on ANY host, so a reference-keyed list rebuilds every row
-                of this menu when a terminal nobody is looking at, on a machine
-                nobody is looking at, retitles itself — dropping the hovered row
-                mid-choice. The identity is the FLEET reference and not the bare
-                id: two hosts may carry one terminal id, and two entries sharing
-                a key are handed the SAME node, which silently loses a row. */}
-            <Key
+            {/* KEYED, never a plain `<For>`. `candidates` mints fresh objects
+                on every fleet notification and the fleet index notifies on ANY
+                metadata change on ANY host, so a reference-keyed list rebuilds
+                every row of this menu when a terminal nobody is looking at, on
+                a machine nobody is looking at, retitles itself — dropping the
+                hovered row mid-choice. The identity is the FLEET reference and
+                not the bare id: two hosts may carry one terminal id, and a
+                bare id would let one host's row adopt the other host's node,
+                keeping the wrong row's state under the pointer. */}
+            <For
               each={terminalMatches()}
-              by={(candidate) => `${candidate.host}/${candidate.terminalId}`}
+              keyed={(candidate) => `${candidate.host}/${candidate.terminalId}`}
             >
               {(candidate, index) => {
                 /** Where this row sits in the FLAT list the keyboard moves
                  *  through: the works are above it. */
                 const at = () => workMatches().length + index();
+                const reveal = revealWhenSelected(() => at() === selected());
                 return (
                   <button
-                    ref={(el) =>
-                      revealWhenSelected(el, () => at() === selected())
-                    }
+                    ref={reveal}
                     type="button"
                     data-testid="conductor-mention-row"
                     data-kind="terminal"
                     data-terminal-id={candidate().terminalId}
                     data-host={candidate().host}
                     data-selected={at() === selected() ? "" : undefined}
-                    class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                    classList={{ "bg-surface-2": at() === selected() }}
+                    class={[
+                      "w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                      { "bg-surface-2": at() === selected() },
+                    ]}
                     // Hover moves the highlight so the mouse and the keyboard
                     // never disagree about which row Enter would take.
                     onPointerEnter={() => setSelected(at())}
@@ -518,11 +587,13 @@ const ConductorComposer: Component<{
                         <span
                           data-testid="conductor-mention-detail"
                           data-kind={detail().kind}
-                          class="min-w-0 truncate text-fg-2"
-                          classList={{
-                            "[direction:rtl] text-left font-mono text-[0.62rem]":
-                              detail().kind === "directory",
-                          }}
+                          class={[
+                            "min-w-0 truncate text-fg-2",
+                            {
+                              "[direction:rtl] text-left font-mono text-[0.62rem]":
+                                detail().kind === "directory",
+                            },
+                          ]}
                         >
                           <bdi>{detail().text}</bdi>
                         </span>
@@ -531,7 +602,7 @@ const ConductorComposer: Component<{
                   </button>
                 );
               }}
-            </Key>
+            </For>
           </Show>
         </div>
       </Show>
@@ -541,28 +612,31 @@ const ConductorComposer: Component<{
           class="absolute left-5 right-5 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
           <For each={commandMatches()}>
-            {(command, index) => (
-              <button
-                ref={(el) =>
-                  revealWhenSelected(el, () => index() === selected())
-                }
-                type="button"
-                data-testid="conductor-command-row"
-                data-command={command.name}
-                data-selected={index() === selected() ? "" : undefined}
-                class="w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                classList={{ "bg-surface-2": index() === selected() }}
-                onPointerEnter={() => setSelected(index())}
-                onClick={() => accept(index())}
-              >
-                <span class="font-mono font-semibold text-fg">
-                  /{command.name}
-                </span>
-                <Show when={command.description}>
-                  {(what) => <span class="truncate text-fg-3">{what()}</span>}
-                </Show>
-              </button>
-            )}
+            {(command, index) => {
+              const reveal = revealWhenSelected(() => index() === selected());
+              return (
+                <button
+                  ref={reveal}
+                  type="button"
+                  data-testid="conductor-command-row"
+                  data-command={command.name}
+                  data-selected={index() === selected() ? "" : undefined}
+                  class={[
+                    "w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer",
+                    { "bg-surface-2": index() === selected() },
+                  ]}
+                  onPointerEnter={() => setSelected(index())}
+                  onClick={() => accept(index())}
+                >
+                  <span class="font-mono font-semibold text-fg">
+                    /{command.name}
+                  </span>
+                  <Show when={command.description}>
+                    {(what) => <span class="truncate text-fg-3">{what()}</span>}
+                  </Show>
+                </button>
+              );
+            }}
           </For>
         </div>
       </Show>
@@ -600,7 +674,7 @@ const ConductorComposer: Component<{
               rebuilt chip is a chip whose press target moved under the finger.
               The TOKEN is the identity — `armedMentions` emits each one once,
               and the token is what the × drops from the text. */}
-          <Key each={armed()} by="token">
+          <For each={armed()} keyed={(armedOne) => armedOne.token}>
             {(armedOne) => (
               <>
                 <Show when={asWork(armedOne().mention)}>
@@ -676,7 +750,7 @@ const ConductorComposer: Component<{
                 </Show>
               </>
             )}
-          </Key>
+          </For>
         </div>
       </Show>
       <Show when={composerAttachments().length > 0}>
@@ -696,8 +770,10 @@ const ConductorComposer: Component<{
                 data-uploading={attachment.path === null ? "" : undefined}
                 aria-busy={attachment.path === null ? "true" : undefined}
                 title={attachment.name}
-                class="flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge-bright bg-surface-1 px-1.5 py-1"
-                classList={{ "opacity-60": attachment.path === null }}
+                class={[
+                  "flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge-bright bg-surface-1 px-1.5 py-1",
+                  { "opacity-60": attachment.path === null },
+                ]}
               >
                 <Show
                   when={thumbnailOf(attachment)}

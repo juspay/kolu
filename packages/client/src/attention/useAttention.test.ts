@@ -9,7 +9,7 @@
 import type { Preferences } from "kolu-common/surface";
 import type { Membership } from "kolu-work";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createProjection, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const wire = vi.hoisted(() => ({
@@ -43,6 +43,9 @@ vi.mock("../conductor/useWorks", () => ({
   useMembership: () => () => works.membership(),
   useNeedsYou: () => () => [],
   useWorkMap: () => () => new Map(),
+  // No works records in this fixture: the ids are empty and no title reads.
+  useWorkKeys: () => () => [],
+  useWorkAt: () => undefined,
 }));
 vi.mock("../conductor/useConductorMode", () => ({
   conductorMode: () => conductor.inMode(),
@@ -71,7 +74,7 @@ import { useAttention } from "./useAttention";
 
 const A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** A host whose attention frame a case drives by hand: `finish` moves a
  *  terminal into the finished list, `work` puts it back to work. */
@@ -98,28 +101,33 @@ function drivenHost(encHost: string) {
 }
 
 /** Run the engine over the shown host `local`, with `focused` its focused
- *  pane, for the length of `body`. */
+ *  pane, for the length of `body`.
+ *
+ *  The owner holds the engine and NOTHING else: `body` runs outside it, so
+ *  the signals a case drives are written with no owner in scope, as the app
+ *  writes them (a write inside an owned scope is a Solid 2 error). */
 async function withAttention(
   focused: TerminalId | null,
   body: () => Promise<void>,
 ): Promise<void> {
   wire.arrived = () => true;
   wire.alerts = () => true;
-  await createRoot(async (dispose) => {
-    try {
-      useAttention({
-        activeId: () => focused,
-        focusedId: () => focused,
-        activate: () => {},
-        activeSubject: () => ({ title: "t", description: undefined }),
-        terminalIds: () => [],
-        activeAgentState: () => undefined,
-      });
-      await body();
-    } finally {
-      dispose();
-    }
+  const dispose = createRoot((disposeRoot) => {
+    useAttention({
+      activeId: () => focused,
+      focusedId: () => focused,
+      activate: () => {},
+      activeSubject: () => ({ title: "t", description: undefined }),
+      terminalIds: () => [],
+      activeAgentState: () => undefined,
+    });
+    return disposeRoot;
   });
+  try {
+    await body();
+  } finally {
+    dispose();
+  }
 }
 
 beforeEach(() => {
@@ -149,9 +157,9 @@ describe("which terminals are marked unread", () => {
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const away = drivenHost("remote:box-1");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-1").isUnread(A)).toBe(true);
       expect(attentionRecordOf("local").isUnread(A)).toBe(false);
     });
@@ -164,18 +172,18 @@ describe("which terminals are marked unread", () => {
       .mockResolvedValue(undefined);
     const here = drivenHost("local");
     await withAttention(A, async () => {
-      await flush();
+      await settle();
       // The canvas is on screen and A is the pane you are in: seen.
       here.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("local").isUnread(A)).toBe(false);
       expect(chimes).not.toHaveBeenCalled();
       // The Conductor covers the canvas: the same pane is no longer in front.
       conductor.inMode = () => true;
       here.work(A);
-      await flush();
+      await settle();
       here.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("local").isUnread(A)).toBe(true);
       expect(chimes).toHaveBeenCalledTimes(1);
     });
@@ -187,26 +195,26 @@ describe("which terminals are marked unread", () => {
     conductor.inMode = () => true;
     const away = drivenHost("remote:box-2");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(true);
       // Look, or the live pane, comes to show it: the mark lifts.
       const release = holdConductorScreen(`remote:box-2/${A}`);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
       // A ping while it shows: in front of you, no mark.
       away.work(A);
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
       // It stops showing: the next ping marks it.
       release();
       away.work(A);
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(true);
     });
   });
@@ -233,9 +241,9 @@ describe("a terminal the Conductor drives", () => {
     works.membership = () => naming("remote:box-3", "conductor");
     const away = drivenHost("remote:box-3");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-3").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-3").unseenFinished()).toBe(0);
       expect(chimes).not.toHaveBeenCalled();
@@ -253,14 +261,14 @@ describe("a terminal the Conductor drives", () => {
     works.membership = membership;
     const away = drivenHost("remote:box-4");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-4").isUnread(A)).toBe(true);
       expect(hostMarks("remote:box-4").unseenFinished()).toBe(1);
       expect(chimes).toHaveBeenCalledTimes(1);
       setMembership(naming("remote:box-4", "conductor"));
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-4").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-4").unseenFinished()).toBe(0);
     });
@@ -275,13 +283,13 @@ describe("a terminal the Conductor drives", () => {
     works.membership = membership;
     const away = drivenHost("remote:box-5");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-5").isUnread(A)).toBe(true);
       expect(hostMarks("remote:box-5").unseenFinished()).toBe(1);
       setMembership(naming("remote:box-5", "conductor"));
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-5").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-5").unseenFinished()).toBe(0);
     });
@@ -301,21 +309,61 @@ describe("a terminal the Conductor drives", () => {
     works.membership = membership;
     const away = drivenHost("remote:box-6");
     await withAttention(null, async () => {
-      await flush();
+      await settle();
       away.finish(A);
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(true);
       expect(() => setMembership(new Map([unresolvable]))).not.toThrow();
-      await flush();
+      await settle();
       expect(() =>
         setMembership(
           new Map([unresolvable, ...naming("remote:box-6", "conductor")]),
         ),
       ).not.toThrow();
-      await flush();
+      await settle();
       expect(attentionRecordOf("remote:box-6").isUnread(A)).toBe(false);
       expect(hostMarks("remote:box-6").unseenFinished()).toBe(0);
     });
+  });
+
+  /** THE REAL SHAPE OF THE INDEX. Every case above hands the fold plain
+   *  objects, which no projection ever mints: `useMembership` reads a
+   *  `createProjection`, so each entry is a STORE PROXY, and `driver` read
+   *  off one while the fold runs — its apply arm — is a strict read with no
+   *  observer. The frame MOVES while the member is already driven, so the
+   *  fold asks `isDriven` about a live entry; the setup's `afterEach` fails
+   *  this test on the diagnostic that read raises. */
+  it("reads a membership projection's entries without a strict read in the fold", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const [record, setRecord] = createSignal<Record<string, Membership>>({});
+    let disposeIndex = () => {};
+    const index = createRoot((dispose) => {
+      disposeIndex = dispose;
+      return createProjection<Record<string, Membership>>(
+        () => record(),
+        null,
+        {
+          name: "membershipProbe",
+        },
+      );
+    });
+    works.membership = () => new Map(Object.entries(index));
+    const away = drivenHost("remote:box-2");
+    try {
+      await withAttention(null, async () => {
+        setRecord(Object.fromEntries(naming("remote:box-2", "conductor")));
+        await settle();
+        // The frame moves with the membership already in place: the fold
+        // reads this entry rather than an empty index.
+        away.finish(A);
+        await settle();
+        expect(attentionRecordOf("remote:box-2").isUnread(A)).toBe(false);
+        expect(hostMarks("remote:box-2").unseenFinished()).toBe(0);
+      });
+    } finally {
+      disposeIndex();
+    }
   });
 });
 
@@ -330,35 +378,38 @@ it("a resumed first frame raises no mark before the preferences have arrived, no
   const [alerts, setAlerts] = createSignal(true);
   wire.arrived = arrived;
   wire.alerts = alerts;
-  await createRoot(async (dispose) => {
-    try {
-      registerHostFacts("local", () => ({
-        reported: true,
-        live: true,
-        liveIds: [],
-        byClass: { asking: [], working: [], linger: [], finished: [A] },
-      }));
-      writeHostMarks("local", {});
-      useAttention({
-        activeId: () => null,
-        focusedId: () => null,
-        activate: () => {},
-        activeSubject: () => ({ title: "t", description: undefined }),
-        terminalIds: () => [A],
-        activeAgentState: () => undefined,
-      });
-      await flush();
-      // Defaults say alerts are on; that is not the user's answer yet.
-      expect(attentionRecordOf("local").isUnread(A)).toBe(false);
-      // The user's answer: off.
-      setAlerts(false);
-      setArrived(true);
-      await flush();
-      expect(attentionRecordOf("local").isUnread(A)).toBe(false);
-    } finally {
-      dispose();
-    }
+  // The host's facts and its membership are published OUTSIDE the owner: a
+  // store write inside an owned scope is a Solid 2 error.
+  registerHostFacts("local", () => ({
+    reported: true,
+    live: true,
+    liveIds: [],
+    byClass: { asking: [], working: [], linger: [], finished: [A] },
+  }));
+  writeHostMarks("local", {});
+  const dispose = createRoot((disposeRoot) => {
+    useAttention({
+      activeId: () => null,
+      focusedId: () => null,
+      activate: () => {},
+      activeSubject: () => ({ title: "t", description: undefined }),
+      terminalIds: () => [A],
+      activeAgentState: () => undefined,
+    });
+    return disposeRoot;
   });
+  try {
+    await settle();
+    // Defaults say alerts are on; that is not the user's answer yet.
+    expect(attentionRecordOf("local").isUnread(A)).toBe(false);
+    // The user's answer: off.
+    setAlerts(false);
+    setArrived(true);
+    await settle();
+    expect(attentionRecordOf("local").isUnread(A)).toBe(false);
+  } finally {
+    dispose();
+  }
 });
 
 it("a question asked while the Conductor is in front of you chimes and raises no desktop notification; with the window away it raises one", async () => {
@@ -374,35 +425,36 @@ it("a question asked while the Conductor is in front of you chimes and raises no
   const chimes = vi
     .spyOn(HTMLMediaElement.prototype, "play")
     .mockResolvedValue(undefined);
-  await createRoot(async (dispose) => {
-    try {
-      useAttention({
-        activeId: () => null,
-        focusedId: () => null,
-        activate: () => {},
-        activeSubject: () => ({ title: "t", description: undefined }),
-        terminalIds: () => [],
-        activeAgentState: () => undefined,
-      });
-      // The server's first word: nothing is being asked. The baseline.
-      setAsks({ ownAsks: [], workAsks: [] });
-      await flush();
-      // The window is away: the first question chimes and raises a popup.
-      setAsks({ ownAsks: ["c1"], workAsks: [] });
-      await flush();
-      expect(chimes).toHaveBeenCalledTimes(1);
-      expect(conductor.popups).toEqual(["conductor"]);
-      // Back in front of it. The question is answered, and a second is asked.
-      focused.mockReturnValue(true);
-      setAsks({ ownAsks: [], workAsks: [] });
-      await flush();
-      setAsks({ ownAsks: ["c2"], workAsks: [] });
-      await flush();
-      // One more chime for it, and no second popup.
-      expect(chimes).toHaveBeenCalledTimes(2);
-      expect(conductor.popups).toEqual(["conductor"]);
-    } finally {
-      dispose();
-    }
+  const dispose = createRoot((disposeRoot) => {
+    useAttention({
+      activeId: () => null,
+      focusedId: () => null,
+      activate: () => {},
+      activeSubject: () => ({ title: "t", description: undefined }),
+      terminalIds: () => [],
+      activeAgentState: () => undefined,
+    });
+    return disposeRoot;
   });
+  try {
+    // The server's first word: nothing is being asked. The baseline.
+    setAsks({ ownAsks: [], workAsks: [] });
+    await settle();
+    // The window is away: the first question chimes and raises a popup.
+    setAsks({ ownAsks: ["c1"], workAsks: [] });
+    await settle();
+    expect(chimes).toHaveBeenCalledTimes(1);
+    expect(conductor.popups).toEqual(["conductor"]);
+    // Back in front of it. The question is answered, and a second is asked.
+    focused.mockReturnValue(true);
+    setAsks({ ownAsks: [], workAsks: [] });
+    await settle();
+    setAsks({ ownAsks: ["c2"], workAsks: [] });
+    await settle();
+    // One more chime for it, and no second popup.
+    expect(chimes).toHaveBeenCalledTimes(2);
+    expect(conductor.popups).toEqual(["conductor"]);
+  } finally {
+    dispose();
+  }
 });

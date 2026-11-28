@@ -21,11 +21,12 @@
  *  a copy that failed outright), so "Nothing was written" is never said of a
  *  work whose files kolu could not keep. */
 
+import { toError } from "@kolu/surface/run-stream";
 import type { WorkId } from "kolu-work";
-import { type Component, Show } from "solid-js";
+import { type Component, Errored, Show } from "solid-js";
 import { openReader, readerTarget } from "./reader/useReader";
-import { createWorkFiles, type WorkFileSource } from "./workFile";
 import WorkFileList from "./WorkFileList";
+import { createWorkFiles, type WorkFileSource } from "./workFile";
 
 const WorkFiles: Component<{
   id: WorkId;
@@ -55,30 +56,40 @@ const WorkFiles: Component<{
       <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
         {props.kept ? "Files (kept)" : "Files"}
       </h4>
-      <Show
-        when={files.rows().length > 0}
-        fallback={
+      {/* A WORKTREE KOLU COULD NOT LIST is one line, not a dead card: the
+          listing throws its failure at this read, and this boundary is what
+          catches it. Its fallback stands in for the whole list — on a failed
+          listing there are no rows to draw anyway. */}
+      <Errored
+        fallback={(why) => (
           <Show when={props.notKept === undefined}>
             <p class="m-0 mt-1 font-mono text-[0.62rem] text-fg-3">
-              {files.error() === undefined
-                ? // A kept list is final: "yet" is only true of a work in
-                  // progress.
-                  props.kept
-                  ? "Nothing was written."
-                  : "Nothing written yet."
-                : `Could not read the worktree — ${files.error()?.message}`}
+              Could not read the worktree — {toError(why()).message}
             </p>
           </Show>
-        }
+        )}
       >
-        <WorkFileList
-          rows={files.rows()}
-          more={files.more()}
-          openTo={openTo()}
-          layout="wrap"
-          onOpen={(path) => openReader({ work: props.id, path })}
-        />
-      </Show>
+        <Show
+          when={files.rows().length > 0}
+          fallback={
+            <Show when={props.notKept === undefined}>
+              <p class="m-0 mt-1 font-mono text-[0.62rem] text-fg-3">
+                {/* A kept list is final: "yet" is only true of a work in
+                    progress. */}
+                {props.kept ? "Nothing was written." : "Nothing written yet."}
+              </p>
+            </Show>
+          }
+        >
+          <WorkFileList
+            rows={files.rows()}
+            more={files.more()}
+            openTo={openTo()}
+            layout="wrap"
+            onOpen={(path) => openReader({ work: props.id, path })}
+          />
+        </Show>
+      </Errored>
       <Show when={props.notKept}>
         {(why) => (
           <p

@@ -1,4 +1,4 @@
-import { batch, createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { expect, it, vi } from "vitest";
 import { hostFrame } from "./attentionMarks";
 import type { PadiUrgency } from "@kolu/padi-client/surface";
@@ -79,19 +79,20 @@ it("does not publish an empty live set while the activity stream is pending", as
   source.ids = ids;
   source.urgency = () => frame({});
   await withMirror(() => {
+    // Each write below is staged: the mirror publishes on the next flush,
+    // which is where a consumer reads the frame.
     expect(hostFrame("local").reported).toBe(false);
-    batch(() => {
-      setIds(["a"]);
-      setPending(false);
-    });
+    setIds(["a"]);
+    setPending(false);
+    flush();
     expect(hostFrame("local").liveIds).toEqual(["a"]);
-    batch(() => {
-      setPending(true);
-      setIds([]);
-    });
+    setPending(true);
+    setIds([]);
+    flush();
     expect(hostFrame("local").liveIds).toEqual(["a"]);
     expect(hostFrame("local").reported).toBe(true);
     setPending(false);
+    flush();
     expect(hostFrame("local").liveIds).toEqual([]);
   });
 });
@@ -108,6 +109,7 @@ it("takes no unsettled frame as a report — padi has not looked yet", async () 
     // it as the baseline it later diffs a real frame against.
     expect(hostFrame("local").reported).toBe(false);
     setUrgency(frame({ finishedIds: ["a"] }));
+    flush();
     expect(hostFrame("local").reported).toBe(true);
     expect(hostFrame("local").byClass.finished).toEqual(["a"]);
   });
@@ -125,10 +127,12 @@ it("holds the last settled reading across an unsettled frame — a redeploy does
     expect(before.finished).toEqual(["a"]);
     // The fresh padi's first frames: nothing adopted, nothing read.
     setUrgency(frame({ settled: false }));
+    flush();
     expect(hostFrame("local").byClass).toBe(before);
     expect(hostFrame("local").reported).toBe(true);
     // It has looked: the reading moves again.
     setUrgency(frame({ finishedIds: ["a"] }));
+    flush();
     expect(hostFrame("local").byClass.working).toEqual([]);
   });
 });

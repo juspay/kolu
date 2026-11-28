@@ -63,7 +63,6 @@
  *  canvas as well as the populated one. */
 
 import type { DockRailEntry } from "./dockTree";
-import { Key } from "@solid-primitives/keyed";
 import { activeArm } from "@kolu/padi-client/surface";
 
 import {
@@ -87,10 +86,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  type JSX,
-  onMount,
+  For,
+  onSettled,
   Show,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -117,6 +117,7 @@ import { isActiveRow } from "./activeRow";
 import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
 import { arrayMove, moveCluster, moveRepo } from "./dockTree";
+import { rehomePairPossible } from "./dockRehomeTip";
 import {
   dockAccepts,
   dockTargetOf,
@@ -225,12 +226,16 @@ const Dock: Component<{
   // parent. `effectiveDockWidth` caps the rendered width to it so a stored-wide
   // dock can't squeeze the canvas to zero and clip its own handle off-screen
   // (the right-panel split can shrink this host well below the 560px ceiling).
-  // Resolved in `onMount`, NOT the `ref` callback: Solid runs `ref` before the
+  // Resolved in `onSettled`, NOT the `ref` callback: Solid runs `ref` before the
   // element is inserted, so `parentElement` is still null there — reading it then
   // would leave the host unmeasured and the cap silently inert.
   let asideEl!: HTMLElement;
   const [hostEl, setHostEl] = createSignal<HTMLElement | null>(null);
-  onMount(() => setHostEl(asideEl.parentElement));
+  // A block body, not an expression: an `onSettled` callback's RETURN is its
+  // cleanup, and a setter's return value is not one.
+  onSettled(() => {
+    setHostEl(asideEl.parentElement);
+  });
 
   /** The one resizable dock surface: the maximized cards sidebar. Named once so
    *  the width computation and the resize-handle gate stay provably
@@ -259,26 +264,28 @@ const Dock: Component<{
       ref={asideEl}
       data-mode={dockMode()}
       data-maximized={posture.layout() === "maximized" ? "" : undefined}
-      class="flex flex-col select-none overflow-hidden bg-surface-1"
-      classList={{
-        // Tiled: absolute float inside the canvas; positions over
-        // tiles rather than reflowing them. `top-6` keeps a small
-        // gutter below the (now borderless) chrome so the dock reads as
-        // a canvas tool without floating conspicuously low. Opaque
-        // background (see base class) so canvas tiles don't bleed
-        // through the seams between rows or behind the rounded corners.
-        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
-          posture.layout() === "tiled",
-        "max-h-[calc(100vh-14rem)]": posture.layout() === "tiled",
-        // Maximized: real left-panel flex sibling of the canvas. The
-        // canvas takes the remaining space via `flex-1` next to us
-        // (see TerminalCanvas). Full canvas height comes from the
-        // parent flex container (`stretch` is the default
-        // `align-items`); a right-edge separator reads as a hard
-        // panel boundary rather than a floating card.
-        "relative shrink-0 h-full border-r border-edge":
-          posture.layout() === "maximized",
-      }}
+      class={[
+        "flex flex-col select-none overflow-hidden bg-surface-1",
+        {
+          // Tiled: absolute float inside the canvas; positions over
+          // tiles rather than reflowing them. `top-6` keeps a small
+          // gutter below the (now borderless) chrome so the dock reads as
+          // a canvas tool without floating conspicuously low. Opaque
+          // background (see base class) so canvas tiles don't bleed
+          // through the seams between rows or behind the rounded corners.
+          "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
+            posture.layout() === "tiled",
+          "max-h-[calc(100vh-14rem)]": posture.layout() === "tiled",
+          // Maximized: real left-panel flex sibling of the canvas. The
+          // canvas takes the remaining space via `flex-1` next to us
+          // (see TerminalCanvas). Full canvas height comes from the
+          // parent flex container (`stretch` is the default
+          // `align-items`); a right-edge separator reads as a hard
+          // panel boundary rather than a floating card.
+          "relative shrink-0 h-full border-r border-edge":
+            posture.layout() === "maximized",
+        },
+      ]}
       style={{ width: `${effectiveDockWidth()}px` }}
     >
       <RailOrCards
@@ -319,29 +326,24 @@ const RailOrCards: Component<{
   // The first tree that could be rearranged (2+ sections, or a repo whose
   // branch clusters have split) — the tip announces the gesture there, then
   // never again.
-  createEffect(() => {
-    const t = props.tree;
-    const rearrangeable =
-      t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
-    if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
-  });
+  createEffect(
+    () => {
+      const t = props.tree;
+      return t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
+    },
+    (rearrangeable) => {
+      if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
+    },
+  );
   // The first repo card holding two LIVE TOP-LEVEL rows — the first moment a
-  // row drop is even possible. Top-level, not "any two live rows": a card with
-  // one tile and its own split has no legal pair at all (child→its parent and
-  // parent→its descendant are both refusals), and a banner that teaches a
-  // gesture the card cannot perform is the same lie the hover verdict exists to
-  // avoid. Live, not merely listed: a sleeping row has no grip.
-  createEffect(() => {
-    if (
-      props.tree.groups.some(
-        (g) =>
-          g.topRows.filter(
-            (r) => activeArm(store.getMetadata(r.id)) !== undefined,
-          ).length >= 2,
-      )
-    )
-      showTipOnce(CONTEXTUAL_TIPS.dockRehome);
-  });
+  // row drop is even possible. The rule, and why liveness arrives as a folded
+  // LIST rather than a record read per row, are `rehomePairPossible`'s.
+  createEffect(
+    () => rehomePairPossible(props.tree, store.liveTileIds()),
+    (pairPossible) => {
+      if (pairPossible) showTipOnce(CONTEXTUAL_TIPS.dockRehome);
+    },
+  );
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
@@ -380,7 +382,7 @@ const RailOrCards: Component<{
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <div
-          classList={{ hidden: props.mode === "rail" }}
+          class={{ hidden: props.mode === "rail" }}
           inert={props.mode === "rail"}
         >
           {/* The dock's OWN drag scope, nested inside the canvas's: a
@@ -391,7 +393,7 @@ const RailOrCards: Component<{
           <DragDropProvider onDragEnd={dropSection}>
             <SortableProvider ids={props.tree.groups.map((g) => g.name)}>
               <div class="flex flex-col gap-2.5 p-2">
-                <Key each={props.tree.groups} by={"name"}>
+                <For each={props.tree.groups} keyed={(group) => group.name}>
                   {(group) => (
                     <SortableSection
                       group={group()}
@@ -405,20 +407,20 @@ const RailOrCards: Component<{
                       }
                     />
                   )}
-                </Key>
+                </For>
               </div>
             </SortableProvider>
           </DragDropProvider>
         </div>
         <div
-          classList={{ hidden: props.mode !== "rail" }}
+          class={{ hidden: props.mode !== "rail" }}
           inert={props.mode !== "rail"}
         >
-          <Key each={props.tree.groups} by={"name"}>
+          <For each={props.tree.groups} keyed={(group) => group.name}>
             {(group) => (
               <>
                 <RailSectionMark color={group().color} name={group().name} />
-                <Key each={group().railEntries} by={(entry) => entry.row.id}>
+                <For each={group().railEntries} keyed={(entry) => entry.row.id}>
                   {(entry) => (
                     <Show
                       when={entry().kind === "top"}
@@ -443,10 +445,10 @@ const RailOrCards: Component<{
                       />
                     </Show>
                   )}
-                </Key>
+                </For>
               </>
             )}
-          </Key>
+          </For>
         </div>
       </div>
       {/* Footer carries the dock's `Filters` group (activity window + ☾
@@ -483,11 +485,13 @@ const DockHeader: Component<{
   const railLayout = () => props.mode === "rail";
   return (
     <div
-      class="flex items-center gap-1 py-1 border-b border-edge/40 shrink-0"
-      classList={{
-        "px-1 flex-col": railLayout(),
-        "pl-1 pr-3": !railLayout(),
-      }}
+      class={[
+        "flex items-center gap-1 py-1 border-b border-edge/40 shrink-0",
+        {
+          "px-1 flex-col": railLayout(),
+          "pl-1 pr-3": !railLayout(),
+        },
+      ]}
     >
       <button
         type="button"
@@ -513,17 +517,21 @@ const DockHeader: Component<{
         type="button"
         data-testid="dock-mode-toggle"
         onClick={toggleRailCards}
-        class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        classList={{ "ml-auto": !railLayout() }}
+        class={[
+          "flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+          { "ml-auto": !railLayout() },
+        ]}
         aria-label={railLayout() ? "Expand to cards" : "Collapse to rail"}
         title={railLayout() ? "Expand to cards" : "Collapse to rail"}
       >
         <span
-          class="inline-flex"
-          classList={{
-            "rotate-90": !railLayout(),
-            "-rotate-90": railLayout(),
-          }}
+          class={[
+            "inline-flex",
+            {
+              "rotate-90": !railLayout(),
+              "-rotate-90": railLayout(),
+            },
+          ]}
         >
           <ChevronDownIcon class="w-3.5 h-3.5" />
         </span>
@@ -542,7 +550,7 @@ const SortableSection: Component<{
   flatIndexOf: ReadonlyMap<TerminalId, number>;
   onClusterDrop: (labels: readonly string[]) => void;
 }> = (props) => {
-  const sortable = createSortable(props.group.name);
+  const sortable = createSortable(() => props.group.name);
   return (
     // Each section ships its OWN inner drag scope for its clusters — giving
     // the nest two isolated levels: a cluster physically cannot land in
@@ -582,7 +590,7 @@ const HeaderDropTarget: Component = () => {
   const droppable = createDroppable(HEADER_DROP_ID);
   const draggedRowId = useDraggedRowId();
   const verdict = useDockDropVerdict(
-    { kind: "header" },
+    () => ({ kind: "header" }),
     droppable.isActiveDroppable,
   );
   const drop = (): "over" | "invalid" | "target" | undefined => {
@@ -604,13 +612,15 @@ const HeaderDropTarget: Component = () => {
       ref={droppable.ref}
       data-testid="dock-header-drop"
       data-drop={drop()}
-      class="pointer-events-none absolute inset-0 rounded-t-[var(--dock-card-radius-inner)] border-2 border-dashed transition-colors"
-      classList={{
-        "border-transparent": drop() === undefined,
-        "border-accent/40 bg-accent/5": drop() === "target",
-        "border-accent bg-accent/15": drop() === "over",
-        "border-edge bg-surface-2/50": drop() === "invalid",
-      }}
+      class={[
+        "pointer-events-none absolute inset-0 rounded-t-[var(--dock-card-radius-inner)] border-2 border-dashed transition-colors",
+        {
+          "border-transparent": drop() === undefined,
+          "border-accent/40 bg-accent/5": drop() === "target",
+          "border-accent bg-accent/15": drop() === "over",
+          "border-edge bg-surface-2/50": drop() === "invalid",
+        },
+      ]}
     />
   );
 };
@@ -839,14 +849,14 @@ const RepoSection: Component<{
             </>
           }
         >
-          <Key each={props.group.clusters} by={"label"}>
+          <For each={props.group.clusters} keyed={(cluster) => cluster.label}>
             {(cluster) => (
               <SortableCluster
                 cluster={cluster()}
                 flatIndexOf={props.flatIndexOf}
               />
             )}
-          </Key>
+          </For>
         </DockSection>
       </SortableProvider>
     </DragDropProvider>
@@ -866,7 +876,7 @@ const SortableCluster: Component<{
   cluster: DockBranchCluster;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
-  const sortable = createSortable(props.cluster.label);
+  const sortable = createSortable(() => props.cluster.label);
   const focus = useDockFocus();
   return (
     <DockCluster
@@ -878,7 +888,7 @@ const SortableCluster: Component<{
       }}
       style={transformStyle(sortable.transform())}
     >
-      <Key each={props.cluster.rows} by={"id"}>
+      <For each={props.cluster.rows} keyed={(row) => row.id}>
         {(row) => (
           <>
             <DockRow
@@ -888,14 +898,14 @@ const SortableCluster: Component<{
               recencyAt={row().ts}
               flatIndex={props.flatIndexOf.get(row().id) ?? -1}
             />
-            <Key each={row().subRows} by={"id"}>
+            <For each={row().subRows} keyed={(sub) => sub.id}>
               {(sub) => (
                 <DockSubRow row={sub()} tileId={row().id} onSelect={focus} />
               )}
-            </Key>
+            </For>
           </>
         )}
-      </Key>
+      </For>
     </DockCluster>
   );
 };
@@ -915,7 +925,7 @@ const DockSubRow: Component<{
   tileId: TerminalId;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
-  const drag = useDockRowDrag(props.row.id);
+  const drag = useDockRowDrag(() => props.row.id);
   return (
     <SubTerminalRow
       row={props.row}
@@ -954,7 +964,7 @@ const DockRow: Component<{
   flatIndex: number;
 }> = (props) => {
   const tileStore = useTileStore();
-  const combined = createDockRowData(props.id);
+  const combined = createDockRowData(() => props.id);
   const modHeld = useModHeld();
   const rowBag = useDockRowBag();
   return (
@@ -964,7 +974,7 @@ const DockRow: Component<{
         // memo, and a memo re-created on every prop read either accumulates on
         // this owner or freezes the row at first paint. See `useDockRowBag`.
         const bag = rowBag({
-          id: props.id,
+          id: () => props.id,
           combined: c,
           bucket: () => props.bucket,
           pipBucket: () => props.pip,
@@ -973,7 +983,7 @@ const DockRow: Component<{
         // Registered HERE, inside the `<Show>`, and not in the component body:
         // the row's draggable and droppable then live exactly as long as the
         // element they measure, and leave the drag scope with it.
-        const drag = useDockRowDrag(props.id);
+        const drag = useDockRowDrag(() => props.id);
         return (
           <DockRowView
             {...bag}
@@ -1103,7 +1113,7 @@ const RailChip: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
-  const combined = createDockRowData(props.id);
+  const combined = createDockRowData(() => props.id);
   // The active highlight goes through the SAME fold every other dock row uses
   // (`isActiveRow`, which reads the tile registry, so a focused sleeping tile
   // reads as the active row); unread is terminal-attention, stays on the

@@ -1,8 +1,9 @@
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { HostKey } from "kolu-common/surfacesWithPadi";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, untrack } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { hostReconcileTarget } from "./hostReconcile.ts";
+import { createGroundedHostSetter } from "./groundHostSwitch.ts";
 
 const zest: HostKey = { kind: "remote", target: "zest" };
 const west: HostKey = { kind: "remote", target: "west" };
@@ -82,13 +83,20 @@ describe("hostReconcileTarget — join-activation arm (W6 add-host fix)", () => 
   });
 });
 
-/** Let SolidJS flush the queued reactive effects — they don't run inside the synchronous
- *  `createRoot` batch; after this, out-of-batch signal writes flush the effect. */
+/** Let Solid run the queued effects. A write is staged and its subscribers run at the
+ *  next microtask checkpoint, so each step of a scenario awaits one before asserting. */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-/** wire.ts's ONE host-scope reconcile effect, over signals: the `members`/`activeHost`/
- *  `pendingJoin` state and the single effect that enacts `hostReconcileTarget`. The
- *  add-flow's `requestActivateOnJoin` is `setPendingJoin`. */
+/** wire.ts's ONE host-scope reconcile, over signals: the `members`/`activeHost`/
+ *  join-request state, the GROUNDED `setActiveHost` every surface writes through, and the
+ *  single effect that enacts `hostReconcileTarget` on a membership frame. Exactly wire.ts's
+ *  shape, and for its reasons.
+ *
+ *  Neither half writes a value its own compute reads. The add-flow's `requestActivateOnJoin`
+ *  raises a SEQUENCED request and the effect records the sequence it served in a plain
+ *  variable, so consuming the intent is not a write the compute reads. The ACTIVE host is the
+ *  effect's own output and is read untracked, with MEMBERSHIP as the trigger; a switch naming
+ *  a host the pool does not hold is refused at the WRITE instead, by the grounded setter. */
 function harness(init: { members: HostKey[]; active: HostKey }) {
   let handles!: {
     setMembers: (v: HostKey[]) => void;
@@ -99,24 +107,52 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
   };
   createRoot((dispose) => {
     const [members, setMembers] = createSignal<HostKey[]>(init.members);
-    const [activeHost, setActiveHost] = createSignal<HostKey>(init.active);
-    const [pendingJoin, setPendingJoin] = createSignal<HostKey | null>(null);
-    createEffect(() => {
-      const action = hostReconcileTarget(
-        members(),
-        activeHost(),
-        pendingJoin(),
-        LOCAL_HOST,
-      );
-      if (action === null) return;
-      if (action.kind === "activate-joined") setPendingJoin(null);
-      setActiveHost(action.target);
+    const [activeHost, setActiveHostIntent] = createSignal<HostKey>(
+      init.active,
+    );
+    type JoinRequest = { host: HostKey; seq: number };
+    let joinSeq = 0;
+    let servedJoinSeq = 0;
+    const [joinRequest, setJoinRequest] = createSignal<JoinRequest | null>(
+      null,
+    );
+    // The grounded writer is PRODUCTION's (`groundHostSwitch.ts`), the same
+    // one wire.ts installs — its own wording and toast arm are pinned in
+    // `groundHostSwitch.test.ts`; here it is the write half of the pair.
+    const setActiveHost = createGroundedHostSetter({
+      members: () => untrack(members),
+      intent: () => untrack(activeHost),
+      seat: (host) => setActiveHostIntent(host),
+      localHost: LOCAL_HOST,
+      warn: () => {},
     });
+    createEffect(
+      () => {
+        const request = joinRequest();
+        const pending =
+          request !== null && request.seq > servedJoinSeq ? request : null;
+        return {
+          request: pending,
+          action: hostReconcileTarget(
+            members(),
+            untrack(activeHost),
+            pending?.host ?? null,
+            LOCAL_HOST,
+          ),
+        };
+      },
+      ({ action, request }) => {
+        if (action === null) return;
+        if (action.kind === "activate-joined" && request !== null)
+          servedJoinSeq = request.seq;
+        setActiveHostIntent(action.target);
+      },
+    );
     handles = {
       setMembers,
       setActiveHost,
       activeHost,
-      requestActivateOnJoin: setPendingJoin,
+      requestActivateOnJoin: (host) => setJoinRequest({ host, seq: ++joinSeq }),
       dispose,
     };
   });
@@ -124,9 +160,10 @@ function harness(init: { members: HostKey[]; active: HostKey }) {
 }
 
 describe("add-host activation vs. the membership reconcile (folded repro — ONE effect)", () => {
-  it("BUG shape: switching to a just-added host IMMEDIATELY is bounced to local by the reconcile", async () => {
+  it("BUG shape: switching to a just-added host IMMEDIATELY is grounded to local", async () => {
     // Documents WHY the naive add-`.then` fix failed: a bare setActiveHost, before the
-    // member is observable, is a departed-bounce input to the very same reconcile.
+    // member is observable, names a host the pool does not hold — and the grounded writer
+    // seats the local default rather than stranding the tab on it.
     const h = harness({ members: [LOCAL_HOST, west], active: west });
     await tick();
 
@@ -151,6 +188,13 @@ describe("add-host activation vs. the membership reconcile (folded repro — ONE
     h.setMembers([LOCAL_HOST, west, zest]); // membership delivers it
     await tick();
     expect(h.activeHost()).toEqual(zest); // now active — the N+1th host, not local
+
+    // The served request is consumed by SEQUENCE, not by a write the compute reads:
+    // a later membership frame must not yank the user back to it.
+    h.setActiveHost(west);
+    h.setMembers([LOCAL_HOST, west, zest]);
+    await tick();
+    expect(h.activeHost()).toEqual(west);
     h.dispose();
   });
 });

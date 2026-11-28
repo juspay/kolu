@@ -17,7 +17,7 @@ import {
 } from "kolu-common/hostKey";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { dynamic } from "@solidjs/web";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
 import { rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
@@ -31,12 +31,13 @@ import {
 import { useHostKavalChain } from "../host/useHostKaval";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
-import { annotationLine } from "../intent/text";
 import HostTerminalPip from "../terminal/HostTerminalPip";
+import { trueWord } from "../ui/attrWord";
 import Kbd from "../ui/Kbd";
 import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";
-import HighlightedText from "./highlightMatch";
+import HighlightedText, { type Segment } from "./highlightMatch";
+import { identityPrimary } from "./identityPrimary";
 import type { ResultKind } from "./rootIndex";
 
 function encodeHostAttr(h: HostKey): string {
@@ -87,7 +88,10 @@ function compactRecency(ts: number | null | undefined): string {
 }
 
 const KindTag: Component<{ kind: ResultKind }> = (props) => {
-  const label =
+  // Read in JSX, never here: a component body is a strict-read window, so a
+  // word computed up here would freeze at the first kind while `data-kind`
+  // below followed.
+  const label = (): string =>
     props.kind === "terminal" ? "term" : props.kind === "host" ? "host" : "cmd";
   return (
     <span
@@ -95,7 +99,7 @@ const KindTag: Component<{ kind: ResultKind }> = (props) => {
       data-kind={props.kind}
       class="shrink-0 font-mono text-[0.6rem] tracking-[0.08em] uppercase text-fg-3 border border-edge/80 rounded-full px-1.5 py-px"
     >
-      {label}
+      {label()}
     </span>
   );
 };
@@ -118,7 +122,7 @@ const TerminalLead: Component<{
 
 const HostLead: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   return (
     <span
       class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state(), kaval())}`}
@@ -132,7 +136,7 @@ const HostLead: Component<{ host: HostKey }> = (props) => {
  *  One deliberate place; never also written into the context line. */
 const TerminalHostChip: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
-  const kaval = useHostKavalChain(props.host);
+  const kaval = useHostKavalChain(() => props.host);
   return (
     <span
       data-testid="palette-host-chip"
@@ -159,10 +163,10 @@ const CommandLead: Component<{
   selected: boolean;
 }> = (props) => (
   <span
-    class="shrink-0 w-4 h-4 inline-flex items-center justify-center rounded text-fg-3"
-    classList={{
-      "text-accent": props.selected,
-    }}
+    class={[
+      "shrink-0 w-4 h-4 inline-flex items-center justify-center rounded text-fg-3",
+      { "text-accent": props.selected },
+    ]}
   >
     <Show
       when={props.icon}
@@ -170,7 +174,10 @@ const CommandLead: Component<{
         <span class="font-mono text-[0.7rem] leading-none select-none">⌘</span>
       }
     >
-      {(icon) => <Dynamic component={icon()} class="w-3 h-3" />}
+      {(icon) => {
+        const Icon = dynamic(icon);
+        return <Icon class="w-3 h-3" />;
+      }}
     </Show>
   </span>
 );
@@ -178,7 +185,9 @@ const CommandLead: Component<{
 const PaletteRow: Component<{
   cmd: PaletteCommand | PaletteLabel;
   selected: boolean;
-  query: string;
+  /** The headline's highlight split, computed by the list — never the query
+   *  itself, which would put one subscriber per row on it. */
+  segments: readonly Segment[];
   /** Kind tags only during cross-kind root search. */
   showKindTag: boolean;
   drillable: boolean;
@@ -187,20 +196,6 @@ const PaletteRow: Component<{
 }> = (props) => {
   const row = () => props.cmd.row;
   const kind = (): ResultKind => row()?.kind ?? "command";
-
-  /** Same headline rule as Dock cards/list: intent line-1 when set, else
-   *  branch (`annotationLine` — the Dock's single derivation). */
-  const identityPrimary = (): string => {
-    const r = row();
-    if (r?.kind === "terminal") {
-      return annotationLine(
-        r.terminalMeta?.intent,
-        r.branchLabel ?? props.cmd.name,
-      );
-    }
-    if (r?.kind === "host" && r.hostKey) return hostLabel(r.hostKey);
-    return props.cmd.name;
-  };
 
   const contextLine = (): string => {
     const r = row();
@@ -231,6 +226,14 @@ const PaletteRow: Component<{
     return compactRecency(row()?.recencyAt);
   };
 
+  /** The right rail's keycaps — one per keybind, read where it is painted so a
+   *  command whose shortcut changes repaints. */
+  const keybinds = (): Keybind[] => {
+    const kb = props.cmd.keybind;
+    if (!kb) return [];
+    return Array.isArray(kb) ? kb : [kb];
+  };
+
   /** Host chip only when the terminal lives on a non-active host. */
   const foreignHost = (): HostKey | undefined => {
     const r = row();
@@ -239,31 +242,47 @@ const PaletteRow: Component<{
     return r.hostKey;
   };
 
-  const terminalRepo = (): { name: string; color: string } | undefined => {
+  /** The repo the identity slot paints, as TWO PRIMITIVES rather than one
+   *  pair object. The name gates the slot's `<Show>`, whose condition value is
+   *  a memo: a minted pair would be a new-but-equal object on every row
+   *  republish, waking the monogram and the spine for two strings that did not
+   *  move. Both are `undefined` unless the row carries name AND colour — the
+   *  slot paints them together. */
+  const repoName = (): string | undefined => {
     const r = row();
     if (r?.kind !== "terminal" || !r.repoName || !r.repoColor) return undefined;
-    return { name: r.repoName, color: r.repoColor };
+    return r.repoName;
+  };
+  const repoColor = (): string | undefined => {
+    const r = row();
+    if (r?.kind !== "terminal" || !r.repoName || !r.repoColor) return undefined;
+    return r.repoColor;
   };
 
   return (
+    // biome-ignore lint/a11y/useFocusableInteractive: the option IS focusable — Solid 2's JSX types spell the attribute `tabindex` (lowercase, see `tabindex={-1}` below), which this rule only recognises as React's `tabIndex`. Delete this line once the rule follows the JSX framework in use: biomejs/biome#13421.
     <div
       role="option"
-      tabIndex={-1}
-      aria-selected={props.selected}
-      data-selected={props.selected || undefined}
+      tabindex={-1}
+      aria-selected={props.selected ? "true" : "false"}
+      data-selected={trueWord(props.selected)}
       data-palette-kind={kind()}
       data-palette-name={props.cmd.name}
       data-host={row()?.hostKey ? encodeHostAttr(row()!.hostKey!) : undefined}
-      class="flex items-center gap-2 py-1.5 pr-2.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0"
-      classList={{
-        "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
-          props.selected,
-        "text-fg-2 hover:bg-surface-2/50": !props.selected,
-        "repo-spine pl-2": !!terminalRepo(),
-        "pl-2.5": !terminalRepo(),
-      }}
+      class={[
+        "flex items-center gap-2 py-1.5 pr-2.5 text-[0.86rem] rounded-lg cursor-pointer transition-colors duration-100 min-w-0",
+        {
+          "bg-accent/[0.14] text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_38%,transparent)]":
+            props.selected,
+          "text-fg-2 hover:bg-surface-2/50": !props.selected,
+          "repo-spine pl-2": repoName() !== undefined,
+          "pl-2.5": repoName() === undefined,
+        },
+      ]}
       style={
-        terminalRepo() ? { "--repo-color": terminalRepo()!.color } : undefined
+        repoColor() === undefined
+          ? undefined
+          : { "--repo-color": repoColor() as string }
       }
       onMouseEnter={() => props.onHover()}
       onClick={() => props.onSelect()}
@@ -298,12 +317,12 @@ const PaletteRow: Component<{
       {/* 2 · Identity — monogram + repo name (repoColor) + branch/intent
        *  (annotationColor). Same two-hue vocabulary as the dock row. */}
       <div class="flex items-center gap-1.5 min-w-0 shrink">
-        <Show when={terminalRepo()}>
-          {(repo) => (
+        <Show when={repoName()}>
+          {(name) => (
             <>
               <RepoMonogram
-                group={repo().name}
-                color={repo().color}
+                group={name()}
+                color={repoColor() as string}
                 size="sm"
                 data-testid="palette-repo-monogram"
               />
@@ -311,7 +330,7 @@ const PaletteRow: Component<{
                 class="repo-name-ink font-mono text-[0.72rem] font-semibold truncate max-w-[7rem]"
                 data-testid="palette-repo-name"
               >
-                {repo().name}
+                {name()}
               </span>
             </>
           )}
@@ -327,13 +346,11 @@ const PaletteRow: Component<{
         >
           <Show
             when={kind() === "terminal" && row()?.terminalMeta?.intent}
-            fallback={
-              <HighlightedText text={identityPrimary()} query={props.query} />
-            }
+            fallback={<HighlightedText segments={props.segments} />}
           >
             {/* Dock identity path for intents — always markdown-safe, including
                 during typed search (raw `**` must never reappear). */}
-            <IntentMarkdownInline markdown={identityPrimary()} />
+            <IntentMarkdownInline markdown={identityPrimary(props.cmd)} />
           </Show>
         </span>
       </div>
@@ -363,17 +380,10 @@ const PaletteRow: Component<{
             </span>
           )}
         </Show>
-        <Show when={props.cmd.keybind}>
-          {(keybind) => {
-            const kb = keybind() as Keybind | Keybind[];
-            return (
-              <span class="flex items-center gap-1">
-                <For each={Array.isArray(kb) ? kb : [kb]}>
-                  {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
-                </For>
-              </span>
-            );
-          }}
+        <Show when={keybinds().length > 0}>
+          <span class="flex items-center gap-1">
+            <For each={keybinds()}>{(k) => <Kbd>{formatKeybind(k)}</Kbd>}</For>
+          </span>
         </Show>
         <Show when={props.showKindTag}>
           <KindTag kind={kind()} />
@@ -381,11 +391,13 @@ const PaletteRow: Component<{
         <Show when={props.drillable}>
           <span
             aria-hidden="true"
-            class="text-sm leading-none"
-            classList={{
-              "text-accent": props.selected,
-              "text-fg-3/70": !props.selected,
-            }}
+            class={[
+              "text-sm leading-none",
+              {
+                "text-accent": props.selected,
+                "text-fg-3/70": !props.selected,
+              },
+            ]}
           >
             ›
           </span>

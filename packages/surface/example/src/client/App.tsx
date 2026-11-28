@@ -29,9 +29,12 @@ export default function App() {
 
   // Mirror the theme onto `<html data-theme>` so Tailwind's `dark:`
   // variants pick it up for the whole document.
-  createEffect(() => {
-    document.documentElement.dataset.theme = prefs.value()?.theme ?? "light";
-  });
+  createEffect(
+    () => prefs.value()?.theme ?? "light",
+    (theme) => {
+      document.documentElement.dataset.theme = theme;
+    },
+  );
 
   // ── 2. Collection: notes keyed by id ────────────────────────────────
   // `keys` defaults to the server's keys stream — pass it explicitly
@@ -160,10 +163,10 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setSelectedId(id)}
-                    class="w-full text-left px-3 py-2 text-sm border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                    classList={{
-                      "bg-zinc-100 dark:bg-zinc-800": isActive(),
-                    }}
+                    class={[
+                      "w-full text-left px-3 py-2 text-sm border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+                      { "bg-zinc-100 dark:bg-zinc-800": isActive() },
+                    ]}
                   >
                     <div class="font-medium truncate">
                       {note()?.title ?? "…"}

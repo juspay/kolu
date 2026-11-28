@@ -111,6 +111,9 @@ Consumes the map and returns a [`SurfaceMapClient`](#the-client).
   root and not re-tagged.
 - Scoping is a tag rewrite over the resolved dispatch, never a re-wrap of the
   transport value, so no step can strip the half-open brand.
+- Call it under a reactive owner, for example an app-lifetime `createRoot`. It
+  creates an effect that prunes cached per-key clients when a key leaves
+  membership, and an effect created outside an owner is never disposed.
 - Pass `opts` whenever the entry surface carries a policy: a declared policy with
   no interpreter throws at construction.
 
@@ -282,14 +285,22 @@ declared nested sibling (`entry.odu.…`, see
 
 - It re-keys its reactive subscription whenever the entry's
   `{encodedKey, membershipId}` identity changes.
-- An active-key switch (the encoded key changes) disposes the old key's
-  subscriptions, and the new key's populate synchronously.
+- An active-key switch (the encoded key changes) is one flush: the new key's
+  view is built and the old key's subscriptions are disposed in it, and the new
+  key's stream opens in that flush's effect phase.
 - A same-key membership re-add or authority restart (a new `membershipId` for the
   same encoded key) re-keys too.
 - It canonicalizes its accessor's key by its encoded string, so a same-key
   re-decode of the same membership reads as a no-op, never a re-key.
 - The `{encodedKey, membershipId}` re-key is the reactive `.use()` lifetime
   `useEntry` drives.
+- Its imperative half samples the key untracked: `procedures`, `rpc`, a
+  collection's `upsert`/`delete`, and the raw un-enrolled refs
+  (`collections.<k>.unenrolledKeys`, `streams.<k>.unenrolled`). A call goes to
+  the key active when it is made, and subscribes nobody. Taking a raw ref
+  inside a memo does not make that memo a reader of the key, and a ref re-read
+  inside `unenrolledStreamCall`'s `Stream.suspend` from an effect callback is
+  not a strict read.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="useentry" />
 
@@ -375,13 +386,13 @@ scopedByEntry(client, active, build) → { active(): T | undefined, get(key): T 
 - `get(key)` is a background peek at any key's world (W5 attention rollups) that
   never creates an owner. It returns `undefined` when the key was never activated
   or is not a member.
-- It throws when called outside a reactive owner, because it holds a `keyArray`
-  of per-key roots that must be disposed with the app.
+- It throws when called outside a reactive owner, because it holds a keyed
+  `mapArray` of per-key roots that must be disposed with the app.
 - Keys are folded to their canonical wire string through `client.codec`, not
   compared by `===`: two logically-equal keys from independent decodes need not be
   reference-equal.
-- It is built over [`@solid-primitives/keyed`](https://primitives.solidjs.community/package/keyed)'s
-  `keyArray`, keyed by membership.
+- It is built over Solid's `mapArray` with a key function (`{ keyed }`), keyed
+  by membership.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="scopedbyentry" />
 
@@ -425,8 +436,8 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
 - There is no `total()`: aggregation is app policy, so the watcher hands facts and
   each app folds. kolu sums awaiting terminals across live hosts, and drishti
   counts hosts in trouble.
-- It throws when called outside a reactive owner, because it holds a `keyArray`
-  of per-key roots that must be disposed with the app.
+- It throws when called outside a reactive owner, because it holds a keyed
+  `mapArray` of per-key roots that must be disposed with the app.
 
 ## Entry status
 

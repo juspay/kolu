@@ -16,13 +16,13 @@
 import { Effect, Stream } from "effect";
 import {
   type Accessor,
+  createEffect,
   createMemo,
   createRoot,
   createSignal,
   getOwner,
   onCleanup,
 } from "solid-js";
-import type { SetStoreFunction } from "solid-js/store";
 import type { Collection } from "../index";
 import {
   buildSurfaceFace,
@@ -76,6 +76,7 @@ import {
   stableOptsKey,
 } from "./keyedSubscriptionCache";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
+import type { NoFn } from "./noFn";
 import { type UseCellResult, useCell } from "./useCell";
 import {
   type CollectionFold,
@@ -178,9 +179,8 @@ export type BoundCellOptions<T, P = T> = T extends object
       | { authority?: "server"; onError?: (err: Error) => void }
       | {
           authority: "local";
-          initial: T;
+          initial: NoFn<T>;
           applyPatch?: (current: T, patch: P) => T;
-          mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
           coalesceMs?: number;
           onError?: (err: Error) => void;
         }
@@ -643,9 +643,12 @@ export interface SurfaceClient<S extends SurfaceSpec> {
    *  `unenrolledStreamCall`, this CANNOT bypass `health()`: it owns the `pending`/`error`
    *  signals, enrols them under `name`, runs the consume loop (self-clearing on
    *  each frame, recording on failure — the same edge `createSubscription` has),
-   *  and ties an `AbortController` to the owner. It THROWS if called outside a
-   *  reactive owner — the enrolment must auto-dispose, so a no-owner call is a
-   *  structural error (mirroring `createSubscription`'s `reduce`-without-`initial`
+   *  and ties the fiber to the owner. The loop is opened in the owner's EFFECT
+   *  PHASE, so a frame a fiber already has cannot land — through `onItem`, into
+   *  whatever store the caller keeps — inside the calling scope. It THROWS if
+   *  called outside a reactive owner — the enrolment must auto-dispose, so a
+   *  no-owner call is a structural error (mirroring `createSubscription`'s
+   *  `reduce`-without-`initial`
    *  throw), never a silent leak. Returns the same `{ pending, error }` it enrols,
    *  for the caller's own per-stream UI. The one way to drive a raw stream and
    *  still be in `health()`; the bare `unenrolledStreamCall`
@@ -923,9 +926,10 @@ function bindCell<S extends SurfaceSpec>(
       const shared = readOnly ? standing : undefined;
       if (shared) {
         // Reuse the SAME edge-wiring `wireSubscriptionError` gives every other
-        // `onError` in this file (lines below) — not a hand-rolled tracked
-        // `createEffect`, which would re-subscribe to whatever `cb` itself reads
-        // and can double-fire in a way the shared `on()`-based helper does not.
+        // `onError` in this file (lines below) — not a hand-rolled effect whose
+        // callback also TRACKS, which would re-subscribe to whatever `cb` itself
+        // reads and can double-fire in a way the shared helper (whose callback is
+        // the untracked effect phase) does not.
         if (opts.onError) wireSubscriptionError(shared, opts.onError);
         return readOnlyCellView(shared);
       }
@@ -972,8 +976,7 @@ function bindCell<S extends SurfaceSpec>(
       if (
         specPatch &&
         merged.authority === "local" &&
-        merged.applyPatch === undefined &&
-        merged.mergeIntoStore === undefined
+        merged.applyPatch === undefined
       ) {
         merged.applyPatch = specPatch;
       }
@@ -1129,7 +1132,8 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // whichever consumer subscribed first (a first-consumer owner is the leak class the
   // cache exists to kill). This replaces the module-const `createSharedRoot` "sharing
   // by convention" idiom — every consumer inherits sharing from the base client.
-  const subs = createKeyedSubscriptionCache(getOwner());
+  const clientOwner = getOwner();
+  const subs = createKeyedSubscriptionCache(clientOwner);
 
   // The whole-collection dedup slot's per-consumer `onError` registry. A STATIC-input
   // `.use()` (no `keys`) dedups N consumer views onto ONE shared upstream subscription
@@ -1157,8 +1161,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
   // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
   // mirror-liveness leg folds into `health().live` by construction — independent of
-  // whether any component ever mounts the cell). `dispose()` runs these roots.
-  const standingRoots: Array<() => void> = [];
+  // whether any component ever mounts the cell), and the health registry's own
+  // chunked fold, which is built on the first `health()` read under a DETACHED
+  // root and so has nobody else to end it. `dispose()` runs these roots.
+  const standingRoots: Array<() => void> = [registry.disposeFold];
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -1320,7 +1326,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
                 collOnError.delete(collKey);
               }
             });
-          });
+          }, clientOwner);
         }
         const view = subs.use(collKey, (onComplete) => {
           // Built ONCE per slot; fired on every upstream error. Reads the registry
@@ -1524,49 +1530,67 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
           "`unenrolledStreamCall` from `@kolu/surface/client` and enrol by hand.",
       );
     }
+    // Plain signals: the stream loop below is their only writer, and it is opened
+    // from the EFFECT PHASE (the `createEffect` at the end of this function), never
+    // from the component body that called `rawStream`. `Effect.runFork` runs a
+    // stream synchronously to its first async boundary, so an inline start would let
+    // a ready first frame write these — and whatever `opts.onItem` writes, typically
+    // a STORE — inside the caller's owned scope, which dev refuses.
     const [pending, setPending] = createSignal(true);
     const [error, setError] = createSignal<Error | undefined>(undefined);
     const source: HealthSource = { pending, error };
     // Owner asserted above, so this auto-drops when the owner unwinds.
     registry.enroll(name, source);
-    onCleanup(
-      runStreamScoped<O>(
-        unenrolledStreamCall(procedure, input, {
-          // The caller's enrolment name IS the label — one name for the health
-          // fact and the liveness registry (kolu#2101 J2).
-          label: name,
-          onRetry: () => {
-            // A reconnect: back to pending, drop the stale error, and let the
-            // caller clear any derived view before the fresh snapshot lands.
-            setPending(true);
-            setError(undefined);
-            opts.onRetry?.();
+    // The effect's RETURNED cleanup is the stopper, so the fiber dies with the
+    // caller's owner. A raw stream has no reactive input (the input is captured —
+    // see the streaming contract), so the compute has nothing to read: this effect
+    // exists to move the start off the creating scope.
+    createEffect(
+      () => undefined,
+      () => {
+        // A cleanup ON PURPOSE: the scoped run's stopper, so the fiber dies
+        // with the caller's owner.
+        return runStreamScoped<O>(
+          unenrolledStreamCall(procedure, input, {
+            // The caller's enrolment name IS the label — one name for the health
+            // fact and the liveness registry (kolu#2101 J2).
+            label: name,
+            onRetry: () => {
+              // A reconnect: back to pending, drop the stale error, and let the
+              // caller clear any derived view before the fresh snapshot lands.
+              setPending(true);
+              setError(undefined);
+              opts.onRetry?.();
+            },
+          }),
+          {
+            onFrame: (item) => {
+              // Self-clearing edge: each frame proves the stream is live, so a
+              // transient failure heals the instant it re-delivers (no latch).
+              // Unconditional: re-writing the value a signal already holds is a no-op
+              // under default equality, and a read-back here would see the pre-flush
+              // value anyway.
+              setPending(false);
+              setError(undefined);
+              opts.onItem(item);
+            },
+            // Clean completion (the server ended the stream): no longer pending.
+            // An interruption (the owner unwound) reports nothing — `runStreamScoped`
+            // holds that rule.
+            onEnd: () => setPending(false),
+            onFailure: (err) => {
+              // A deliberate teardown the CALLER classifies (xterm's
+              // `isExpectedCleanupError`) must not register as a health error. The
+              // owner's own teardown is already silent one layer down.
+              if (opts.isExpectedStop?.(err)) return;
+              // A real failure: clear pending so an errored-on-first-frame sub reads
+              // `degraded`, never a stuck `connecting`, then record the error.
+              setPending(false);
+              setError(err);
+            },
           },
-        }),
-        {
-          onFrame: (item) => {
-            // Self-clearing edge: each frame proves the stream is live, so a
-            // transient failure heals the instant it re-delivers (no latch).
-            if (pending()) setPending(false);
-            if (error()) setError(undefined);
-            opts.onItem(item);
-          },
-          // Clean completion (the server ended the stream): no longer pending.
-          // An interruption (the owner unwound) reports nothing — `runStreamScoped`
-          // holds that rule, so the old `ctl.signal.aborted` check is gone.
-          onEnd: () => setPending(false),
-          onFailure: (err) => {
-            // A deliberate teardown the CALLER classifies (xterm's
-            // `isExpectedCleanupError`) must not register as a health error. The
-            // owner's own teardown is already silent one layer down.
-            if (opts.isExpectedStop?.(err)) return;
-            // A real failure: clear pending so an errored-on-first-frame sub reads
-            // `degraded`, never a stuck `connecting`, then record the error.
-            setPending(false);
-            setError(err);
-          },
-        },
-      ),
+        );
+      },
     );
     return source;
   }

@@ -30,13 +30,12 @@
  *  not a second place to act on the turn. */
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
-import { isOpen } from "kolu-work";
 import { type Component, createMemo, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
 import { layoutMode } from "../useMobile";
 import { setPhoneView } from "./phoneView";
-import { useNeedsYou, useWorks } from "./useWorks";
+import { useNeedsYou, useWorkSplit } from "./useWorks";
 import { useMemoryNeed } from "./memory/useMemory";
 import { waitingCount, worksStatusWords } from "./workReadings";
 import { useShownClock } from "../ui/shown";
@@ -91,13 +90,16 @@ const ConductorStatus: Component<{
    *  The second number is the tab's badge, said here in words, by the same
    *  rule (`waitingCount`): a work waiting on an answer counts once however
    *  many questions it holds, plus every question about NO work, which is the
-   *  conversation's own. A part that would read `0` is simply not there. */
-  const works = useWorks();
+   *  conversation's own. A part that would read `0` is simply not there.
+   *
+   *  The first is the running half of the board ({@link useWorkSplit}),
+   *  counted once for the whole app: reading each work's `state` here
+   *  instead put one leaf per work on this one memo, which crosses the
+   *  development build's 200-source judge at about a hundred works. */
+  const { live } = useWorkSplit();
   const needs = useNeedsYou();
   const memory = useMemoryNeed();
-  const pieces = createMemo(
-    () => works().filter(([, one]) => isOpen(one)).length,
-  );
+  const pieces = createMemo(() => live().length);
   const waiting = createMemo(() =>
     waitingCount(needs(), props.state.openAsks, memory()),
   );

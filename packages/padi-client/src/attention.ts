@@ -113,29 +113,56 @@ export const EMPTY_FRAME: HostAttentionFrame = Object.freeze({
   liveIds: Object.freeze([] as readonly TerminalId[]),
 });
 
-/** The WIRE→FRAME translation: padi's `urgency` cell as the class map every
- *  reader below speaks.
+/** THE WIRE→FRAME RENAME, as one list: the ids padi's `urgency` cell carries
+ *  for one class.
  *
- *  This is where the cell's positional `awaitingIds` name becomes the class name
- *  `asking`, and it is the ONE place that rename happens — it used to be an
- *  object literal inside a kolu-client effect, which is exactly the sort of
- *  four-line fold a second consumer re-types slightly differently. The arrays
- *  are COPIED because a live-mirroring client hands back a `reconcile` proxy
- *  that mutates in place across ticks; a frame that aliased it would silently
- *  change under a reader holding it.
+ *  This is where the cell's positional `awaitingIds` name becomes the class
+ *  name `asking`, and it is the ONE place that rename happens — it used to be
+ *  an object literal inside a kolu-client effect, which is exactly the sort of
+ *  four-line fold a second consumer re-types slightly differently.
+ *
+ *  It hands back the cell's OWN array, uncopied, so a reactive consumer can
+ *  copy it the cheap way ({@link frameByClass} is the copying reading). A
+ *  live-mirroring client hands back a `reconcile` proxy that mutates in place
+ *  across ticks, so a caller that HOLDS what this returns holds something that
+ *  changes under it: copy before holding.
  *
  *  It takes the urgency value ALONE and leaves `liveIds` to the caller, because
  *  the two feeds arrive on independent subscriptions at wildly different
  *  cadences — an agent transition versus kaval's ~1 s byte edge — and merging
  *  them here would invalidate a class-only reader on every byte tick. */
+export function urgencyListOf(
+  urgency: PadiUrgency,
+  klass: FrameClass,
+): readonly TerminalId[] {
+  switch (klass) {
+    case "asking":
+      return urgency.awaitingIds;
+    case "working":
+      return urgency.workingIds;
+    case "linger":
+      return urgency.lingerIds;
+    case "finished":
+      return urgency.finishedIds;
+  }
+}
+
+/** The whole translation as one map, with the lists COPIED — the reading for a
+ *  consumer that wants a frame value it can hold.
+ *
+ *  A consumer that must not subscribe to every id in the cell (a reactive
+ *  mirror: spreading four live store arrays costs one source per terminal, and
+ *  Solid's development build judges a scope past 200 of them) reads
+ *  {@link urgencyListOf} per class and copies it with `mapArray` instead. The
+ *  rename lives in that accessor, so both readings speak it once. */
 export function frameByClass(
   urgency: PadiUrgency,
 ): Record<FrameClass, TerminalId[]> {
   return {
-    asking: [...urgency.awaitingIds],
-    working: [...urgency.workingIds],
-    linger: [...urgency.lingerIds],
-    finished: [...urgency.finishedIds],
+    asking: [...urgencyListOf(urgency, "asking")],
+    working: [...urgencyListOf(urgency, "working")],
+    linger: [...urgencyListOf(urgency, "linger")],
+    finished: [...urgencyListOf(urgency, "finished")],
   };
 }
 

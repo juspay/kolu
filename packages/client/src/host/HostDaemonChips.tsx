@@ -9,17 +9,18 @@
  *  memory, and update detail live in the Tip / dialogs. */
 
 import type { EntryState } from "@kolu/surface-map";
-import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
+import type { HostKey } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
-import type { Component, Setter } from "solid-js";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import {
   DAEMON_UNKNOWN_LABEL,
   type KavalPresence,
   kavalPresencePresentation,
   presenceState,
+  sameKavalPresence,
   toKavalPresence,
 } from "../kaval/daemonPresentation";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
@@ -47,7 +48,8 @@ import {
 import { joinTip } from "../ui/joinTip";
 import { formatMiB } from "@kolu/byte-units";
 import Tip from "../ui/Tip";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { padiMap } from "../wire";
+import { useDaemonMarkOpen } from "./daemonMarkOpen.ts";
 import { hostGlance, hostLabel, KAVAL_CHAIN_UNKNOWN } from "./hostChipTone";
 import { useHostKaval } from "./useHostKaval";
 
@@ -172,39 +174,6 @@ const KavalMark: Component<{
   </IdentityMark>
 );
 
-/** The ONE open/switch seam for a daemon mark: opens the info panel for this
- *  host, switching the canvas to it first when it isn't already active (a
- *  no-op-close toggle only when it already is). Both sub-chips share this so the
- *  switch-first rule — opening an inactive host's panel makes the dialog's
- *  active-host-scoped detail rows describe that host — lives in exactly one
- *  documented place, not duplicated verbatim per mark. */
-function useDaemonMarkOpen(host: HostKey): {
-  open: () => boolean;
-  setOpen: Setter<boolean>;
-  openForHost: () => void;
-} {
-  const [open, setOpen] = createSignal(false);
-  const openForHost = (): void => {
-    const alreadyActive = sameHost(activeHost(), host);
-    if (!alreadyActive) setActiveHost(host);
-    setOpen((v) => (alreadyActive ? !v : true));
-  };
-  // The dialog's active-host-scoped rows (memory, running-daemon inventory,
-  // convergence, kaval restart) ride the switch-first contract: opening SWITCHES
-  // the canvas to `host`, so those rows describe it. But the active host can
-  // later move OFF `host` while the panel stays open WITHOUT an outside click —
-  // wire.ts's `hostReconcileTarget` auto-switches to LOCAL when `host` silently
-  // departs the pool, and that path never triggers useAnchoredPopover's
-  // outside-click/Escape dismiss. Left open, the panel would blend this host's
-  // props-scoped status with another host's active-host rows (and restart would
-  // recycle the newly-active host). Close it, so a shown panel always describes
-  // the current active host — never a stale cross-host mix.
-  createEffect(() => {
-    if (open() && !sameHost(activeHost(), host)) setOpen(false);
-  });
-  return { open, setOpen, openForHost };
-}
-
 /** The Padi sub-chip for one host — icon + that host's entry-state dot.
  *  Click switches to that host, then opens the complete info panel. */
 const PadiSubChip: Component<{
@@ -275,7 +244,7 @@ const PadiSubChip: Component<{
           }}
           class={identityMarkBtnClass}
           aria-label={padiTip()}
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
         >
           <PadiMark presence={presence()} />
         </button>
@@ -303,14 +272,19 @@ const KavalSubChip: Component<{
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
-  const kaval = useHostKaval(props.host);
+  const kaval = useHostKaval(() => props.host);
   const padiStatus = padiMap.entry(props.host).cells.status.use();
   // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
   // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
   // construction: a version can surface only for a LIVE, identity-confirmed `connected`
   // daemon, and the raw stale `daemon()` is never read for the version at all.
-  const presence = createMemo(() =>
-    toKavalPresence(kaval.daemon(), kaval.live()),
+  // GATED on `sameKavalPresence`, exactly as the active-host twin
+  // (`activeKavalPresence`) is: this host's daemon status re-serves far faster than its
+  // coarse presence moves, and an ungated fold republishes a new-but-equivalent object
+  // per tick to every reader below.
+  const presence = createMemo(
+    () => toKavalPresence(kaval.daemon(), kaval.live()),
+    { name: "hostKavalPresence", equals: sameKavalPresence },
   );
   const kavalVersion = (): string | undefined => {
     const p = presence();
@@ -380,7 +354,7 @@ const KavalSubChip: Component<{
           }}
           class={identityMarkBtnClass}
           aria-label={kavalTip()}
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
         >
           <KavalMark presence={presence()} attention={attention().kind} />
         </button>

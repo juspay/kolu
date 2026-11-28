@@ -11,10 +11,11 @@
  *  the honest boundary for a view nobody told the server about. */
 
 import type { Work, WorkId } from "kolu-work";
-import { batch, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { setPhoneView } from "./phoneView";
 import { closeReader } from "./reader/useReader";
-import { useWorkMap } from "./useWorks";
+import { useWorkAt } from "./useWorks";
+import { WHOLE_TRANSCRIPT } from "./transcriptScroll";
 
 const [scope, setScope] = createSignal<WorkId | null>(null);
 
@@ -28,26 +29,30 @@ export const chatScope = (): {
 } | null => {
   const id = scope();
   if (id === null) return null;
-  const record = useWorkMap()().get(id);
+  const record = useWorkAt(id);
   return record === undefined ? null : { id, record };
 };
+
+/** WHICH TRANSCRIPT DOCUMENT THE SCOPE NAMES. The whole conversation and a
+ *  chat about one work are two documents in the same scroller, and where the
+ *  reader is in each is kept per document (`./transcriptScroll.ts`). Derived
+ *  here, beside the scope it is a function of, so the transcript, the
+ *  composer and the pill all name the same document with no copy of it
+ *  anywhere. */
+export const shownDocument = (): string => chatScope()?.id ?? WHOLE_TRANSCRIPT;
 
 /** POINT THE CHAT AT A WORK: the reader gives way, and the chat shows the
  *  turns about it. What picking a work does (`workListing.ts`). */
 export function pointChatAt(id: WorkId): void {
-  batch(() => {
-    closeReader();
-    setScope(id);
-  });
+  closeReader();
+  setScope(id);
 }
 
 /** "About this work": point the chat at it, and on a phone show the chat,
  *  so the chat it filtered is the thing on screen. */
 export function aboutWork(id: WorkId): void {
-  batch(() => {
-    pointChatAt(id);
-    setPhoneView("chat");
-  });
+  pointChatAt(id);
+  setPhoneView("chat");
 }
 
 /** "Show all", and the scope chip's × in the box. */

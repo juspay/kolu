@@ -15,7 +15,7 @@
  *  and the e2e scenario's is the rendered tag. */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { describe, expect, it } from "vitest";
 import { DockRow, type DockRowProps } from "./DockRow.tsx";
 

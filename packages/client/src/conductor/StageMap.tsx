@@ -38,8 +38,9 @@
  *  plain watch) draws no map; a work whose mode nobody has answered draws
  *  six faint stages until it is known.
  *
- *  `<Index>`, because a stage's POSITION is its identity — the six never
- *  move — and the fold mints fresh objects every tick of the clock. */
+ *  `<For keyed={false}>`, because a stage's POSITION is its identity — the
+ *  six never move — and the fold mints fresh objects every tick of the
+ *  clock. */
 
 import { compactPhrase, dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
@@ -59,7 +60,8 @@ import {
   type Waiter,
   type Where,
 } from "kolu-work";
-import { type Component, createMemo, For, Index, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
+import { sameFields } from "./sameItems";
 import { HATCH, NOW_RING, STAGE_INK, STAGE_LABEL } from "./workReadings";
 
 /** WHERE EACH STAGE SITS on the map's grid: five in a row, Review above
@@ -252,7 +254,7 @@ const DoubtMark: Component<{
           data-doubt={props.doubt}
           title={spoken()}
           aria-label={spoken()}
-          aria-pressed={pick().shown}
+          aria-pressed={pick().shown ? "true" : "false"}
           class={`${ink} cursor-pointer hover:brightness-125 ${
             pick().shown ? STAGE_INK[props.doubt].tint : ""
           }`}
@@ -340,8 +342,20 @@ const Arrow: Component<{
   mark: { readonly doubt: Doubt; readonly ms: number } | undefined;
   pick: { readonly shown: boolean; readonly show: () => void } | undefined;
 }> = (props) => {
-  const forward = createMemo(() => props.moved(props.cell.from, props.cell.to));
-  const back = createMemo(() => props.moved(props.cell.to, props.cell.from));
+  // THE COUNT, NOT THE OBJECT IT ARRIVES IN: `movedTimes` folds the trail
+  // again on every move of the record and returns a fresh `{ kind, times }`
+  // for an unchanged count, so without the gate both arrows of every cell
+  // re-publish — and every glyph under them re-runs — whenever anything
+  // about the work changes.
+  const forward = createMemo(
+    () => props.moved(props.cell.from, props.cell.to),
+    {
+      equals: sameFields,
+    },
+  );
+  const back = createMemo(() => props.moved(props.cell.to, props.cell.from), {
+    equals: sameFields,
+  });
   const mark = createMemo(() => props.mark);
   const glyphs = () => {
     switch (props.cell.way) {
@@ -456,7 +470,7 @@ const StageMap: Component<{
             aria-label="Stages"
             class="m-0 grid min-w-0 list-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-y-0.5 p-0"
           >
-            <Index each={read().cells}>
+            <For each={read().cells} keyed={false}>
               {(stage) => {
                 const state = () => stage().state;
                 const name = () => stage().name;
@@ -563,7 +577,9 @@ const StageMap: Component<{
                         <button
                           type="button"
                           data-testid="stage-cell"
-                          aria-pressed={index().shown() === name()}
+                          aria-pressed={
+                            index().shown() === name() ? "true" : "false"
+                          }
                           class={`${box(index().shown() === name())} cursor-pointer hover:brightness-125`}
                           onClick={() => index().show(name())}
                         >
@@ -574,7 +590,7 @@ const StageMap: Component<{
                   </li>
                 );
               }}
-            </Index>
+            </For>
             {/* THE CELLS BETWEEN THE BOXES: the arrows, and each doubt's
                 mark between its two stages. */}
             <For each={BETWEEN}>

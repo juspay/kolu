@@ -46,7 +46,7 @@ import Tip from "./ui/Tip";
 
 // Shared base for the square icon toggles in the control cluster
 // (dock, inspector). Active/idle coloring is layered on via each button's own
-// `classList`. Keep ring/size tweaks here so both toggles stay in lockstep.
+// `class` array. Keep ring/size tweaks here so both toggles stay in lockstep.
 const toggleBtnClass =
   "pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
@@ -124,11 +124,13 @@ const ChromeBar: Component<{
             <button
               type="button"
               data-testid="dock-toggle"
-              class={toggleBtnClass}
-              classList={{
-                "bg-surface-2 text-fg": dockExpanded(),
-                "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
-              }}
+              class={[
+                toggleBtnClass,
+                {
+                  "bg-surface-2 text-fg": dockExpanded(),
+                  "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
+                },
+              ]}
               data-active={dockExpanded() ? "" : undefined}
               onClick={toggleRailCards}
               aria-label="Toggle dock"
@@ -142,13 +144,15 @@ const ChromeBar: Component<{
             <button
               type="button"
               data-testid="inspector-toggle"
-              class={toggleBtnClass}
-              classList={{
-                "bg-surface-2 text-fg": rightPanel.panelOpen(),
-                "text-fg-3 hover:bg-surface-2 hover:text-fg":
-                  rightPanel.hasTerminals() && !rightPanel.panelOpen(),
-                "text-fg-3/40 cursor-not-allowed": !rightPanel.hasTerminals(),
-              }}
+              class={[
+                toggleBtnClass,
+                {
+                  "bg-surface-2 text-fg": rightPanel.panelOpen(),
+                  "text-fg-3 hover:bg-surface-2 hover:text-fg":
+                    rightPanel.hasTerminals() && !rightPanel.panelOpen(),
+                  "text-fg-3/40 cursor-not-allowed": !rightPanel.hasTerminals(),
+                },
+              ]}
               data-active={rightPanel.panelOpen() ? "" : undefined}
               // Dead on an empty workspace: there's no panel to reveal, so the
               // toggle joins the maximize button in being disabled until a

@@ -20,7 +20,6 @@
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
   type Component,
@@ -28,7 +27,6 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   Show,
 } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
@@ -37,6 +35,7 @@ import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ChevronDownIcon, ChevronUpIcon } from "../ui/Icons";
 import { OptionMenu } from "../ui/OptionMenu";
+import { refWithRelease } from "../ui/refWithRelease";
 import Tooltip from "../ui/Tip";
 import { chipsThatFit } from "./chipFit";
 import { PLUGIN_SKILLS } from "./pluginSkills";
@@ -122,7 +121,6 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
         skill: PLUGIN_SKILLS[0],
       });
     },
-    quiet("not computed yet"),
     { equals: (a, b) => tipKey(a) === tipKey(b) },
   );
 
@@ -165,6 +163,27 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
     }
   };
 
+  // The tip is chrome: a press on it neither selects nor drags the tile, and
+  // does not take focus from the terminal (the chip types into it). Native
+  // listeners, so the press stops here — Solid's delegated handlers run at the
+  // document, after the tile's own listeners. The ref ATTACHES them (the press
+  // must be stopped from the first one, not a microtask later), and the
+  // component's owner takes them off again.
+  const stopPress = (e: Event) => e.stopPropagation();
+  const stopDrag = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const slotRef = refWithRelease<HTMLElement>(
+    (el) => {
+      el.addEventListener("pointerdown", stopPress);
+      el.addEventListener("mousedown", stopDrag);
+    },
+    (el) => {
+      el.removeEventListener("pointerdown", stopPress);
+      el.removeEventListener("mousedown", stopDrag);
+    },
+  );
   return (
     <div
       data-testid="tile-tip-slot"
@@ -175,17 +194,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
       // Above the terminal (the tab hangs over its top edge), below the find
       // bar (`z-10` in the body).
       class="relative z-[5] shrink-0 select-none"
-      // The tip is chrome: a press on it neither selects nor drags the tile,
-      // and does not take focus from the terminal (the chip types into it).
-      // Native listeners, so the press stops here — Solid's delegated
-      // handlers run at the document, after the tile's own listeners.
-      ref={(el) => {
-        makeEventListener(el, "pointerdown", (e) => e.stopPropagation());
-        makeEventListener(el, "mousedown", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        });
-      }}
+      ref={slotRef}
     >
       <div
         data-testid="tile-tip"
@@ -281,12 +290,15 @@ const ChipRow: Component<{
   let row: HTMLDivElement | undefined;
   let measure: HTMLDivElement | undefined;
   let more: HTMLButtonElement | undefined;
-  const [count, setCount] = createSignal(props.chips.length);
+  /** How many chips fit, `undefined` until the first measure — then every
+   *  chip shows. A count taken from the props in this body would be a read of
+   *  them outside a tracking scope. */
+  const [count, setCount] = createSignal<number | undefined>();
   const [menuOpen, setMenuOpen] = createSignal(false);
 
   // Measure every chip (and a `+N`) off-screen in the same box, and keep the
   // leading ones that fit the row's width.
-  const fit = () => {
+  const fitChips = () => {
     // A row with no width has not been laid out yet: nothing to decide.
     if (row === undefined || measure === undefined || row.clientWidth === 0)
       return;
@@ -304,18 +316,25 @@ const ChipRow: Component<{
     );
   };
   // The row's width moves with the tile; the measured chips' with the font.
-  createResizeObserver(() => [row, measure], fit);
-  createEffect(on(() => props.chips, fit));
+  createResizeObserver(() => [row, measure], fitChips);
+  createEffect(
+    () => props.chips,
+    () => {
+      fitChips();
+    },
+  );
 
-  const visible = () => props.chips.slice(0, count());
-  const hidden = () => props.chips.slice(count());
+  const visible = () => props.chips.slice(0, count() ?? props.chips.length);
+  const hidden = () => props.chips.slice(count() ?? props.chips.length);
 
   return (
     <div
       ref={row}
       data-testid="tile-tip-chips"
-      class="relative flex items-center gap-[6px]"
-      classList={{ "min-w-0 flex-1": props.fill, "shrink-0": !props.fill }}
+      class={[
+        "relative flex items-center gap-[6px]",
+        { "min-w-0 flex-1": props.fill, "shrink-0": !props.fill },
+      ]}
     >
       <For each={visible()}>
         {(chip) => (
@@ -340,7 +359,7 @@ const ChipRow: Component<{
           data-testid="tile-tip-more"
           aria-label={`${hidden().length} more`}
           aria-haspopup="menu"
-          aria-expanded={menuOpen()}
+          aria-expanded={menuOpen() ? "true" : "false"}
           class={CHIP_BUTTON}
           onClick={(e) => {
             e.stopPropagation();

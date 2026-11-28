@@ -36,6 +36,9 @@ const STOP_COPY =
 
 const WorkDetails: Component<{
   id: WorkId;
+  /** The record, as the card read it once (`createWorkRecord`): a snapshot,
+   *  so the fold below — and everything this hands it to — tracks that one
+   *  reading rather than the store's leaves. */
   work: Work;
   /** Where the work's files come from, read once by the face. */
   source: WorkFileSource;
@@ -109,7 +112,7 @@ const WorkDetails: Component<{
             <p
               data-testid="work-pr-state"
               data-state={pr().state}
-              data-draft={pr().draft}
+              data-draft={pr().draft ? "true" : "false"}
               class="m-0 mt-1 text-[0.68rem] text-fg"
             >
               <PrText work={props.work} text={`#${pr().number}`} />
@@ -135,7 +138,7 @@ const WorkDetails: Component<{
               <button
                 type="button"
                 data-testid="work-pr-failing"
-                aria-expanded={allFailing()}
+                aria-expanded={allFailing() ? "true" : "false"}
                 class={`m-0 block w-full cursor-pointer text-left text-[0.68rem] text-danger hover:underline ${
                   allFailing() ? "whitespace-normal" : "truncate"
                 }`}

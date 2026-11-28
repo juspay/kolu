@@ -13,7 +13,7 @@ import {
   registerSubscription,
   resetSubscriptionLiveness,
 } from "@kolu/surface/subscriptions";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const T_SUBSCRIBED = 1_700_000_000_000;

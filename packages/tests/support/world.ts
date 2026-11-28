@@ -15,6 +15,7 @@ import type {
   Locator,
   Page,
 } from "playwright";
+import type { StampedDiagnostic } from "./solidDevBuild.ts";
 // Side-effect import: pulls in the `Window`/`HTMLDivElement`/`Navigator`
 // augmentations every step definition needs (window.__readXtermBuffer,
 // `__xterm` on tile divs, the Badging API stubs, …) so tests can read
@@ -113,6 +114,24 @@ export class KoluWorld extends World {
   context!: BrowserContext;
   page!: Page;
   errors: string[] = [];
+  /** Solid dev WARNINGS the pages printed — plain console lines with no
+   *  diagnostic behind them. Collected whenever the server under test serves
+   *  the dev-runtime client (`support/solidDevBuild.ts`), where any one fails
+   *  the scenario. */
+  solidDiagnostics: string[] = [];
+  /** The console FOOTER lines ("what it means and how to fix it"). Kept apart
+   *  from the warnings because the channel reports the finding behind each one
+   *  as an event: counting both would count one finding twice. */
+  solidDiagnosticFooters: string[] = [];
+  /** The same findings as the diagnostics channel itself hands them over, with
+   *  each one's code, location and owner path — the fields a diagnostic whose
+   *  call site throws never reaches the console with — stamped with the
+   *  scenario and step that were running when each arrived. */
+  solidDiagnosticEvents: StampedDiagnostic[] = [];
+  /** Where the run is, recorded by the `BeforeStep` hook: what a diagnostic
+   *  that arrives is stamped with. Unset until the first step starts. */
+  currentScenario?: string;
+  currentStep?: string;
 
   // Stashed state for comparison across steps
   savedSessionTerminalCount?: number;
@@ -335,7 +354,7 @@ export class KoluWorld extends World {
       .locator('[data-testid="conductor-pane"]')
       .isVisible();
 
-    // Wait for app to settle (onMount may still be restoring terminals from server)
+    // Wait for app to settle (the boot may still be restoring terminals from server)
     if (!covered) {
       const settled = this.page.locator(SETTLED_SELECTOR);
       await settled.first().waitFor({ state: "visible", timeout });

@@ -18,10 +18,12 @@ const WebcamOverlay: Component = () => {
 
   // Reassign srcObject whenever the stream changes. Setting it via JSX
   // attribute doesn't work for MediaStream — has to be imperative.
-  createEffect(() => {
-    const s = recorder.webcamStream();
-    if (videoRef) videoRef.srcObject = s;
-  });
+  createEffect(
+    () => recorder.webcamStream(),
+    (s) => {
+      if (videoRef) videoRef.srcObject = s;
+    },
+  );
 
   return (
     <Show when={recorder.webcamStream()}>

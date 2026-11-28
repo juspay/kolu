@@ -55,6 +55,8 @@ import {
   standing,
   type Filed,
   type Stages,
+  type StageState,
+  type Visit,
   stages,
   timeSpent,
   type Waiter,
@@ -173,6 +175,60 @@ export const NOW_RING = "ring-2 ring-fg ring-offset-1 ring-offset-surface-0";
 export function stagesOf(work: Work, now: string): Stages {
   return stages(work, policyOf(work), now);
 }
+
+/** TWO READINGS OF THE STAGES THAT SAY THE SAME THING — field by field, as
+ *  the map, the trail and the timeline read them. The fold walks the whole
+ *  timeline again on every move of the record and on every tick of the clock,
+ *  and mints every cell, every filing and every visit fresh, so nothing
+ *  smaller than this can close the gate on it. */
+export const sameStages = (a: Stages, b: Stages): boolean => {
+  if (a === b) return true;
+  if (a.kind !== b.kind) return false;
+  if (a.kind !== "staged" || b.kind !== "staged") return true;
+  return (
+    a.where.kind === b.where.kind &&
+    a.where.place === b.where.place &&
+    sameLists(a.events, b.events, (one, other) => one === other) &&
+    sameLists(
+      a.stages,
+      b.stages,
+      (one, other) =>
+        one.name === other.name && sameStageState(one.state, other.state),
+    ) &&
+    sameLists(a.trail, b.trail, sameVisit)
+  );
+};
+
+const sameLists = <T>(
+  a: ReadonlyArray<T>,
+  b: ReadonlyArray<T>,
+  same: (one: T, other: T) => boolean,
+): boolean => {
+  if (a.length !== b.length) return false;
+  return a.every((one, at) => {
+    const other = b[at];
+    return other !== undefined && same(one, other);
+  });
+};
+
+const sameStageState = (a: StageState, b: StageState): boolean => {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "done" && b.kind === "done")
+    return a.ms === b.ms && a.who === b.who;
+  if (a.kind === "now" && b.kind === "now")
+    return a.ms === b.ms && a.here === b.here && a.who === b.who;
+  return true;
+};
+
+const sameVisit = (a: Visit, b: Visit): boolean =>
+  a.stage === b.stage &&
+  a.from === b.from &&
+  Option.getOrUndefined(a.until) === Option.getOrUndefined(b.until) &&
+  a.time.agent === b.time.agent &&
+  a.time.you === b.time.you &&
+  a.time.ci === b.time.ci &&
+  a.events.from === b.events.from &&
+  a.events.until === b.events.until;
 
 /** The same three, plus kolu's own — the ink of a timeline dot, by who the
  *  event is BY. kolu's own events (membership, the end, files kept) are the
@@ -433,10 +489,15 @@ export function workWhere(work: Work): WorkWhere {
  *  mode, and the PR once there is one (`draft PR #7` while it is an open
  *  draft). Each word is dropped when it is not known yet rather than drawn
  *  as a blank or a dash. */
+export interface WorkSubtitleParts {
+  readonly where: WorkWhere;
+  readonly rest: ReadonlyArray<string>;
+}
+
 export function workSubtitleParts(
   work: Work,
   hostName: Option.Option<string>,
-): { readonly where: WorkWhere; readonly rest: ReadonlyArray<string> } {
+): WorkSubtitleParts {
   const setup = setupOf(work);
   const where = workWhere(work);
   return {
@@ -496,15 +557,19 @@ export function outcomeWords(outcome: Outcome): string {
  *  root's key already belonged to another work when git first answered for
  *  it keeps its old key, `held`; the line names the work holding the branch
  *  now — by its title, or "another work" once that one has dropped off the
- *  finished list. A key that is not held reads none. */
+ *  finished list. A key that is not held reads none.
+ *
+ *  The holder is asked for BY ITS ID rather than looked up in a map of every
+ *  work, so the card's line depends on the one work it names and not on the
+ *  whole mirror. */
 export const heldWords = (
   work: Work,
-  works: ReadonlyMap<WorkId, Work>,
+  holderOf: (id: WorkId) => Work | undefined,
 ): Option.Option<string> => {
   const key = work.key;
   if (key.kind !== "branch" || key.repoBy.kind !== "held") return Option.none();
   const root = key.repoBy.root;
-  const holder = works.get(workIdOf({ ...key, repo: root }));
+  const holder = holderOf(workIdOf({ ...key, repo: root }));
   const who = holder === undefined ? "another work" : `«${holder.title}»`;
   return Option.some(
     `Kept under its old key: ${who} holds ${key.branch} in ${repoName(root)}`,
@@ -530,6 +595,22 @@ export interface StandingLine {
    *  question, `green for …` for a merge, `… ago` for a work that is over. */
   readonly clock: "for" | "asked" | "green" | "ended";
 }
+
+/** TWO STANDING LINES THAT SAY THE SAME THING. The fold builds a fresh line
+ *  (and a fresh `Option` inside it) on every move of the record, so the only
+ *  comparison that can close a gate on it is this one, field by field. */
+export const sameStandingLine = (
+  a: StandingLine | undefined,
+  b: StandingLine | undefined,
+): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.who === b.who &&
+    a.lead === b.lead &&
+    a.since === b.since &&
+    a.clock === b.clock &&
+    Option.getOrUndefined(a.what) === Option.getOrUndefined(b.what));
 
 /** THE WORDS FOR WHERE A WORK STANDS — the lead beside the dot, by the reason
  *  `standing()` gives. `question` and `merge` share "Needs you": what differs
@@ -899,6 +980,21 @@ export interface DecisionRow {
   readonly decisions: ReadonlyArray<Decision>;
 }
 
+/** TWO READINGS OF ONE DECISION ROW. The fold mints a row — and the topic,
+ *  the source and the list inside it — on every run, so a card's rows are
+ *  compared by what they SAY and by which decisions they stand for. */
+export const sameDecisionRow = (a: DecisionRow, b: DecisionRow): boolean =>
+  a.id === b.id &&
+  a.label === b.label &&
+  a.answer === b.answer &&
+  a.rest === b.rest &&
+  a.topic.kind === b.topic.kind &&
+  (a.topic.kind !== "setup" ||
+    (b.topic.kind === "setup" && a.topic.key === b.topic.key)) &&
+  Option.getOrUndefined(a.from) === Option.getOrUndefined(b.from) &&
+  a.decisions.length === b.decisions.length &&
+  a.decisions.every((one, at) => b.decisions[at] === one);
+
 /** A setup answer as a PERSON reads it: what to do on green in the words the
  *  rest of the card uses. */
 function setupAnswer(decision: Decision): string {
@@ -996,6 +1092,14 @@ export interface SetupPart {
   readonly answer: string;
   readonly from: Option.Option<AnswerFrom>;
 }
+
+/** Two readings of one setup part — minted by the same fold, and so never
+ *  the object it was. */
+export const sameSetupPart = (a: SetupPart, b: SetupPart): boolean =>
+  a.key === b.key &&
+  a.text === b.text &&
+  a.answer === b.answer &&
+  Option.getOrUndefined(a.from) === Option.getOrUndefined(b.from);
 
 /** THE SETUP, AS ONE LINE: the mode, each role's harness and model, and what
  *  happens on green — the setup's own rows ({@link decisionRows}), each said

@@ -13,7 +13,7 @@
  * any hover.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ServingTerminalLink } from "./ServingTerminalLink";
 

@@ -27,7 +27,13 @@ import {
 } from "solid-js";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import { useCommentScrollRequest } from "./commentView";
-import type { Comment } from "./types";
+import type { Comment, Locator } from "./types";
+
+/** What the overlay needs off each comment: plain values read in the compute
+ *  phase (the effect phase is untracked, so a record read there would not be a
+ *  dependency). `applyHighlights` needs only the locator; the tray jump also
+ *  matches on the id. */
+type OverlayComment = { id: string; locator: Locator };
 
 /** Resolve the root the highlight overlay should walk for re-find +
  *  Range construction. Pierre's virtualized path nests a `<diffs-container>`
@@ -92,7 +98,7 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
 
   const applyCurrentHighlights = (
     host: HTMLElement,
-    comments: Comment[],
+    comments: readonly OverlayComment[],
   ): QuoteRoot => {
     const root = findHostRoot(host);
     applyHighlights(window, root, comments, name);
@@ -109,84 +115,100 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
   // comments/content re-apply.
   // `applyHighlights` uses the CSS Highlight API, which sets no DOM nodes, so
   // our own re-apply never re-triggers the observer.
-  createEffect(() => {
-    if (!opts.observeMutations) return;
-    const host = opts.host();
-    if (!host) return;
-    // Re-anchor once at the NEXT microtask, after the browser has delivered the
-    // whole mutation-observer checkpoint. Applying inside our observer callback
-    // can still run before a later observer mutates the same rendered subtree;
-    // routing through a Solid signal goes too far the other way and leaves the
-    // repair waiting on a deferred reactive pass under load. One microtask is
-    // the exact boundary we need: after all observers, before paint.
-    let queued = false;
-    let disposed = false;
-    const observer = new MutationObserver(() => {
-      if (queued) return;
-      queued = true;
-      queueMicrotask(() => {
-        queued = false;
-        if (disposed) return;
-        applyCurrentHighlights(host, opts.comments());
-        if (scroll.request()) setDomTick((n) => n + 1);
+  createEffect(
+    () => (opts.observeMutations ? opts.host() : undefined),
+    (host) => {
+      if (!host) return;
+      // Re-anchor once at the NEXT microtask, after the browser has delivered the
+      // whole mutation-observer checkpoint. Applying inside our observer callback
+      // can still run before a later observer mutates the same rendered subtree;
+      // routing through a Solid signal goes too far the other way and leaves the
+      // repair waiting on a deferred reactive pass under load. One microtask is
+      // the exact boundary we need: after all observers, before paint.
+      let queued = false;
+      let disposed = false;
+      const observer = new MutationObserver(() => {
+        if (queued) return;
+        queued = true;
+        queueMicrotask(() => {
+          queued = false;
+          if (disposed) return;
+          applyCurrentHighlights(host, opts.comments());
+          if (scroll.request()) setDomTick((n) => n + 1);
+        });
       });
-    });
-    observer.observe(host, { childList: true, subtree: true });
-    onCleanup(() => {
-      disposed = true;
-      observer.disconnect();
-    });
-  });
+      observer.observe(host, { childList: true, subtree: true });
+      return () => {
+        disposed = true;
+        observer.disconnect();
+      };
+    },
+  );
 
-  createEffect(() => {
-    const host = opts.host();
-    const comments = opts.comments();
-    opts.contentTick?.(); // dependency
-    domTick(); // dependency — retry pending scroll work after a prose DOM swap
-    if (!host) return;
-    const root = applyCurrentHighlights(host, comments);
-
-    // After the highlight set is applied for this file, consume any
-    // pending scroll request. We resolve the target comment's range
-    // fresh inside the rAF below (don't trust a stored Range across
-    // renders — the DOM may have been replaced).
-    const req = scroll.request();
-    if (!req) return;
-    // Only the overlay whose surface matches the request owns it. Both
-    // Source ⇄ Rendered surfaces are kept alive now, so without this gate the
-    // wrong surface could find-or-fail and `scroll.clear()` the request before
-    // the intended surface — re-running after its own lazy Shiki/Markdown swap
-    // — gets to scroll. `undefined === undefined` matches the
-    // single-surface views (plain source, diff) against a surface-less request.
-    if (req.surface !== opts.surface?.()) return;
-    const target = comments.find((c) => c.id === req.commentId);
-    if (!target) return;
-    const text = rootTextContent(root);
-    const match = findQuote(text, target.locator);
-    if (!match) {
-      scroll.clear();
-      return;
-    }
-    // Wait for the next frame so Pierre's virtualizer has settled into
-    // the new file's layout — scrolling on the same tick as render
-    // sometimes lands on a stale node and the highlight ends up off-
-    // screen. The Range we resolved above will be invalidated by the
-    // virtualizer churn we're waiting through, so re-resolve inside
-    // the rAF body with the same offsets and bail silently if the
-    // anchor moved out of the DOM during virtualization.
-    requestAnimationFrame(() => {
-      const fresh = rangeFromOffsets(root, match.start, match.end);
-      if (!fresh) {
+  // The compute reads every fact (host, the comment snapshot, the content and
+  // DOM tickers, and — only once there is a host — the pending scroll request
+  // and this overlay's surface); the effect applies the highlights and consumes
+  // the request it owns.
+  createEffect(
+    () => {
+      const host = opts.host();
+      // Plain values: the effect phase is untracked, so the fields it needs are
+      // read HERE, where they are dependencies.
+      const comments: OverlayComment[] = opts
+        .comments()
+        .map((c) => ({ id: c.id, locator: c.locator }));
+      opts.contentTick?.(); // dependency
+      domTick(); // dependency — retry pending scroll work after a prose DOM swap
+      if (!host) return null;
+      // After the highlight set is applied for this file, the effect consumes any
+      // pending scroll request. The target comment's range is resolved fresh
+      // inside the rAF there (don't trust a stored Range across renders — the DOM
+      // may have been replaced).
+      const req = scroll.request();
+      // Only the overlay whose surface matches the request owns it. Both
+      // Source ⇄ Rendered surfaces are kept alive now, so without this gate the
+      // wrong surface could find-or-fail and `scroll.clear()` the request before
+      // the intended surface — re-running after its own lazy Shiki/Markdown swap
+      // — gets to scroll. `undefined === undefined` matches the
+      // single-surface views (plain source, diff) against a surface-less request.
+      const jump =
+        req !== null && req.surface === opts.surface?.() ? req : null;
+      return { host, comments, jump };
+    },
+    (pass) => {
+      if (!pass) return;
+      const { host, comments, jump } = pass;
+      const root = applyCurrentHighlights(host, comments);
+      if (!jump) return;
+      const target = comments.find((c) => c.id === jump.commentId);
+      if (!target) return;
+      const text = rootTextContent(root);
+      const match = findQuote(text, target.locator);
+      // Both outcomes land — and RELEASE the request — one frame later. The
+      // wait is Pierre's virtualizer settling into the new file's layout:
+      // scrolling on the same tick as render sometimes lands on a stale node
+      // and the highlight ends up off-screen, and the Range resolved above is
+      // invalidated by the virtualizer churn we are waiting through, so it is
+      // re-resolved inside the rAF body with the same offsets (bail silently if
+      // the anchor moved out of the DOM during virtualization). Releasing the
+      // request from here rather than from the effect phase also keeps this
+      // effect from writing a source its own compute reads — it would re-run on
+      // its own write, and the released toggle (`BrowseFileDispatcher`'s forced
+      // mode) would land a flush later anyway.
+      requestAnimationFrame(() => {
+        const fresh = match
+          ? rangeFromOffsets(root, match.start, match.end)
+          : null;
+        if (fresh) {
+          const startContainer = fresh.startContainer;
+          const el =
+            startContainer.nodeType === Node.ELEMENT_NODE
+              ? (startContainer as Element)
+              : startContainer.parentElement;
+          el?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
         scroll.clear();
-        return;
-      }
-      const startContainer = fresh.startContainer;
-      const el =
-        startContainer.nodeType === Node.ELEMENT_NODE
-          ? (startContainer as Element)
-          : startContainer.parentElement;
-      el?.scrollIntoView({ block: "center", behavior: "smooth" });
-      scroll.clear();
-    });
-  });
+      });
+    },
+  );
 }

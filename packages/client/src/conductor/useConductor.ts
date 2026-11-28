@@ -39,7 +39,7 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
 import { app } from "../wire";
-import { pinTranscript } from "./transcriptScroll";
+import { forgetTranscriptPlaces } from "./transcriptScroll";
 import { useConductorFacts } from "./useConductorFacts";
 
 /** Render a failure for a toast, keeping the server's own sentence — a declared
@@ -329,10 +329,10 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         app.procedures.conductor.reopenWork({ work }),
       ),
     newSession: () => {
-      // The transcript this offset described is about to be replaced
+      // The transcript these offsets described is about to be replaced
       // wholesale; a pixel from the old conversation would land the new one
       // mid-air (or, clamped against two rows, back at the top).
-      pinTranscript();
+      forgetTranscriptPlaces();
       ask(
         "Could not start a new session",
         app.procedures.conductor.newSession({}),
@@ -341,7 +341,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
     clearSession: () => {
       // Same reason, harder: there will be NO rows to clamp a remembered
       // offset against.
-      pinTranscript();
+      forgetTranscriptPlaces();
       ask(
         "Could not start a new session",
         app.procedures.conductor.clearSession({}),
@@ -367,7 +367,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
     // to be replaced by a conversation coming up, so the toast is where that
     // sentence can live long enough to be read.
     recoverStore: (key, how) => {
-      pinTranscript();
+      forgetTranscriptPlaces();
       ask(
         "Could not recover",
         app.procedures.conductor.recoverStore({ key, how }),

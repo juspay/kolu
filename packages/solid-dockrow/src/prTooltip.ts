@@ -19,25 +19,46 @@ const CHECKS: Record<CheckStatus, { label: string; glyph: string }> = {
   fail: { label: "fail", glyph: "✗" },
 };
 
-export function prTooltip(pr: PrInfo): string {
-  if (pr.checks === null) return prLabel(pr);
+/** ONE CHECK'S LINE, and the outcome the tally counts it under. */
+export interface CheckLine {
+  readonly line: string;
+  readonly outcome: CheckStatus;
+}
+
+/** One check run as the tooltip says it. Exported for the REACTIVE reading
+ *  beside this module (`./prTooltipFold.ts`), which folds a store-backed PR
+ *  run by run and must spell a line the one way. */
+export const lineOf = (one: PrInfo["checkRuns"][number]): CheckLine => ({
+  line: `  ${CHECKS[one.outcome].glyph} ${one.name}`,
+  outcome: one.outcome,
+});
+
+/** THE STRING ITSELF, from the headline facts and the checks' lines — the ONE
+ *  spelling of the tooltip, so the plain reading and the folded one cannot
+ *  say it two ways.
+ *
+ *  This module reaches no SolidJS edge: a consumer's SERVER folds rows
+ *  through `./rowValues.ts`, which re-exports it (`rowValues.purity.test.ts`),
+ *  so the fold that needs memos is its own module beside it. */
+export function compose(
+  pr: Pick<PrInfo, "number" | "title" | "checks">,
+  lines: ReadonlyArray<CheckLine>,
+): string {
+  const head = prLabel(pr as PrInfo);
+  if (pr.checks === null) return head;
   // Older server payloads emit `checks` (the rollup) without `checkRuns` (the
   // per-check list); schema defaults the latter to `[]`. Show only the
   // aggregate verdict in that case — the parenthesized "0✓ 0… 0✗" tally would
   // otherwise misrepresent a real check status as "no checks ran".
-  if (pr.checkRuns.length === 0) {
-    return `${prLabel(pr)}\n\nChecks: ${CHECKS[pr.checks].label}`;
-  }
-  const counts = pr.checkRuns.reduce(
-    (acc, c) => {
-      acc[c.outcome] += 1;
-      return acc;
-    },
-    { pass: 0, pending: 0, fail: 0 },
-  );
+  if (lines.length === 0)
+    return `${head}\n\nChecks: ${CHECKS[pr.checks].label}`;
+  const counts: Record<CheckStatus, number> = { pass: 0, pending: 0, fail: 0 };
+  for (const one of lines) counts[one.outcome] += 1;
   const summary = `Checks: ${CHECKS[pr.checks].label} (${counts.pass}✓ ${counts.pending}… ${counts.fail}✗)`;
-  const list = pr.checkRuns
-    .map((c) => `  ${CHECKS[c.outcome].glyph} ${c.name}`)
-    .join("\n");
-  return `${prLabel(pr)}\n\n${summary}\n${list}`;
+  return `${head}\n\n${summary}\n${lines.map((one) => one.line).join("\n")}`;
+}
+
+export function prTooltip(pr: PrInfo): string {
+  if (pr.checks === null) return prLabel(pr);
+  return compose(pr, pr.checkRuns.map(lineOf));
 }

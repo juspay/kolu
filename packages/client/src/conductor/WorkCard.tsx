@@ -49,18 +49,20 @@ import {
   type Work,
   type WorkId,
 } from "kolu-work";
+import type { JSX } from "@solidjs/web";
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
   createSignal,
   For,
-  type JSX,
   Match,
   onCleanup,
-  onMount,
+  onSettled,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import { elapsedSince } from "../time/duration";
 import WorkSubtitle from "./WorkSubtitle";
@@ -72,10 +74,10 @@ import StageMap from "./StageMap";
 import WorkDetails from "./WorkDetails";
 import WorkLive from "./WorkLive";
 import { PICKED_VIEWS, type PickedView, pickedView } from "./livePanes";
-import { liveArm } from "./terminalStatus";
 import { workFileSource } from "./workFile";
 import {
   cardShown,
+  cardWaiting,
   chooseView,
   chosenView,
   isPicked,
@@ -90,6 +92,7 @@ import WorkStanding from "./WorkStanding";
 import {
   outcomeWords,
   repoName,
+  sameStages,
   stagesOf,
   timeSpentOnYou,
 } from "./workReadings";
@@ -105,6 +108,18 @@ const VIEW_WORD: Record<PickedView, string> = {
   details: "Details",
 };
 
+/** TWO PRESSES THAT ASK FOR THE SAME PART OF THE TIMELINE. A press mints its
+ *  pick, so identity says nothing about what it asked for; the stage or the
+ *  visit it names is the whole of it. */
+const samePick = (
+  a: TimelinePick | undefined,
+  b: TimelinePick | undefined,
+): boolean => {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.kind === "stage") return b.kind === "stage" && a.stage === b.stage;
+  return b.kind === "visit" && a.visit === b.visit;
+};
+
 /** ONE OPEN QUESTION'S PLACE ON THE CARD — what a route onto that question
  *  scrolls to. Whether the question is in view is the question's own to say
  *  (`WorkQuestion`), wherever it is drawn. */
@@ -114,8 +129,10 @@ const AskSlot: Component<{
   children: JSX.Element;
 }> = (props) => {
   let box!: HTMLDivElement;
-  onMount(() => props.boxes.set(props.ask, box));
-  onCleanup(() => props.boxes.delete(props.ask));
+  onSettled(() => {
+    props.boxes.set(props.ask, box);
+    return () => props.boxes.delete(props.ask);
+  });
   return (
     <div ref={box} data-testid="work-ask-slot" class="mb-2.5 scroll-m-3">
       {props.children}
@@ -149,9 +166,12 @@ const WorkCard: Component<{
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
   const now = useShownClock();
-  /** Its members, its own PR and checks, and where it stands — the one
-   *  reading the work's line in the sidebar and its chip read too. */
-  const { members, pr, checks, at } = createWorkFacts(
+  /** Its record as one read, its members, its own PR and checks, and where
+   *  it stands — the one reading the work's line in the sidebar and its
+   *  chip read too. Every fold below reads `record()`: a fold is a total
+   *  function of the record, and reading the store leaf by leaf subscribes
+   *  one node per leaf where this subscribes one per record. */
+  const { record, members, pr, checks, at } = createWorkFacts(
     () => props.id,
     () => props.work,
   );
@@ -174,76 +194,142 @@ const WorkCard: Component<{
     clearTimeout(unflash);
     if (frame !== undefined) cancelAnimationFrame(frame);
   });
-  createEffect(() => {
-    const want = wantedCard();
-    if (want === null || want.id !== props.id || !onScreen()) return;
-    cardShown(want.seq);
-    // A second ask while the first still flashes starts it over: the mark
-    // comes off now and goes back on in the next frame.
-    setFlash(false);
-    clearTimeout(unflash);
-    if (frame !== undefined) cancelAnimationFrame(frame);
-    // After the frame that laid the card out: a card the listing has just
-    // opened, or a band that has just come out, has no box until then.
-    frame = requestAnimationFrame(() => {
-      frame = undefined;
-      const question = want.ask === null ? undefined : askBoxes.get(want.ask);
-      (question ?? card).scrollIntoView({ block: "nearest" });
-      setFlash(true);
-      unflash = window.setTimeout(() => setFlash(false), 1200);
-    });
-  });
+  createEffect(
+    () => ({ want: wantedCard(), id: props.id, onScreen: onScreen() }),
+    ({ want, id, onScreen: visible }) => {
+      if (want === null || want.id !== id || !visible) return;
+      // ANSWERED ALREADY: the request stands after it is served (it names the
+      // work that is still picked), so what tells a new ask from a standing
+      // one is the cards' own cursor, not the request going away.
+      if (!cardWaiting(want.seq)) return;
+      cardShown(want.seq);
+      // A second ask while the first still flashes starts it over: the mark
+      // comes off now and goes back on in the next frame.
+      setFlash(false);
+      clearTimeout(unflash);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      // After the frame that laid the card out: a card the listing has just
+      // opened, or a band that has just come out, has no box until then.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        const question = want.ask === null ? undefined : askBoxes.get(want.ask);
+        (question ?? card).scrollIntoView({ block: "nearest" });
+        setFlash(true);
+        unflash = window.setTimeout(() => setFlash(false), 1200);
+      });
+    },
+    // An effect takes no name from the compiler, and its findings are
+    // reported at its OWNER's JSX site (`WorkColumn.tsx:150`), so this one
+    // says which effect it is itself.
+    { name: "wantedCard" },
+  );
 
   /** WHAT IS BEING ASKED, or `undefined` for a work that is over. EVERY open
    *  ask: a Conductor that asks about a failing check while a plan approval
    *  is still open has put two things to the human, and a face that draws
    *  one of them makes the second answerable nowhere. */
-  const live = createMemo(() =>
-    props.work.state.kind === "open"
-      ? { asks: openAsks(props.work) }
-      : undefined,
-  );
+  const live = createMemo(() => {
+    const work = record();
+    return work.state.kind === "open" ? { asks: openAsks(work) } : undefined;
+  });
   /** All the time this work has waited on you, while it is still running. */
-  const onYou = createMemo(() =>
-    props.work.state.kind === "open"
-      ? timeSpentOnYou(props.work, new Date(now()).toISOString())
-      : 0,
-  );
+  const onYou = createMemo(() => {
+    const work = record();
+    return work.state.kind === "open"
+      ? timeSpentOnYou(work, new Date(now()).toISOString())
+      : 0;
+  });
 
   /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
    *  file row opens (`workFile.ts`): the live worktree while a member reports
    *  one, kolu's kept copy otherwise. The card never asks which it got. */
   const source = createMemo(() =>
-    workFileSource(props.id, props.work, members()),
+    workFileSource(props.id, record(), members()),
   );
 
   /** THE STAGES, read once for the map, the trail and the timeline they
-   *  index. */
-  const read = createMemo(() =>
-    stagesOf(props.work, new Date(now()).toISOString()),
+   *  index — and gated on what they say: the fold walks the whole timeline
+   *  again on every tick of the clock, so a card whose stages have not moved
+   *  would redraw its map, its trail and every timeline row each second. */
+  const read = createMemo(
+    () => stagesOf(record(), new Date(now()).toISOString()),
+    { equals: sameStages },
   );
   /** WHAT THE PICKED WORK SHOWS OF ITS TIMELINE — the stage pressed on the
    *  map or the visit pressed on the trail (none: the stage the work is in)
    *  and whether the whole timeline is out. The face's own, seeded from the
    *  press that picked it: a work unpicked forgets both, so the next time it
-   *  is picked it follows the work again. */
-  const [pressed, setPressed] = createSignal<TimelinePick | undefined>(
-    (() => {
+   *  is picked it follows the work again.
+   *
+   *  DERIVED ON THE PICK EDGE, not reset from an effect's apply arm. Both
+   *  facts are "what has been pressed since this work was picked", and the
+   *  pick is the very thing their readers fold them with: `shownStage()` and
+   *  `shownVisit()` read `isOpen()` AND `view()`, which is `pressed()` and
+   *  `whole()`. Written from an effect, an unpick RELAYED itself — the map's
+   *  boxes and the timeline ran once in the flush the pick changed, against
+   *  the stage still pressed, and again once the reset landed, which Solid
+   *  grades `EFFECT_RELAY_TEAR` and warns about from the third sighting. As
+   *  writable memos keyed on the edge (the palette's `onOpenEdge` idiom) the
+   *  forgetting arrives in the SAME flush as the unpick, while a press on the
+   *  map or the trail still writes them. `open` rides along as the edge's
+   *  memory: the derivation sees only `prev`. */
+  interface PickEdge<T> {
+    readonly open: boolean;
+    readonly value: T;
+  }
+  function onPickEdge<T>(
+    name: string,
+    /** What this work shows while it is not picked. */
+    empty: T,
+    seed: T,
+    /** Is a write asking for what the edge already holds? A plain signal —
+     *  what master held these in — drops such a write, and the composite
+     *  must too: a state object minted per write would otherwise wake the
+     *  published memo for nothing, and a child reporting a value back would
+     *  make that a loop (review 64 §6). */
+    same: (a: T, b: T) => boolean = Object.is,
+  ): [Accessor<T>, (value: T | ((was: T) => T)) => void] {
+    const [state, setState] = createSignal<PickEdge<T>>(
+      (prev = { open: untrack(isOpen), value: seed }): PickEdge<T> => {
+        const open = isOpen();
+        if (open === prev.open) return prev;
+        // A pick keeps what the press that made it wrote; an unpick forgets.
+        return { open, value: open ? prev.value : empty };
+      },
+      { name: `${name}Edge` },
+    );
+    // A memo, so a reader wakes for a CHANGED value and not for an edge that
+    // left it alone (a pick keeps the stage its own press asked for).
+    return [
+      createMemo(() => state().value, { name }),
+      (value: T | ((was: T) => T)) => {
+        setState((prev) => {
+          const next =
+            typeof value === "function"
+              ? (value as (was: T) => T)(prev.value)
+              : value;
+          return same(next, prev.value) ? prev : { ...prev, value: next };
+        });
+      },
+    ];
+  }
+  const [pressed, setPressed] = onPickEdge<TimelinePick | undefined>(
+    "workCardPressed",
+    undefined,
+    // READ ONCE, deliberately: the seed is the press that picked this work,
+    // and a later press writes this derivation rather than re-seeding it.
+    untrack(() => {
       const asked = stageAskedFor();
       return isOpen() && asked !== undefined
         ? { kind: "stage", stage: asked }
         : undefined;
-    })(),
+    }),
+    samePick,
   );
-  const [whole, setWhole] = createSignal(false);
-  createEffect(() => {
-    if (isOpen()) return;
-    setPressed(undefined);
-    setWhole(false);
-  });
+  const [whole, setWhole] = onPickEdge("workCardWhole", false, false);
   /** ... read ONCE per redraw, for the map, the trail and the timeline. */
   const view = createMemo(() =>
-    timelineShown(props.work, read(), pressed(), whole()),
+    timelineShown(record(), read(), pressed(), whole()),
   );
   /** The stage, or doubt, pressed on the map: the place whose events the
    *  picked work shows, none while it is not picked, a visit is shown or the
@@ -279,12 +365,11 @@ const WorkCard: Component<{
     return elapsed === DASH ? "just now" : `${elapsed} ago`;
   };
 
-  /** A terminal of the work is up: there is a screen to watch. */
-  const anyUp = () =>
-    members().some(
-      (one) =>
-        one.standing !== undefined && liveArm(one.standing) !== undefined,
-    );
+  /** A terminal of the work is up: there is a screen to watch. The flag is
+   *  the member line's own ({@link MemberLine.up}, folded a row at a time):
+   *  asking each standing's record here instead put that record's leaves on
+   *  this scope for every member of the work. */
+  const anyUp = () => members().some((one) => one.up);
   /** THE PICKED WORK'S VIEW IN FRONT. A work that is over has no terminals,
    *  so its details are all it has. */
   const shownView = (): PickedView =>
@@ -302,7 +387,7 @@ const WorkCard: Component<{
             type="button"
             data-testid="work-view"
             data-view={one}
-            aria-pressed={shownView() === one}
+            aria-pressed={shownView() === one ? "true" : "false"}
             class={`cursor-pointer rounded px-2.5 py-0.5 text-[0.72rem] ${
               shownView() === one
                 ? "bg-surface-0 font-semibold text-fg shadow-sm"
@@ -327,14 +412,17 @@ const WorkCard: Component<{
         data-testid="work-age"
         class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3"
       >
-        {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+        {dualPhrase(lifetime(record(), new Date(now()).toISOString()))}
       </span>
     </Tip>
   );
   const subtitle = () => (
     <>
       <p class="m-0 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[0.62rem] text-fg-3">
-        <WorkSubtitle work={props.work} pr={pr()} />
+        {/* THE SNAPSHOT, like every other fold on this card: the subtitle is
+            a fold over the whole record (its setup, its PR), and handed the
+            store's own proxy it would subscribe a node per leaf of it. */}
+        <WorkSubtitle work={record()} pr={pr()} />
         {/* HOW LONG IT HAS WAITED ON YOU, all told — from a whole second, so a
             setup answered in a blink does not read "you 0s". */}
         <Show when={onYou() >= 1000}>
@@ -358,7 +446,7 @@ const WorkCard: Component<{
   );
   const standing = () => (
     <WorkStanding
-      work={props.work}
+      work={record()}
       line={at()}
       now={now()}
       testId="work-standing"
@@ -387,7 +475,7 @@ const WorkCard: Component<{
    *  state sum). */
   const terminals = () => (
     <Show when={live() !== undefined}>
-      <WorkTerminals work={props.work} members={members()} now={now()} />
+      <WorkTerminals work={record()} members={members()} now={now()} />
     </Show>
   );
   /** The face's press: a button laid UNDER the text rather than wrapped
@@ -398,7 +486,7 @@ const WorkCard: Component<{
     <button
       type="button"
       data-testid="work-card-head"
-      aria-expanded={isOpen()}
+      aria-expanded={isOpen() ? "true" : "false"}
       aria-label={props.work.title}
       class={`absolute inset-0 cursor-pointer ${flat() ? "" : "rounded-xl"}`}
       onClick={() => togglePick(props.id)}
@@ -456,7 +544,7 @@ const WorkCard: Component<{
                 </div>
                 <div class="px-2.5 pb-2">
                   {map()}
-                  <WorkCardActions id={props.id} work={props.work} />
+                  <WorkCardActions id={props.id} work={record()} />
                   <Show when={isOpen() && live() !== undefined}>{views()}</Show>
                 </div>
               </>
@@ -524,7 +612,7 @@ const WorkCard: Component<{
               )}
             </Show>
             <span class="w-14 shrink-0 text-end font-mono text-[0.62rem] tabular-nums text-fg-3 max-sm:hidden">
-              {dualPhrase(lifetime(props.work, new Date(now()).toISOString()))}
+              {dualPhrase(lifetime(record(), new Date(now()).toISOString()))}
             </span>
             <span class="w-14 shrink-0 text-end font-mono text-[0.62rem] tabular-nums text-fg-3">
               {endedAgo()}
@@ -547,7 +635,7 @@ const WorkCard: Component<{
                 {(ask) => (
                   <AskSlot ask={ask} boxes={askBoxes}>
                     <WorkQuestion
-                      work={props.work}
+                      work={record()}
                       id={props.id}
                       ask={ask}
                       from="card"
@@ -588,7 +676,7 @@ const WorkCard: Component<{
               <Show when={live() !== undefined}>
                 <div class="mb-2">
                   <WorkTerminals
-                    work={props.work}
+                    work={record()}
                     members={members()}
                     now={now()}
                     unfolds
@@ -598,7 +686,7 @@ const WorkCard: Component<{
               <WorkWorktree work={props.work} pr={pr()} />
               <WorkDetails
                 id={props.id}
-                work={props.work}
+                work={record()}
                 source={source()}
                 checks={checks()}
                 shown={view()}

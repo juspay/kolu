@@ -1,18 +1,23 @@
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createComputed, createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createEffect, createMemo, createSignal, flush } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PaletteItem } from "./CommandPalette";
 
 // Keep the palette's real navigation, list rendering, and click dispatch;
 // replace surrounding app services and row decoration with inert surfaces.
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
   },
 }));
 vi.mock("./ui/ModalDialog", () => ({
-  default: (props: { children: JSX.Element }) => <div>{props.children}</div>,
+  default: (props: { children: JSX.Element; transparentOverlay?: boolean }) => (
+    <div data-overlay={props.transparentOverlay ? "transparent" : "dimmed"}>
+      {props.children}
+    </div>
+  ),
 }));
 vi.mock("./settings/useTips", () => ({
   useTips: () => ({ peekAmbientTipText: () => "" }),
@@ -33,10 +38,12 @@ vi.mock("./palette/PaletteRow", () => ({
     selected: boolean;
     onSelect: () => void;
   }) => {
-    createComputed(() => {
-      void props.selected;
-      rowWakes.set(props.cmd.name, (rowWakes.get(props.cmd.name) ?? 0) + 1);
-    });
+    createEffect(
+      () => [props.selected, props.cmd.name] as const,
+      ([, name]) => {
+        rowWakes.set(name, (rowWakes.get(name) ?? 0) + 1);
+      },
+    );
     return (
       <button type="button" role="option" onClick={() => props.onSelect()}>
         {props.cmd.name}
@@ -44,6 +51,8 @@ vi.mock("./palette/PaletteRow", () => ({
     );
   },
 }));
+const totalRowWakes = (): number =>
+  [...rowWakes.values()].reduce((sum, n) => sum + n, 0);
 const { default: CommandPalette } = await import("./CommandPalette");
 let dispose: (() => void) | undefined;
 afterEach(() => {
@@ -74,16 +83,22 @@ it("keeps a worktree agent row mounted across fresh command trees and submits on
     ),
     document.body,
   );
+  flush();
   document
     .querySelector('[role="option"]')!
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   const pressed = document.querySelector('[role="option"]')!;
   pressed.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-  for (let i = 0; i < 3; i++) setCommands(tree());
+  for (let i = 0; i < 3; i++) {
+    setCommands(tree());
+    flush();
+  }
   // Browser click synthesis requires this SAME element to survive the press.
   expect(document.querySelector('[role="option"]')).toBe(pressed);
   pressed.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   pressed.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   expect(submit).toHaveBeenCalledExactlyOnceWith(
     "my-worktree",
     expect.objectContaining({ data: "codex --yolo" }),
@@ -102,11 +117,13 @@ it("preserves command identity through reordering and reads the latest callback"
     () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
     document.body,
   );
+  flush();
   const one = document.querySelector('[role="option"]')!;
   setCommands([
     { kind: "action", name: "Two", onSelect: stale },
     { kind: "action", name: "One", onSelect: fresh },
   ]);
+  flush();
   expect(document.querySelectorAll('[role="option"]')[1]).toBe(one);
   one.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   expect(fresh).toHaveBeenCalledOnce();
@@ -130,9 +147,11 @@ it("keeps equal repository labels distinct and follows the selected root after r
     () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
     document.body,
   );
+  flush();
   const before = [...document.querySelectorAll('[role="option"]')];
   expect(before).toHaveLength(2);
   setCommands(tree());
+  flush();
   const after = document.querySelectorAll('[role="option"]');
   expect(after).toHaveLength(2);
   before.forEach((node, i) => {
@@ -140,7 +159,9 @@ it("keeps equal repository labels distinct and follows the selected root after r
   });
   expect(before[0]).not.toBe(before[1]);
   before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   setCommands(tree());
+  flush();
   const option = document.querySelector('[role="option"]')!;
   expect(option.textContent).toBe("/b/repo");
   option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -179,11 +200,13 @@ it("keeps local and a remote host named local in separate header nodes", () => {
     ),
     document.body,
   );
+  flush();
   const before = [
     ...document.querySelectorAll('[data-testid="palette-host-header"]'),
   ];
   expect(before).toHaveLength(2);
   setCommands(tree());
+  flush();
   const after = document.querySelectorAll(
     '[data-testid="palette-host-header"]',
   );
@@ -192,7 +215,9 @@ it("keeps local and a remote host named local in separate header nodes", () => {
     expect(after[i]).toBe(node);
   });
   before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  flush();
   setCommands(tree());
+  flush();
   expect(document.querySelector('[role="option"]')?.textContent).toBe(
     "Terminal 1",
   );
@@ -213,12 +238,14 @@ it("moving the highlight wakes exactly the old and new rows", () => {
     ),
     host,
   );
+  flush();
   const before = new Map(rowWakes);
   host
     .querySelector("input")!
     .dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
     );
+  flush();
   const changed = [...rowWakes].filter(
     ([name, count]) => count !== before.get(name),
   );
@@ -240,15 +267,303 @@ it("navigates from the visible highlight after the command list shrinks", () => 
     () => <CommandPalette open commands={commands} onOpenChange={() => {}} />,
     document.body,
   );
-  const press = (key: string) =>
+  flush();
+  const press = (key: string) => {
     document
       .querySelector("input")!
       .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    flush();
+  };
   press("ArrowDown");
   press("ArrowDown");
   press("ArrowDown");
   setCommands(items.slice(0, 2));
+  flush();
   press("ArrowUp");
   press("Enter");
   expect(selected).toHaveBeenCalledWith("a");
+});
+
+it("keeps its section headers still across four republished trees", () => {
+  // `displayed()`/`keyedDisplay()` mint fresh entries on every refresh, so a
+  // tree republished unchanged hands every keyed node a NEW header entry.
+  // Four of those are Solid's `UNSTABLE_MEMO_OUTPUT` — the `sameDisplayEntry`
+  // gate on the narrowings is what this holds. Asserted on the collector
+  // directly, so an advisory sighting fails here rather than waiting for the
+  // threshold the `afterEach` judge escalates on.
+  const tree = (): PaletteItem[] => [
+    { kind: "action", name: "Split", section: "canvas", onSelect: () => {} },
+    { kind: "action", name: "Theme", section: "ui", onSelect: () => {} },
+    { kind: "action", name: "Docs", section: "help", onSelect: () => {} },
+  ];
+  const [commands, setCommands] = createSignal(tree());
+  dispose = render(
+    () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
+    document.body,
+  );
+  flush();
+  const sections = (): (string | null)[] =>
+    Array.from(
+      document.querySelectorAll('[data-testid="palette-section-header"]'),
+    ).map((el) => el.getAttribute("data-section"));
+  expect(sections()).toEqual(["canvas", "ui", "help"]);
+
+  for (let i = 0; i < 4; i++) {
+    setCommands(tree());
+    flush();
+  }
+  expect(sections()).toEqual(["canvas", "ui", "help"]);
+  expect(takeSolidDiagnostics().map((e) => `${e.code} ${e.message}`)).toEqual(
+    [],
+  );
+});
+
+it("does not call its commands prop while it is closed, and reads it on open", () => {
+  // The palette's content is force-mounted and merely hidden while closed,
+  // so a palette that read its commands unconditionally walked the whole app
+  // tree — every fleet terminal, every work record — for a surface nobody is
+  // looking at. This pins the CALL: the shut palette asks for no tree, and
+  // the open edge asks for the one that stands then. What a live (memo)
+  // source costs behind the gate is the test below.
+  const [tick, setTick] = createSignal(0);
+  let builds = 0;
+  const commands = (): PaletteItem[] => {
+    builds++;
+    return [{ kind: "action", name: `Row ${tick()}`, onSelect: () => {} }];
+  };
+  const [open, setOpen] = createSignal(false);
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={commands}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  expect(builds).toBe(0);
+
+  for (let i = 0; i < 4; i++) {
+    setTick(i + 1);
+    flush();
+  }
+  expect(builds).toBe(0);
+
+  // Opening reads the tree as it stands NOW — no stale frame to catch up on.
+  setOpen(true);
+  flush();
+  expect(builds).toBe(1);
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 4");
+});
+
+it("holds its rows still while shut as a live command tree keeps ticking", () => {
+  // The app hands the palette a MEMO created in `<App>`'s body (`createCommands`,
+  // owned for the app's lifetime), and such a memo recomputes on every source
+  // change whether anyone reads it or not — so the APP tree rebuilds behind a
+  // shut palette no matter what the palette does, and no gate here can stop
+  // that. What the gate does stop is the PALETTE side: holding the last tree it
+  // was handed keeps `currentItems → partitioned → filtered → displayed →
+  // keyedDisplay` and every mounted row out of those ticks. That is what this
+  // measures, so the source is built the way the app builds it — under an owner
+  // in a component body, not as a plain function the palette can decline to
+  // call.
+  const [tick, setTick] = createSignal(0);
+  let appBuilds = 0;
+  const [open, setOpen] = createSignal(true);
+  const Harness = () => {
+    const commands = createMemo<PaletteItem[]>(() => {
+      appBuilds++;
+      return [{ kind: "action", name: `Row ${tick()}`, onSelect: () => {} }];
+    });
+    return (
+      <CommandPalette
+        commands={commands}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    );
+  };
+  dispose = render(() => <Harness />, document.body);
+  flush();
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 0");
+
+  setOpen(false);
+  flush();
+  const shutAppBuilds = appBuilds;
+  const shutWakes = totalRowWakes();
+
+  for (let i = 0; i < 5; i++) {
+    setTick(i + 1);
+    flush();
+  }
+  // The source really is live: it rebuilt five times with the palette shut and
+  // nobody reading it. So this is not "the prop went uncalled" by another name.
+  expect(appBuilds).toBe(shutAppBuilds + 5);
+  // And not one of those five reached a row.
+  expect(totalRowWakes()).toBe(shutWakes);
+
+  // The open edge takes the tree as it stands then — one row pass, latest text.
+  setOpen(true);
+  flush();
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Row 5");
+  expect(totalRowWakes()).toBe(shutWakes + 1);
+});
+
+it("holds mode and the breadcrumb still across four open/close cycles", () => {
+  // `mode` is a one-key tag and the root breadcrumb is an empty list: both are
+  // rebuilt from `path()` on every move, and open/close rewrites the path, so
+  // without a gate each cycle republishes an equivalent `{ kind: "filter" }`
+  // and an equivalent empty chip strip to every reader. Four in a row is
+  // Solid's `UNSTABLE_MEMO_OUTPUT`. Read off the collector below, so the
+  // first sighting of anything — advisory relay tears included — fails.
+  const nest = (depth: number): PaletteItem[] =>
+    depth === 0
+      ? [{ kind: "action", name: "Leaf", onSelect: () => {} }]
+      : [{ kind: "group", name: `Level ${depth}`, children: nest(depth - 1) }];
+  const [open, setOpen] = createSignal(true);
+  dispose = render(
+    () => (
+      <CommandPalette
+        open={open()}
+        commands={() => nest(4)}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  const crumbs = (): (string | null)[] =>
+    Array.from(document.querySelectorAll("nav button")).map(
+      (el) => el.textContent,
+    );
+  expect(crumbs()).toEqual([]);
+  for (let i = 0; i < 4; i++) {
+    setOpen(false);
+    flush();
+    setOpen(true);
+    flush();
+  }
+  expect(crumbs()).toEqual([]);
+
+  // Four drills, all of them staying in filter mode.
+  const input = document.querySelector("input")!;
+  for (let i = 0; i < 4; i++) {
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    flush();
+  }
+  expect(crumbs()).toEqual([
+    "Commands",
+    "Level 4",
+    "Level 3",
+    "Level 2",
+    "Level 1",
+  ]);
+  expect(document.querySelector('[role="option"]')?.textContent).toBe("Leaf");
+  expect(takeSolidDiagnostics().map((e) => `${e.code} ${e.message}`)).toEqual(
+    [],
+  );
+});
+
+it("clears the filter on the open edge, with no write relaying it", () => {
+  // The open edge's resets used to be APPLY-ARM WRITES: `setQuery("")` landed
+  // a flush after `open` changed, so every reader of both — corvu's own
+  // dismiss effect, and the palette's `filterQuery` — ran once against the
+  // previous query and again after the write. Solid grades that
+  // `EFFECT_RELAY_TEAR`, escalating to `warn` on the third sighting, and
+  // `@kolu/solid-test-setup` fails the test on it. Four cycles, each with a
+  // real query to clear, is what drives it past that threshold.
+  //
+  // THE JUDGE IS THE ASSERTION THAT BITES. The row count below passes either
+  // way: the apply arm's write drains inside the same synchronous `flush()`,
+  // so by the time anything is read the list is whole again. What the
+  // derivation removes is the torn run, which only the judge can see.
+  const [open, setOpen] = createSignal(true);
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={() => [
+          { kind: "action", name: "Alpha", onSelect: () => {} },
+          { kind: "action", name: "Beta", onSelect: () => {} },
+        ]}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  const rows = (): number =>
+    document.querySelectorAll('[role="option"]').length;
+  const input = () => document.querySelector("input")!;
+  for (let i = 0; i < 4; i++) {
+    input().value = "Beta";
+    input().dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(rows()).toBe(1);
+    setOpen(false);
+    flush();
+    setOpen(true);
+    flush();
+    // The whole list is back — and with the reset derived, it was never
+    // anything else: no reader ran against the previous query first.
+    expect(rows()).toBe(2);
+  }
+  // The torn run is the subject, and only the collector sees it: an `info`
+  // `EFFECT_RELAY_TEAR` fails here at its FIRST sighting, where the judge
+  // would let it through until it escalated.
+  expect(takeSolidDiagnostics().map((e) => `${e.code} ${e.message}`)).toEqual(
+    [],
+  );
+});
+
+it("drops its backdrop while a row that previews behind it is highlighted", () => {
+  // A theme row paints the terminal BEHIND the dialog, so the dialog goes
+  // transparent. That is a fact about which row is highlighted — read off the
+  // row, not back off the preview signal the row's `onHighlight` writes,
+  // which made the overlay a relay of the open edge.
+  const [open, setOpen] = createSignal(true);
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={() => [
+          {
+            kind: "action",
+            name: "Theme",
+            previewsBehind: true,
+            onSelect: () => {},
+          },
+          { kind: "action", name: "Plain", onSelect: () => {} },
+        ]}
+        open={open()}
+        onOpenChange={setOpen}
+      />
+    ),
+    document.body,
+  );
+  flush();
+  const overlay = (): string | null =>
+    document.querySelector("[data-overlay]")?.getAttribute("data-overlay") ??
+    null;
+  expect(overlay()).toBe("transparent");
+
+  const input = document.querySelector("input")!;
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+  );
+  flush();
+  expect(overlay()).toBe("dimmed");
+
+  // A shut palette shows no backdrop of its own, whatever it last highlighted.
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+  );
+  flush();
+  expect(overlay()).toBe("transparent");
+  setOpen(false);
+  flush();
+  expect(overlay()).toBe("dimmed");
 });

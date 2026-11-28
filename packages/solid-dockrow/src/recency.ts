@@ -121,6 +121,21 @@ export type RowRecency =
   | { mode: "ago"; text: string }
   | { mode: "wait-chip"; text: string };
 
+/** Whether two row recencies render identically — the mode, and the text when
+ *  the mode has one.
+ *
+ *  Beside the union it tests, for {@link rowRecency}'s sake: that fold mints a
+ *  fresh `{ mode }` or `{ mode, text }` on every call, so a memo over it
+ *  publishes a new-but-equivalent object each time the row's pip or its
+ *  timestamps are re-read. Passed as that memo's `equals`, a quiet row's cell
+ *  stops re-rendering the same words. */
+export function sameRowRecency(a: RowRecency, b: RowRecency): boolean {
+  if (a === b) return true;
+  if (a.mode === "hidden") return b.mode === "hidden";
+  if (b.mode === "hidden" || a.mode !== b.mode) return false;
+  return a.text === b.text;
+}
+
 /** The two clocks a row's recency is read off, each named for the OBLIGATION it
  *  carries rather than for the cadence it happens to run at — not `tick`/`stable`,
  *  which name implementations. Both have the same type `() => number`, so

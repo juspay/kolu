@@ -1,4 +1,12 @@
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 import { Effect } from "effect";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // useRightPanel reads `preferences()` and writes via `updatePreferences` from
@@ -10,7 +18,28 @@ const h = vi.hoisted(() => ({
   host: "host-A",
   saveOnOtherHost: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   updatePreferences: vi.fn(),
-  setRightPanel: vi.fn((): Effect.Effect<void, Error> => Effect.void),
+  // The record the last report carried, with its selection map copied leaf by
+  // leaf, or `undefined` when the report carried no map at all.
+  decoded: undefined as
+    | { selectedFileByMode?: Record<string, string> }
+    | undefined,
+  // The REAL `chrome.setRightPanel` decodes its input at the edge
+  // (`@kolu/surface`'s unary dispatch: `decode(input)`), walking the record's
+  // leaves SYNCHRONOUSLY, in whatever phase the write was made from. A report
+  // that carries the store's own `selectedFileByMode` therefore reads a store
+  // leaf inside an effect's apply arm — STRICT_READ_UNTRACKED. This stand-in
+  // walks the same leaves, so the test harness sees what the wire would.
+  setRightPanel: vi.fn(
+    (input: {
+      selectedFileByMode?: Record<string, string>;
+    }): Effect.Effect<void, Error> => {
+      h.decoded =
+        input.selectedFileByMode === undefined
+          ? {}
+          : { selectedFileByMode: { ...input.selectedFileByMode } };
+      return Effect.void;
+    },
+  ),
   toastError: vi.fn(),
   prefs: {
     newTerminalCollapsed: false,
@@ -56,15 +85,49 @@ vi.mock("../wire", () => ({
 // live padi) must surface, not silently revert on reload — see `reportToServer`.
 vi.mock("solid-sonner", () => ({ toast: { error: h.toastError } }));
 
-vi.mock("../terminal/useTerminalStore", () => ({
-  useTerminalStore: () => ({
-    activeId: () => h.activeId,
-    // Falls back to the active tile (= its main pane) unless a test focuses a
-    // split — so every pre-split test keeps reading tile === pane.
-    focusedTerminalId: () => h.focusedId ?? h.activeId,
-    getMetadata: () => h.metadata,
-  }),
-}));
+// The two focus facts are SIGNALS, not plain fields: the panel mirrors the
+// focused pane into a plain field through a standing computation
+// (`focusedPlace`), which is what its write-only verbs (`setSelectedFile`,
+// `recordNavigation`) consult instead of reading the store from the effect
+// phase — and a plain field would never notify that computation. `h.activeId =
+// x` / `h.focusedId = x` stay the way a test says "focus is there now": the
+// setters write the signal and `flush()` it, so the mirror has caught up by the
+// next line exactly as it did when these were fields.
+vi.mock("../terminal/useTerminalStore", async () => {
+  // Imported HERE, not at the top: a `vi.mock` factory is hoisted above every
+  // static import in this file, so a top-level binding is in its TDZ when this
+  // runs (the same reason `hostCodeTab.test.ts` imports inside its factories).
+  const { createSignal, flush } = await import("solid-js");
+  const [activeId, setActiveId] = createSignal<string | null>(null);
+  const [focusedId, setFocusedId] = createSignal<string | null | undefined>(
+    undefined,
+  );
+  Object.defineProperty(h, "activeId", {
+    get: activeId,
+    set: (value: string | null) => {
+      setActiveId(() => value);
+      flush();
+    },
+    configurable: true,
+  });
+  Object.defineProperty(h, "focusedId", {
+    get: focusedId,
+    set: (value: string | null | undefined) => {
+      setFocusedId(() => value);
+      flush();
+    },
+    configurable: true,
+  });
+  return {
+    useTerminalStore: () => ({
+      activeId,
+      // Falls back to the active tile (= its main pane) unless a test focuses a
+      // split — so every pre-split test keeps reading tile === pane.
+      focusedTerminalId: () => focusedId() ?? activeId(),
+      getMetadata: () => h.metadata,
+    }),
+  };
+});
 
 vi.mock("../tile/useTileStore", () => ({
   useTileStore: () => ({ tileCount: () => (h.activeId ? 1 : 0) }),
@@ -81,6 +144,7 @@ beforeEach(() => {
   h.updatePreferences.mockClear();
   h.setRightPanel.mockClear();
   h.toastError.mockClear();
+  h.decoded = undefined;
   h.activeId = null;
   h.focusedId = undefined;
   h.metadata = undefined;
@@ -141,6 +205,8 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     const rp = useRightPanel();
     expect(rp.collapsed()).toBe(false); // a fresh terminal defaults open
     rp.togglePanel();
+    // The toggle's store write is staged: the panel paints it on the next flush.
+    flush();
     expect(rp.collapsed()).toBe(true);
     expect(h.updatePreferences).not.toHaveBeenCalled();
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
@@ -155,6 +221,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     // Collapse A, leave B at its default (open).
     h.activeId = a;
     rp.collapsePanel();
+    flush();
     expect(rp.collapsed()).toBe(true);
     // Switch to B — it reads its OWN default (open), not A's collapse.
     h.activeId = b;
@@ -201,6 +268,7 @@ describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", (
     // Expanding writes the terminal's OWN record; the global preference is
     // never touched (a toggle is per-terminal, not a preference change).
     rp.expandPanel();
+    flush();
     expect(rp.collapsed()).toBe(false);
     expect(h.updatePreferences).not.toHaveBeenCalled();
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
@@ -222,6 +290,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     // Move focus to the split and put IT on the Inspector tab.
     h.focusedId = split;
     rp.showInspector();
+    flush();
     expect(rp.activeTab()).toEqual({ kind: "inspector" });
     // Focus back to main — main's own default (Code) tab returns, and the
     // panel's posture (the TILE's) never moved.
@@ -239,6 +308,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showCode("local");
+    flush();
     const info = {
       repoRoot: "/proj",
       repoName: "proj",
@@ -265,6 +335,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     const rp = useRightPanel();
     rp.collapsePanel();
+    flush();
     expect(rp.collapsed()).toBe(true);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: tile, collapsed: true }),
@@ -282,13 +353,188 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     const rp = useRightPanel();
     rp.code.setSelectedFile("browse", "split-only.ts");
+    flush();
     expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
     h.focusedId = undefined;
     expect(rp.code.selectedFile("browse")).toBeNull();
     rp.code.setSelectedFile("browse", "main-only.ts");
+    flush();
     expect(rp.code.selectedFile("browse")).toBe("main-only.ts");
     h.focusedId = split;
     expect(rp.code.selectedFile("browse")).toBe("split-only.ts");
+  });
+
+  // The two halves of ONE defect: the mirror the write-only verbs consult used
+  // to hold the store's own record, and the write replaced the whole selection
+  // map. `setSelectedFile` lands in the Code view's EFFECT PHASE (the open
+  // controller's `onResolved`), so the first half is a Solid dev diagnostic
+  // (`STRICT_READ_UNTRACKED`, which `@kolu/solid-test-setup` fails the test
+  // on), and the second is cost a reader can count: a write to one mode woke
+  // the readers of the other modes' leaves.
+  it("a selection written from an effect's apply arm reads no store leaf, and wakes only its own mode", () => {
+    const tile = "fp-arm-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // Seed the LOCAL entry first: until this write there is none, and the
+    // mirror carries the plain `freshPerTerminalState()` seed — the proxy only
+    // arrives once `perTerminal[tile]` exists.
+    rp.code.setSelectedFile("browse", "seed.ts");
+    flush();
+    createRoot((dispose) => {
+      let browseRuns = 0;
+      const browseFile = createMemo(() => {
+        browseRuns += 1;
+        return rp.code.selectedFile("browse");
+      });
+      expect(browseFile()).toBe("seed.ts");
+      flush();
+      const seeded = browseRuns;
+      // The real caller's phase: a write from an effect's apply arm.
+      createEffect(
+        () => undefined,
+        () => {
+          rp.code.setSelectedFile("local", "from-the-arm.ts");
+        },
+        { name: "rightPanelArmSelection" },
+      );
+      flush();
+      expect(rp.code.selectedFile("local")).toBe("from-the-arm.ts");
+      expect(rp.code.selectedFile("browse")).toBe("seed.ts");
+      // The `browse` leaf never moved, so nothing reading it re-ran.
+      expect(browseRuns).toBe(seeded);
+      // The report the write produced reached the wire's decode with the whole
+      // selection map readable — and raised nothing doing it, from inside the
+      // apply arm.
+      expect(h.decoded).toEqual({
+        selectedFileByMode: { browse: "seed.ts", local: "from-the-arm.ts" },
+      });
+      expect(h.setRightPanel).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: tile,
+          selectedFileByMode: { browse: "seed.ts", local: "from-the-arm.ts" },
+        }),
+      );
+      // RED AT THE FIRST SIGHTING: an effect-phase write is judged empty,
+      // advisory tears included, rather than left to the per-test afterEach
+      // that only throws from a relay's third.
+      expect(takeSolidDiagnostics()).toEqual([]);
+      dispose();
+    });
+  });
+
+  // THE PROPERTY, through the real writer. Codetab-B asserted one panel
+  // application per selection write over its OWN root (a hand-driven
+  // `perTerminal.selectedFileByMode` store), which says nothing about this
+  // module's writer: the write here goes through the place mirror, `writeFrom`
+  // and a detached store setter, from the phase the open controller calls it in
+  // (`CodeTab`'s `finishOpenRequest` / `onResolved`). Five writes deep, because
+  // a relay tear only escalates to `warn` on the third sighting.
+  it("one panel application per selection write made from an effect's apply arm", () => {
+    const tile = "fp-panel-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // The OTHER mode's standing pick, so a write that replaced the whole map
+    // would have someone to wake — and a gesture pick in the mode under test,
+    // which is the view's own first writer.
+    rp.code.setSelectedFile("local", "ledger.rs");
+    rp.code.setSelectedFile("browse", "seed.ts");
+    flush();
+    const applied: string[] = [];
+    let localRuns = 0;
+    let seededLocalRuns = 0;
+    // The driving signal lives OUTSIDE the root: a plain signal write inside an
+    // owned scope is `REACTIVE_WRITE_IN_OWNED_SCOPE`. The selection write is not
+    // — `writeFrom` runs its store setter detached, which is the point.
+    const [pick, setPick] = createSignal("f0.ts");
+    let dispose!: () => void;
+    createRoot((d) => {
+      dispose = d;
+      // The panel the Code tab writes: the shown pick and the other mode's,
+      // minted by ONE compute and applied once per frame.
+      const panel = createMemo(
+        () =>
+          `${rp.code.selectedFile("browse") ?? "-"}|${
+            rp.code.selectedFile("local") ?? "-"
+          }`,
+      );
+      createEffect(
+        panel,
+        (v) => {
+          applied.push(v);
+        },
+        { name: "recordPanelApply" },
+      );
+      // A reader of the OTHER mode's leaf alone.
+      const localFile = createMemo(() => {
+        localRuns += 1;
+        return rp.code.selectedFile("local");
+      });
+      createEffect(localFile, () => {}, { name: "readLocalLeaf" });
+      flush();
+      seededLocalRuns = localRuns;
+
+      // The real caller's phase: the open controller RESOLVES a ref and lands
+      // the selection from its effect's apply arm.
+      createEffect(
+        pick,
+        (p) => {
+          rp.code.setSelectedFile("browse", `src/${p}`);
+        },
+        { name: "rightPanelArmSelectionWrites" },
+      );
+    });
+    flush();
+    for (const p of ["f1.ts", "f2.ts", "f3.ts", "f4.ts"]) {
+      setPick(p);
+      flush();
+    }
+
+    // One application per selection write, each carrying that write's own
+    // pick — never one frame pairing the new pick with the previous answer.
+    expect(applied).toEqual([
+      "seed.ts|ledger.rs",
+      "src/f0.ts|ledger.rs",
+      "src/f1.ts|ledger.rs",
+      "src/f2.ts|ledger.rs",
+      "src/f3.ts|ledger.rs",
+      "src/f4.ts|ledger.rs",
+    ]);
+    // …and the other mode's leaf was never touched by any of them.
+    expect(localRuns).toBe(seededLocalRuns);
+    expect(takeSolidDiagnostics()).toEqual([]);
+    dispose();
+  });
+
+  // Absence is the only spelling of "no selection": the wire's `optionalKey`
+  // rejects a present-but-`undefined` value, so an emptied map leaves the key
+  // off the record entirely.
+  it("dropping the last selection removes the map, and dropping one mode keeps the rest", () => {
+    const tile = "fp-drop-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.code.setSelectedFile("browse", "a.ts");
+    flush();
+    rp.code.setSelectedFile("local", "b.ts");
+    flush();
+    rp.code.setSelectedFile("browse", null);
+    flush();
+    expect(rp.code.selectedFile("browse")).toBeNull();
+    expect(rp.code.selectedFile("local")).toBe("b.ts");
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: tile,
+        selectedFileByMode: { local: "b.ts" },
+      }),
+    );
+    rp.code.setSelectedFile("local", null);
+    flush();
+    expect(rp.code.selectedFile("local")).toBeNull();
+    expect(h.decoded).toEqual({});
+    // An already-absent selection is not a write at all.
+    h.setRightPanel.mockClear();
+    rp.code.setSelectedFile("local", null);
+    flush();
+    expect(h.setRightPanel).not.toHaveBeenCalled();
   });
 
   it("navigation history is per pane", () => {
@@ -298,13 +544,17 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const rp = useRightPanel();
     h.focusedId = undefined;
     rp.code.recordNavigation({ mode: "browse", path: "main.txt" });
+    flush();
     rp.code.recordNavigation({ mode: "browse", path: "main2.txt" });
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     // The split has its OWN stack — empty.
     h.focusedId = split;
     expect(rp.code.canNavigateBack()).toBe(false);
     rp.code.recordNavigation({ mode: "browse", path: "split.txt" });
+    flush();
     expect(rp.code.navigateBack()).toBeNull(); // a single-entry stack
+    flush();
     // Back to main: main's own earlier entry.
     h.focusedId = undefined;
     expect(rp.code.navigateBack()).toEqual({
@@ -318,6 +568,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showInspector(); // the tile's main pane is on Inspector
+    flush();
     // The source is pinned at capture; a focus change before the create lands
     // must not change the seed.
     const initializePaneTab = rp.seedSplitTab(tile);
@@ -337,6 +588,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showInspector(); // the tile (the split's parent) is on Inspector
+    flush();
     rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, activeTab: "inspector" }),
@@ -354,6 +606,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     // browser create path did before moving focus.
     h.focusedId = split;
     rp.showCode("branch");
+    flush();
     h.setRightPanel.mockClear();
     rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).not.toHaveBeenCalled();
@@ -389,6 +642,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.collapsePanel(); // the tile's panel is closed
+    flush();
     rp.adoptTileCollapsed(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, collapsed: true }),
@@ -404,6 +658,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.collapsePanel();
+    flush();
     h.setRightPanel.mockClear();
     rp.adoptTileCollapsed(tile)(tile);
     expect(h.setRightPanel).not.toHaveBeenCalled();
@@ -420,12 +675,16 @@ describe("useRightPanel — the panel follows the focused pane", () => {
 // previous-active-tuple compare would see the switch-back as a plain terminal
 // change and skip the reset, replaying repo-A history against repo A's new repo.
 describe("useRightPanel — syncRepo scopes history per repo, per terminal", () => {
-  // Drive history for whichever terminal is active, the way CodeTab does.
+  // Drive history for whichever terminal is active, the way CodeTab does — one
+  // navigation per frame, since a push reads the stack it appends to and a
+  // write is staged until the next flush.
   function recordAt(id: TerminalId, ...paths: string[]): void {
     h.activeId = id;
     const rp = useRightPanel();
-    for (const path of paths)
+    for (const path of paths) {
       rp.code.recordNavigation({ mode: "browse", path });
+      flush();
+    }
   }
 
   it("first sight records the baseline without resetting a seeded/built stack", () => {
@@ -436,6 +695,7 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     expect(rp.code.canNavigateBack()).toBe(true);
     // First syncRepo for this terminal just adopts its repo — history survives.
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
   });
 
@@ -445,8 +705,10 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     h.activeId = a;
     rp.syncRepo(a, "/repo/A"); // baseline
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     rp.syncRepo(a, "/repo/A2"); // cd into another repo
+    flush();
     expect(rp.code.canNavigateBack()).toBe(false);
   });
 
@@ -457,16 +719,20 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
+    flush();
     recordAt(b, "b1.txt", "b2.txt");
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
+    flush();
     // Switch back to A — same repo as before, so its history must be intact.
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     // And B's is untouched too.
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
   });
 
@@ -478,11 +744,13 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     recordAt(a, "a1.txt", "a2.txt");
     h.activeId = a;
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     // Switch to B; A is now inactive. (CodeTab only ever syncs the active id.)
     recordAt(b, "b1.txt");
     h.activeId = b;
     rp.syncRepo(b, "/repo/B");
+    flush();
     // While A was inactive its PTY cd'd into a different repo — the metadata
     // change reaches CodeTab only when A becomes active again. The previous
     // active tuple was (B, /repo/B), so a previous-tuple compare would treat
@@ -490,6 +758,7 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     // sees A's own repo moved (/repo/A → /repo/A2) and drops the stale stack.
     h.activeId = a;
     rp.syncRepo(a, "/repo/A2");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(false);
   });
 
@@ -504,11 +773,14 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     const rp = useRightPanel();
     recordAt(a, "a1.txt", "a2.txt");
     rp.syncRepo(a, "/repo/A");
+    flush();
     recordAt(b, "b1.txt", "b2.txt");
     rp.syncRepo(b, "/repo/B");
+    flush();
     // Focus is on B, and the subject handed over still names A with A's root.
     h.activeId = b;
     rp.syncRepo(a, "/repo/A");
+    flush();
     expect(rp.code.canNavigateBack()).toBe(true);
     h.activeId = a;
     expect(rp.code.canNavigateBack()).toBe(true);
@@ -525,6 +797,7 @@ describe("new terminal panel visibility", () => {
     const next = `new-${collapsed}` as TerminalId;
     h.activeId = previous;
     collapsed ? rp.collapsePanel() : rp.expandPanel();
+    flush();
     const initializePanel = rp.adoptTileCollapsed(previous);
     // A focus change while the create RPC is pending must not change the seed.
     h.activeId = `other-${collapsed}`;
@@ -537,6 +810,7 @@ describe("new terminal panel visibility", () => {
     h.activeId = next;
     expect(rp.collapsed()).toBe(collapsed);
     collapsed ? rp.expandPanel() : rp.collapsePanel();
+    flush();
     h.activeId = previous;
     expect(rp.collapsed()).toBe(collapsed);
   });
@@ -553,6 +827,7 @@ describe("new panel initialization", () => {
     const initializePanel = rp.adoptTileCollapsed(null);
     const id = `empty-${collapsed}` as TerminalId;
     initializePanel(id);
+    flush();
     h.activeId = id;
     expect(rp.collapsed()).toBe(collapsed);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
@@ -567,6 +842,7 @@ describe("new panel initialization", () => {
     h.activeId = id;
     rp.showInspector();
     initializePanel(id);
+    flush();
     expect(rp.activeTab()).toEqual({ kind: "inspector" });
   });
 });

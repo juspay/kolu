@@ -17,10 +17,10 @@ import {
   createContext,
   createSignal,
   getOwner,
-  type JSX,
   onCleanup,
   useContext,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   type BuildInfoDef,
   buildInfo as defaultBuildInfo,
@@ -690,7 +690,7 @@ export function SurfaceAppProvider<
     isInstalled: () => isInstalledFromEnv(installEnv()),
     canInstallPwa: () => canInstallFromEnv(installEnv()),
   };
-  return createComponent(SurfaceAppContext.Provider, {
+  return createComponent(SurfaceAppContext, {
     value: model as SurfaceAppModel,
     get children() {
       // The fault boundary sits INSIDE the context, so the app's `fault` LOOK
@@ -709,13 +709,11 @@ export function SurfaceAppProvider<
   });
 }
 
-/** Read the headless app-shell model. Must be used under `<SurfaceAppProvider>`. */
+/** Read the headless app-shell model. Must be used under `<SurfaceAppProvider>`:
+ *  the context has no default, so `useContext` throws (`ContextNotFoundError`)
+ *  anywhere else. */
 export function useSurfaceApp<
   T extends { commit: string } = { commit: string },
 >(): SurfaceAppModel<T> {
-  const model = useContext(SurfaceAppContext);
-  if (!model) {
-    throw new Error("useSurfaceApp must be used within <SurfaceAppProvider>");
-  }
-  return model as SurfaceAppModel<T>;
+  return useContext(SurfaceAppContext) as SurfaceAppModel<T>;
 }

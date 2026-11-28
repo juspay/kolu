@@ -13,6 +13,7 @@
  *  available mode renders with no chrome (today's behaviour for code, images,
  *  and documents alike). */
 
+import type { JSX } from "@solidjs/web";
 import {
   type Accessor,
   type Component,
@@ -20,8 +21,6 @@ import {
   createMemo,
   createSignal,
   For,
-  type JSX,
-  on,
   Show,
 } from "solid-js";
 import type {
@@ -75,12 +74,10 @@ export function FileView<TFile extends FileData = FileData>(
   // too so a fresh mount whose host already names a surface (a tray jump that
   // remounted this view) lands on it instead of falling back to `defaultMode`.
   createEffect(
-    on(
-      () => props.mode,
-      (m) => {
-        if (m != null) setChosen(m);
-      },
-    ),
+    () => props.mode,
+    (m) => {
+      if (m != null) setChosen(m);
+    },
   );
 
   const mode = createMemo<FileViewMode>(() => {
@@ -140,7 +137,7 @@ function KeepAliveMode<TFile extends FileData>(props: {
 }): JSX.Element {
   // A one-way latch: stays false until the slot is first shown, then sticks
   // true (so the appliance mounts lazily on first view and is kept alive after).
-  const visited = createMemo<boolean>((was) => was || props.show, false);
+  const visited = createMemo<boolean>((was = false) => was || props.show);
   const heldFile = createMemo<TFile>((prev) =>
     props.show || prev === undefined ? props.file : prev,
   );
@@ -156,7 +153,7 @@ function KeepAliveMode<TFile extends FileData>(props: {
           "content-visibility": props.show ? "visible" : "hidden",
         }}
         inert={!props.show}
-        aria-hidden={!props.show}
+        aria-hidden={props.show ? "false" : "true"}
       >
         {props.render(heldFile)}
       </div>
@@ -180,7 +177,7 @@ const FileViewToggle: Component<{
         <button
           type="button"
           data-testid={`fileview-toggle-${value}`}
-          aria-pressed={props.mode === value}
+          aria-pressed={props.mode === value ? "true" : "false"}
           onClick={() => props.onChange(value)}
           class="rounded px-2 py-0.5 text-[0.7rem] font-medium capitalize opacity-60 transition-colors hover:opacity-100 aria-pressed:bg-current/15 aria-pressed:opacity-100"
         >

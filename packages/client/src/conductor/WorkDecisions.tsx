@@ -12,21 +12,38 @@
 import { Option } from "effect";
 import type { Work } from "kolu-work";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { sameEach } from "./sameItems";
 import {
   answerSource,
   answeredWhen,
   answerWords,
   clockOf,
   otherDecisions,
+  sameDecisionRow,
+  sameSetupPart,
   setupLine,
 } from "./workReadings";
 
 /** How many of the other decisions a card shows before "all N". */
 const DECISIONS_SHOWN = 3;
 
+/** The card's two folds, compared row by row. */
+const sameDecisionRows = sameEach(sameDecisionRow);
+const sameSetupParts = sameEach(sameSetupPart);
+
 const WorkDecisions: Component<{ work: Work }> = (props) => {
-  const setup = createMemo(() => setupLine(props.work));
-  const others = createMemo(() => otherDecisions(props.work));
+  // THE SETUP LINE, gated the same way and for the same reason: its parts
+  // are minted per run too.
+  const setup = createMemo(() => setupLine(props.work), {
+    equals: sameSetupParts,
+  });
+  // THE SAME DECISIONS, READ AGAIN: the fold mints a row per decision on
+  // every run, so the gate is on what each row SAYS — a list compared by
+  // reference could never close, and without it the `<For>` and the "all N"
+  // control re-run on any other move of the work.
+  const others = createMemo(() => otherDecisions(props.work), {
+    equals: sameDecisionRows,
+  });
   /** Every decision out, rather than the latest three. Dies with the open
    *  card, as the card's own view does. */
   const [all, setAll] = createSignal(false);
@@ -98,7 +115,7 @@ const WorkDecisions: Component<{ work: Work }> = (props) => {
                   <button
                     type="button"
                     data-testid="work-decision-row"
-                    aria-expanded={opened().has(row.id)}
+                    aria-expanded={opened().has(row.id) ? "true" : "false"}
                     class="flex w-full min-w-0 cursor-pointer items-baseline gap-1 rounded-sm text-start hover:bg-surface-1"
                     onClick={() => toggle(row.id)}
                   >
@@ -140,7 +157,7 @@ const WorkDecisions: Component<{ work: Work }> = (props) => {
             <button
               type="button"
               data-testid="work-decisions-all"
-              aria-expanded={all()}
+              aria-expanded={all() ? "true" : "false"}
               class="mt-1 cursor-pointer text-[0.66rem] text-accent hover:underline"
               onClick={() => setAll((was) => !was)}
             >

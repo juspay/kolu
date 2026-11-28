@@ -66,8 +66,13 @@ export function finishedReplyOf(
   return { turn: done.head.id, text: said.text };
 }
 
-const [source, setSource] =
-  createSignal<Accessor<TypedReply | null | undefined>>();
+/** Who is reading the open conversation. `ownedWrite`: an internal signal
+ *  whose only writer is {@link provideTypedReply}, which a pane calls from
+ *  its BODY — handing the reading in for the lifetime of that owner is the
+ *  whole mechanism, so a write in an owned scope is what it is for. */
+const [source, setSource] = createSignal<
+  Accessor<TypedReply | null | undefined> | undefined
+>(undefined, { ownedWrite: true });
 
 /** The open conversation's reading — `undefined` while no conversation is
  *  open in this page, or its chat has not arrived yet. */

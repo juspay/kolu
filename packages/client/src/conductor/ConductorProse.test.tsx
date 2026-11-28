@@ -28,8 +28,8 @@
 
 import type * as SolidMarkdown from "@kolu/solid-markdown";
 import { ABOUT_WORK, type Work, type WorkId } from "kolu-work";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** Rewrite every mounted prose's DOM without changing its text — what a
@@ -71,16 +71,23 @@ vi.mock("@kolu/solid-markdown", async () => {
             ? props.markdown
             : actual.decorateInlineCode(props.markdown, inlineCode.action);
         },
-        undefined,
         { equals: false },
       );
-      solid.createRenderEffect(() => {
-        el.innerHTML = html();
-      });
-      solid.createEffect(() => {
-        html();
-        solid.untrack(() => props.onRendered?.());
-      });
+      solid.createRenderEffect(
+        () => html(),
+        (text) => {
+          el.innerHTML = text;
+        },
+      );
+      solid.createEffect(
+        () => ({
+          html: html(),
+          // Read once, not depended on: a callback prop is the door, never
+          // a reason to announce the prose again.
+          rendered: solid.untrack(() => props.onRendered),
+        }),
+        ({ rendered }) => rendered?.(),
+      );
       actual.bindMarkdownLinks(el, {
         onInlineCode: (text, anchor) => props.inlineCode?.onPress(text, anchor),
       });
@@ -93,6 +100,7 @@ vi.mock("@kolu/solid-markdown", async () => {
 const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
 vi.mock("./useWorks", () => ({
   useWorkMap: () => works,
+  useWorkAt: (id: WorkId) => works().get(id),
   // A work's chip reads its terminals; these works have none.
   useWorkMembers: () => () => new Map(),
   useSeen: () => () => new Map(),
@@ -100,9 +108,14 @@ vi.mock("./useWorks", () => ({
 
 import ConductorProse from "./ConductorProse";
 import { Shown } from "../ui/shown";
-import { fileHolders } from "./namedFiles";
+import { type FileHolders, mergeHolders, pathsOf } from "./namedFiles";
 import { PROSE_LIST_FOLD_OVER, PROSE_LIST_FOLD_SHOWS } from "./proseListFold";
 import { closeReader, readerTarget } from "./reader/useReader";
+
+/** THE INDEX OVER A COLLECTION, as the app builds it (`useFileHolders`):
+ *  each work's own paths, read once, and merged under the id holding them. */
+const fileHolders = (works: ReadonlyMap<WorkId, Work>): FileHolders =>
+  mergeHolders([...works].map(([id, one]) => [id, pathsOf(one)] as const));
 
 const disposers: (() => void)[] = [];
 
@@ -128,7 +141,7 @@ function mount(
       () => (
         // The chat a reply is drawn in is a retained view: its chips' clocks
         // ask whether it is on screen.
-        <Shown.Provider value={() => true}>
+        <Shown value={() => true}>
           <ConductorProse
             rowId={rowId}
             text={text()}
@@ -136,7 +149,7 @@ function mount(
             holders={fileHolders(works())}
             onRedrawn={onRedrawn}
           />
-        </Shown.Provider>
+        </Shown>
       ),
       host,
     ),
@@ -195,6 +208,7 @@ describe("the Conductor's prose folds a long list", () => {
     const host = mount("row-press", () => bullets(6));
 
     control(host)?.click();
+    flush();
 
     expect(visibleItems(firstList(host))).toEqual([
       "check 1",
@@ -212,6 +226,7 @@ describe("the Conductor's prose folds a long list", () => {
     expect(control(host)?.textContent).toBe("fewer");
 
     control(host)?.click();
+    flush();
     expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
   });
 
@@ -232,6 +247,7 @@ describe("the Conductor's prose folds a long list", () => {
   it("keeps an opened list open when the row is rebuilt under the same id", () => {
     const first = mount("row-stable", () => bullets(6));
     control(first)?.click();
+    flush();
     expect(visibleItems(firstList(first))).toHaveLength(6);
 
     // The transcript swaps a row object and the component is built again — a
@@ -254,6 +270,7 @@ describe("the Conductor's prose folds a long list", () => {
 
     // The turn goes on and the list grows past the measure.
     setText(`${bullets(8)}<p>that is the lot.</p>`);
+    flush();
 
     expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
     expect(control(host)?.textContent).toBe("and 5 more");
@@ -281,6 +298,7 @@ describe("the Conductor's prose folds a long list", () => {
     second
       .querySelector<HTMLButtonElement>('[data-testid="conductor-prose-more"]')
       ?.click();
+    flush();
 
     expect(visibleItems(first)).toHaveLength(PROSE_LIST_FOLD_SHOWS);
     expect(visibleItems(second)).toHaveLength(7);
@@ -295,11 +313,13 @@ describe("the Conductor's prose folds a long list", () => {
     expect(control(host)?.textContent).toBe("and 5 more");
 
     control(host)?.click();
+    flush();
     markdownMock.redraw();
     expect(visibleItems(firstList(host))).toHaveLength(8);
 
     // The control the redraw minted afresh still works.
     control(host)?.click();
+    flush();
     expect(visibleItems(firstList(host))).toHaveLength(PROSE_LIST_FOLD_SHOWS);
   });
 
@@ -308,7 +328,9 @@ describe("the Conductor's prose folds a long list", () => {
     const host = mount("row-late-list", text);
 
     setText(bullets(7));
+    flush();
     control(host)?.click();
+    flush();
 
     expect(visibleItems(firstList(host))).toHaveLength(7);
   });
@@ -325,10 +347,12 @@ describe("the Conductor's prose folds a long list", () => {
     // A press writes no HTML: reporting it would re-pin a reader who just
     // opened a list.
     control(host)?.click();
+    flush();
     expect(redrawn).toBe(afterMount);
 
     // A diagram landing rewrites the DOM with the text unchanged.
     markdownMock.redraw();
+    flush();
     expect(redrawn).toBe(afterMount + 1);
   });
 });
@@ -371,6 +395,7 @@ describe("a file the Conductor names", () => {
     const host = mount("row-plan", () => SAID);
 
     link(host)?.click();
+    flush();
 
     expect(readerTarget()).toEqual({ work: "w-parser", path: PLAN });
     expect(link(host)?.getAttribute("aria-current")).toBe("true");
@@ -386,6 +411,7 @@ describe("a file the Conductor names", () => {
     const host = mount("row-two", () => SAID);
 
     link(host)?.click();
+    flush();
     // NOTHING OPENED YET — no guess at which one the sentence meant.
     expect(readerTarget()).toBeNull();
     const offered = Array.from(
@@ -400,6 +426,7 @@ describe("a file the Conductor names", () => {
         '[data-testid="named-file-option-w-login"]',
       )
       ?.click();
+    flush();
     expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
     expect(
       document.querySelector('[data-testid="named-file-menu"]'),
@@ -418,6 +445,7 @@ describe("a file the Conductor names", () => {
     ]);
 
     link(host)?.click();
+    flush();
 
     expect(readerTarget()).toEqual({ work: "w-login", path: PLAN });
     expect(
@@ -437,6 +465,7 @@ describe("a file the Conductor names", () => {
     ]);
 
     link(host)?.click();
+    flush();
 
     // The reader stays shut, the note names the turn's own work — and no
     // other work's file is offered in its place.
@@ -457,10 +486,12 @@ describe("a file the Conductor names", () => {
         ["w-split" as WorkId, workWith("split the column", [PLAN])],
       ]),
     );
+    flush();
     expect(
       document.querySelector('[data-testid="named-file-missing"]'),
     ).toBeNull();
     link(host)?.click();
+    flush();
     expect(readerTarget()).toEqual({ work: "w-split", path: PLAN });
   });
 
@@ -481,6 +512,7 @@ describe("a file the Conductor names", () => {
     expect(link(host)).toBeNull();
 
     setWorks(new Map([["w-parser" as WorkId, workWith("parser", [PLAN])]]));
+    flush();
 
     expect(link(host)).not.toBeNull();
   });

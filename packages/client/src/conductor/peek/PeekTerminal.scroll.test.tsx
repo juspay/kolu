@@ -15,7 +15,7 @@ import type * as XtermKit from "@kolu/xterm-kit/solid";
 import type { Terminal as BrowserTerminal } from "@xterm/xterm";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shown } from "../../ui/shown";
 
@@ -40,6 +40,10 @@ const seam = vi.hoisted(() => ({
   term: undefined as Core | undefined,
   lock: undefined as Lock | undefined,
   scrollLockEnabled: true,
+  /** Every `onHeld` the screen reported, in order. */
+  held: [] as boolean[],
+  /** Hand the attach stream another frame, as the wire does. */
+  send: undefined as ((frame: unknown) => void) | undefined,
 }));
 
 vi.mock("../../wire", async () => {
@@ -56,32 +60,35 @@ vi.mock("../../wire", async () => {
 });
 
 vi.mock("@kolu/surface/client", async () => {
-  const { Effect, Stream } = await import("effect");
+  const { Effect, Queue, Stream } = await import("effect");
   return {
     unenrolledStreamCall: (_proc: unknown, input: unknown) => {
       seam.attached.push(input);
-      // The first frame arrives LATER, as it does over a socket. A frame
-      // handed over in the same turn as the subscribe would be painted
-      // inside the caller's own reactive scope, which no wire ever does.
-      return Stream.concat(
-        Stream.fromEffect(
-          Effect.sleep("5 millis").pipe(
-            Effect.as({
-              kind: "snapshot",
-              data: "",
-              topLine: 0,
-              grid: { cols: 80, rows: 24 },
-            }),
-          ),
-        ),
-        Stream.never,
+      return Stream.callback<unknown>((queue) =>
+        Effect.sync(() => {
+          // The stream stays open, as a socket does, and every later frame
+          // the test hands over travels it.
+          seam.send = (frame) => Queue.offerUnsafe(queue, frame);
+          // The first frame arrives LATER, as it does over a socket. A frame
+          // handed over in the same turn as the subscribe would be painted
+          // inside the caller's own reactive scope, which no wire ever does.
+          setTimeout(
+            () =>
+              Queue.offerUnsafe(queue, {
+                kind: "snapshot",
+                data: "",
+                topLine: 0,
+                grid: { cols: 80, rows: 24 },
+              }),
+            5,
+          );
+        }),
       );
     },
   };
 });
 
 vi.mock("@kolu/xterm-kit/solid", async () => {
-  const { onMount } = await import("solid-js");
   const { Terminal } = await import("@xterm/headless");
   // The real lock, through the kit's own entry — only the DOM half of
   // `<Xterm>` is stood in for.
@@ -104,35 +111,38 @@ vi.mock("@kolu/xterm-kit/solid", async () => {
       // the same buffer, scroll and reset, which is all the lock touches here.
       const term = core as unknown as BrowserTerminal;
       const scrollLock = createScrollLock(props.scrollLockEnabled);
-      onMount(() => {
-        // The order `<Xterm>` keeps: the lock listens to the terminal's
-        // scroll first, the consumer is handed the handle second
-        // (`xterm-kit/src/solid/Xterm.tsx:366,464`).
-        scrollLock.attachToTerminal(term);
-        seam.term = core;
-        seam.lock = scrollLock;
-        props.onReady({
-          container: document.createElement("div"),
-          terminal: {
-            reset: () => {
-              seam.resets += 1;
-              core.reset();
-            },
-            focus() {},
-            blur() {},
-            textarea: undefined,
-            dimensions: undefined,
-            onRender: () => ({ dispose() {} }),
-            attachCustomKeyEventHandler() {},
+      // The order `<Xterm>` keeps: the lock listens to the terminal's
+      // scroll first, the consumer is handed the handle second, inside the
+      // component's own owner (`xterm-kit/src/solid/Xterm.tsx:366,464`) —
+      // which is the scope the consumer's `onCleanup` belongs to.
+      scrollLock.attachToTerminal(term);
+      seam.term = core;
+      seam.lock = scrollLock;
+      props.onReady({
+        container: document.createElement("div"),
+        terminal: {
+          reset: () => {
+            seam.resets += 1;
+            core.reset();
           },
-          resize: (grid: { cols: number; rows: number }) =>
-            core.resize(grid.cols, grid.rows),
-          write: (data: string, parsed?: () => void) =>
-            scrollLock.writeData(term, data, parsed),
-          clearPendingOutput: () => scrollLock.dropPending(),
-          scrollLock,
-          recovery: { noteData() {} },
-        });
+          focus() {},
+          blur() {},
+          textarea: undefined,
+          dimensions: undefined,
+          onRender: () => ({ dispose() {} }),
+          attachCustomKeyEventHandler() {},
+        },
+        // THE SAME DOOR THE KIT'S HANDLE USES: a stream-stated size travels
+        // the write door, so an engaged lock holds it behind the bytes the
+        // reader has not seen rather than reflowing the screen under them
+        // (`xterm-kit/src/solid/Xterm.tsx` `applyStreamGrid`).
+        resize: (grid: { cols: number; rows: number }) =>
+          scrollLock.resizeInOrder(grid.cols, grid.rows),
+        write: (data: string, parsed?: () => void) =>
+          scrollLock.writeData(term, data, parsed),
+        clearPendingOutput: () => scrollLock.dropPending(),
+        scrollLock,
+        recovery: { noteData() {} },
       });
       return <div data-testid="live-screen" />;
     },
@@ -161,7 +171,7 @@ const mount = (mayType: boolean) => {
   document.body.append(root);
   return render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <PeekTerminal
           host="local"
           id={ID}
@@ -170,12 +180,14 @@ const mount = (mayType: boolean) => {
           onGrid={() => {}}
           onCell={() => {}}
           onPhase={() => {}}
-          onHeld={() => {}}
+          onHeld={(held) => {
+            seam.held.push(held);
+          }}
           onFocus={() => {}}
           onHandle={() => {}}
           testId="live-screen"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -207,6 +219,8 @@ afterEach(() => {
   seam.term = undefined;
   seam.lock = undefined;
   seam.scrollLockEnabled = true;
+  seam.held = [];
+  seam.send = undefined;
 });
 
 describe("scrolling back in a Conductor screen", () => {
@@ -227,11 +241,48 @@ describe("scrolling back in a Conductor screen", () => {
       resetsSinceScroll: seam.resets - resetsBefore,
       scrolledBack: term.buffer.active.viewportY < term.buffer.active.baseY,
       locked: lock.isLocked(),
+      // THE HEAD'S OWN WORD: `new output below` is what tells the reader the
+      // screen is theirs to hold, and the e2e watch reads exactly this.
+      held: seam.held.at(-1),
     }).toEqual({
       attaches: 1,
       resetsSinceScroll: 0,
       scrolledBack: true,
       locked: true,
+      held: true,
+    });
+    dispose();
+  });
+
+  it("holds its place when the pty states a new size while it is held", async () => {
+    const { dispose, term, lock } = await mountWithScrollback(true);
+    lock.armUserScrollIntent("wheel");
+    term.scrollLines(-10);
+    await wait(20);
+    expect(lock.isLocked()).toBe(true);
+    const resetsBefore = seam.resets;
+    const attachesBefore = seam.attached.length;
+    const at = term.buffer.active.baseY - term.buffer.active.viewportY;
+
+    // THE PTY'S MIRROR MOVED, mid-stream: the control frame whose position in
+    // the stream is its content. Under an engaged lock it joins the queue
+    // behind the bytes the reader has not seen — it is not a reason to
+    // re-attach, to reset the screen, or to let go of the place they are at.
+    seam.send?.({ kind: "resized", grid: { cols: 100, rows: 30 } });
+    await wait(30);
+
+    expect({
+      attaches: seam.attached.length,
+      resetsSinceScroll: seam.resets - resetsBefore,
+      rowsBack: term.buffer.active.baseY - term.buffer.active.viewportY,
+      locked: lock.isLocked(),
+      held: seam.held.at(-1),
+    }).toEqual({
+      attaches: attachesBefore,
+      resetsSinceScroll: 0,
+      rowsBack: at,
+      locked: true,
+      held: true,
     });
     dispose();
   });

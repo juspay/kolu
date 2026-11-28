@@ -61,7 +61,19 @@ export function createComposer(): Composer {
       if (target() !== null) return;
       setTarget(t);
     },
-    close: () => setTarget(null),
+    // BRACES, NOT A CONCISE BODY: `close` is called from a view's
+    // close-on-navigate EFFECT (`code-view/CodeTab.tsx`), and what an effect
+    // callback returns is its CLEANUP — Solid 2 refuses anything that is not a
+    // function or `undefined`. A Solid 2 setter answers with the value it set,
+    // so `() => setTarget(null)` hands the effect a `null`. DEV THROWS on it
+    // ("callback returned an invalid cleanup value") at the end of that run, so
+    // the view's reactivity halts there; PROD stores the value and calls it as
+    // `f?.()` on the next run, which drops a `null` silently. The bug is a
+    // dev-only halt here — and the shape is one a setter that answered `false`
+    // would halt prod with too.
+    close: () => {
+      setTarget(null);
+    },
     isComposing: () => target() !== null,
   };
 }

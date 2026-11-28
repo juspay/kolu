@@ -5,7 +5,8 @@
  *  place. Default tone is "muted". Optional `details` render under the hint,
  *  and optional `doc` a trailing docs link below them. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import DocLink, { type DocSlug } from "../ui/DocLink";
 
 /** Per tone: its colour and its glyph. */

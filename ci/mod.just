@@ -27,9 +27,10 @@
 # ci/protect never grows a shard name. Our darwin pool is a single host, so
 # nothing is ever free to borrow there and every darwin lane resolves to TOTAL=1.
 #
-# Two leaves are sharded today: `e2e` (cucumber owns the split) and `daemon`
-# (vitest `--shard`, which is what makes a leaf whose wall time is a handful of
-# expensive files — not one long suite — divide at all). Each owns its own
+# Three leaves are sharded today: `e2e` and `e2e-solid-dev` (cucumber owns the
+# split, and they share one translation in `_e2e-suite`) and `daemon` (vitest
+# `--shard`, which is what makes a leaf whose wall time is a handful of
+# expensive files — not one long suite — divide at all). `daemon` owns its own
 # translation of the zero-based `ODU_SHARD_*` pair; see the recipes below.
 
 # Submodule recipes default to running from the submodule's directory (`ci/`),
@@ -59,7 +60,8 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     Their nodes depend on `nix` so Nix builds do not fight over CPU, memory,
 #     and store locks; each remains a separate status and source boundary.
 #   * Every other node that invokes `nix build` depends on `nix`: e2e's
-#     `.#koluBin`, smoke's `.#default`, and the pnpm hash rebuild. Their
+#     `.#koluBin`, e2e-solid-dev's `.#koluBin-solid-dev`, smoke's `.#default`,
+#     and the pnpm hash rebuild. Their
 #     commands remain self-contained, but start from a warmed store after the
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
@@ -71,7 +73,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
+default: nix agent-flake-nix agent-bake agent-models agent-published website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-solid-dev e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -141,6 +143,15 @@ nix:
 # that file's expose/prove note). This recipe is therefore the ONLY gate on the
 # exposed attrs. Delete it and a fileset gap that reaches `default` or the TUIs
 # surfaces at dial time on a user's box.
+#
+# AND IT IS THE PURITY GATE. `--option allow-import-from-derivation false` is
+# the whole claim of this lane's eval: a binder resolves
+# `<baked-source>#packages.<system>.padi-agent.drvPath` with whatever store it
+# has — on a fresh host that is the shipped closure and nothing else — so an
+# eval that must first REALISE something (a workspace member read out of a
+# build; see `pinSource` in nix/workspace.nix) goes off to compile stdenv on
+# the user's machine, offline, and provisioning never ships an agent at all.
+# Here the same eval fails loudly instead, naming the derivation it wanted.
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
@@ -151,11 +162,13 @@ agent-flake-nix: nix
     agent_packages="$({{ nix_shell }} jq -r '.expose[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
     while IFS= read -r package; do
-      drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
+      drv="$(nix eval --accept-flake-config --option allow-import-from-derivation false --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
       case "$drv" in
         *.drv) ;;
         *) echo "$package resolved to '$drv', not a derivation path" >&2; exit 1 ;;
       esac
+      # The gate's only output: a pass and an empty loop must not look alike.
+      echo "agent-flake-nix: $package -> $drv"
     done <<< "$agent_packages"
 
 # Build and schema-check the website subflake after the root Kolu build exits.
@@ -277,12 +290,48 @@ agent-published: install nix
 # the browser suite is the longest pole on the Linux lane and dwarfs the burst
 # `install`+`nix` copies a borrowed box pays, so it is worth up to four slots.
 # Cucumber owns the actual split (`CUCUMBER_SHARD`, packages/tests/cucumber.js);
-# this recipe only translates odu's zero-based index into Cucumber's one-based
+# `_e2e-suite` only translates odu's zero-based index into Cucumber's one-based
 # one, and refuses a pair that does not parse. With neither variable set — a
 # local `just ci::e2e`, and every darwin lane — this is the command it has
 # always been.
 [metadata("odu:shard=4")]
 e2e: install nix
+    just --no-deps ci::_e2e-suite
+
+# THE SOLID-DIAGNOSTICS LANE: the same full suite, sharded the same way, run
+# against a server whose client is built on Solid's DEVELOPMENT runtime
+# (`.#koluBin-solid-dev`, default.nix `koluBinSolidDev`), and failing any
+# scenario whose pages print a Solid dev diagnostic or warning
+# (packages/tests/support/solidDevBuild.ts). Unit and component tests already
+# fail on any diagnostic; this lane covers what only the running app reaches.
+# A deploy mid-scenario lands on the dev-mode client too
+# (`.#koluBin-solid-dev-next-padi-build`).
+#
+# `[linux]` per this file's platform rule (:12-15): the brief scopes the lane to
+# x86_64-linux, and darwin's single host would otherwise run a second full,
+# unsharded e2e suite.
+#
+# Permanent, so later code stays free of diagnostics.
+[linux]
+[metadata("odu:shard=4")]
+e2e-solid-dev: install nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KOLU_SERVER="$(nix build .#koluBin-solid-dev --no-link --print-out-paths)/bin/kolu"
+    export KOLU_SERVER_NEXT_BUILD="$(nix build .#koluBin-solid-dev-next-padi-build --no-link --print-out-paths)/bin/kolu"
+    # The harness turns the console check on from what the server SERVES
+    # (`/solid-dev.json`, shipped by the dev-mode dist). This flag is this
+    # lane's assertion that it must be there: a run handed a production server
+    # fails in BeforeAll instead of passing with the check off.
+    export KOLU_E2E_SOLID_DEV=1
+    just --no-deps ci::_e2e-suite
+
+# The browser suite one e2e lane runs: odu's shard pair translated for
+# Cucumber, then the root `test` recipe, which takes `KOLU_SERVER` /
+# `KOLU_SERVER_NEXT_BUILD` from the caller when set and builds `.#koluBin`
+# otherwise.
+[private]
+_e2e-suite:
     #!/usr/bin/env bash
     set -euo pipefail
     # Fail loud on a half-set or out-of-range pair rather than silently running
@@ -292,7 +341,7 @@ e2e: install nix
       if [[ ! "${ODU_SHARD_INDEX:-}" =~ ^(0|[1-9][0-9]*)$ ]] \
         || [[ ! "${ODU_SHARD_TOTAL:-}" =~ ^[1-9][0-9]*$ ]] \
         || ((ODU_SHARD_INDEX >= ODU_SHARD_TOTAL)); then
-        echo "ci::e2e: invalid shard pair ODU_SHARD_INDEX='${ODU_SHARD_INDEX:-}' ODU_SHARD_TOTAL='${ODU_SHARD_TOTAL:-}'" >&2
+        echo "ci::_e2e-suite: invalid shard pair ODU_SHARD_INDEX='${ODU_SHARD_INDEX:-}' ODU_SHARD_TOTAL='${ODU_SHARD_TOTAL:-}'" >&2
         exit 2
       fi
       export CUCUMBER_SHARD="$((ODU_SHARD_INDEX + 1))/$ODU_SHARD_TOTAL"

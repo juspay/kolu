@@ -21,7 +21,7 @@
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../../palette/fleetTerminals";
 import { Shown } from "../../ui/shown";
@@ -103,15 +103,18 @@ function mountControls(pans: boolean, fit: boolean): HTMLElement {
 function mountStatus(opts: {
   kind: HeadKind;
   drawn?: TerminalGrid;
+  /** The ONE gate, as the view that owns the screen answers it. */
+  lookable?: boolean;
   resize?: { offered: boolean; onPress: () => void };
 }): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <TerminalStatusLine
           kind={opts.kind}
+          lookable={opts.lookable ?? true}
           host="local"
           id={ID}
           terminal={`local/${ID}`}
@@ -121,7 +124,7 @@ function mountStatus(opts: {
           held={false}
           resize={opts.resize}
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -202,5 +205,28 @@ describe("the one press to take the size", () => {
         "peek",
       ),
     ).toBeNull();
+  });
+});
+
+describe("the one gate, handed down", () => {
+  it("reads the screen out for a head created while its pane holds one through a non-answer", () => {
+    // THE TWO-LATCH BUG. The pane has drawn this screen for minutes and is
+    // holding it across a frame the fleet index cannot answer. A head built
+    // in THAT frame, with a latch of its own, would start from nothing and
+    // draw a screen with no readout over it — the `NOT_YET` sample. There is
+    // one gate per screen, so it reads the pane's answer.
+    setStanding({ kind: "loading" });
+    const el = mountStatus({ kind: "live", lookable: true });
+    expect(el.querySelector('[data-testid="live-grid"]')?.textContent).toBe(
+      "80×24",
+    );
+    expect(el.querySelector('[data-testid="live-live"]')).not.toBeNull();
+  });
+
+  it("draws no readout when its view says there is no screen", () => {
+    setStanding(here({ agent: false }));
+    const el = mountStatus({ kind: "live", lookable: false });
+    expect(el.querySelector('[data-testid="live-grid"]')).toBeNull();
+    expect(el.querySelector('[data-testid="live-live"]')).toBeNull();
   });
 });

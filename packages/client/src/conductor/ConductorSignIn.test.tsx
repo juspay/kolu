@@ -17,7 +17,7 @@ import {
   type ConductorState,
   DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorSignIn from "./ConductorSignIn";
 

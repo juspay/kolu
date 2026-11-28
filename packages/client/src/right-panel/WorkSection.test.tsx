@@ -31,13 +31,14 @@ import type {
 import type { OduLinkOutlet } from "./useOduLink";
 import type { TerminalId } from "kolu-common/surface";
 import { SurfaceUpstreamRefused } from "@kolu/surface/errors";
-import { type Accessor, createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { type Accessor, createEffect, createSignal, flush } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assignColors,
   buildTerminalDisplayInfos,
 } from "../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { Shown } from "../ui/shown";
 import WorkSection, { paneSubject } from "./WorkSection";
 
@@ -118,6 +119,33 @@ vi.mock("../time/clock", () => ({
   },
 }));
 
+/** HOW OFTEN A CHECK ROW'S READER WOKE — counted around the real indicator, so
+ *  what the rows draw is unchanged and only the count is this file's. A row
+ *  wakes when the bundle publishes a new per-check record for it, which is the
+ *  thing the PR gate's row-wise check comparison exists to stop; the count is
+ *  taken in the COMPUTE, because an apply arm would be gated on the status
+ *  value and a re-minted record carries the same one. */
+const checks = vi.hoisted(() => ({ woke: 0 }));
+vi.mock("@kolu/solid-dockrow", async (importOriginal) => {
+  const real = (await importOriginal()) as Record<string, unknown> & {
+    ChecksIndicator: (props: { status: string }) => JSX.Element;
+  };
+  return {
+    ...real,
+    ChecksIndicator: (props: { status: string }) => {
+      createEffect(
+        () => {
+          checks.woke += 1;
+          return props.status;
+        },
+        () => {},
+        { name: "checksIndicatorWoke" },
+      );
+      return real.ChecksIndicator(props);
+    },
+  };
+});
+
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
 
@@ -130,6 +158,7 @@ afterEach(() => {
   wire.error = () => undefined;
   wire.input = null;
   clock.reset();
+  checks.woke = 0;
 });
 
 type ActivePr = ActiveTerminal["pr"];
@@ -188,17 +217,28 @@ const PI = terminal({
 function paint(body: () => JSX.Element) {
   host = document.createElement("div");
   document.body.append(host);
-  dispose = render(
-    () => <Shown.Provider value={() => true}>{body()}</Shown.Provider>,
-    host,
-  );
+  dispose = render(() => <Shown value={() => true}>{body()}</Shown>, host);
+  flush();
 }
 
+/** Every write below is staged — what a reader of this section sees is the
+ *  frame after it — so switching terminals and moving the clock each carry the
+ *  flush that frame is. */
 function mount(initial: TerminalMetadata) {
   const [meta, setMeta] = createSignal(initial);
   paint(() => <WorkSection subject={paneSubject(meta(), LOCAL)} />);
-  return { setMeta };
+  return {
+    setMeta: (next: TerminalMetadata) => {
+      setMeta(next);
+      flush();
+    },
+  };
 }
+
+const advance = (ms: number) => {
+  clock.advance(ms);
+  flush();
+};
 
 const el = (testid: string) =>
   host?.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
@@ -297,11 +337,9 @@ describe("WorkSection identity chips", () => {
    *  Assert against the dock's own projection rather than restating its rule. */
   it("wears the same hues the dock projection paints for that terminal", () => {
     const id = "t1" as TerminalId;
-    const dock = buildTerminalDisplayInfos(
-      [id],
-      () => RESIZE_BUG,
-      () => [],
-    ).get(id);
+    const dock = buildTerminalDisplayInfos([
+      { id, ...terminalKey(RESIZE_BUG), subCount: 0 },
+    ]).get(id);
     if (!dock) throw new Error("no display info built for the fixture");
 
     mount(RESIZE_BUG);
@@ -423,6 +461,106 @@ describe("WorkSection PR and CI", () => {
     // The identity half must still have followed the switch.
     expect(text("inspector-branch")).toBe("docs/pesu-chat-rewrite");
   });
+
+  /** The same PR, read again — a whole fresh subtree, check records included,
+   *  which is what a frame off the watch is: the forge answers the question
+   *  again and the reading is rebuilt from the answer. `title` is the only
+   *  thing that moves, and only in the case that wants the memo to publish. */
+  const greenAgain = (title: string) =>
+    terminal({
+      repoName: "kolu",
+      branch: "resize-bug",
+      cwd: "/home/srid/code/kolu/.worktrees/resize-bug",
+      pr: {
+        kind: "ok",
+        value: {
+          number: 2037,
+          title,
+          state: "open",
+          url: "https://github.test/pull/2037",
+          checks: "pass",
+          checkRuns: [
+            { name: "ci::biome", outcome: "pass" },
+            { name: "ci::nix", outcome: "pass" },
+          ],
+          reviewDecision: "APPROVED",
+          mergeStateStatus: "CLEAN",
+          headSha: null,
+          isDraft: false,
+        },
+      },
+    });
+
+  const checkRows = (): ReadonlyArray<HTMLElement> => [
+    ...(host?.querySelectorAll<HTMLElement>(
+      '[data-testid="inspector-pr-checks"] li',
+    ) ?? []),
+  ];
+
+  it("keeps its check rows while the PR's words change five times", () => {
+    const { setMeta } = mount(GREEN);
+    const before = checkRows();
+    expect(before).toHaveLength(2);
+
+    // Five, not four: the diagnostic names a list at four rebuilds. Each
+    // frame really does say something new — the title — so the bundle
+    // publishes and the list is handed records minted afresh for an
+    // unchanged pair of checks.
+    for (let frame = 1; frame <= 5; frame += 1) {
+      setMeta(greenAgain(`Repo identity, said again (${frame})`));
+    }
+
+    expect(host?.textContent).toContain("Repo identity, said again (5)");
+    const after = checkRows();
+    expect(after).toHaveLength(2);
+    expect(after.every((one, at) => one === before[at])).toBe(true);
+    expect(checkNames()).toEqual(["ci::biome", "ci::nix"]);
+  });
+
+  it("says nothing at all when the same reading is delivered again", () => {
+    const { setMeta } = mount(GREEN);
+    const before = checkRows();
+    const chip = el("inspector-ci");
+    // One wake per row, from the mount that drew them.
+    expect(checks.woke).toBe(2);
+
+    for (let frame = 1; frame <= 5; frame += 1) {
+      setMeta(greenAgain("Repo identity paints the same way across Kolu"));
+    }
+
+    expect(el("inspector-ci")).toBe(chip);
+    expect(text("inspector-ci")).toBe("✓ 2 passed");
+    expect(checkRows().every((one, at) => one === before[at])).toBe(true);
+    // THE ROWS NEVER WOKE. Five frames, each carrying freshly minted records
+    // for the same two checks: without the bundle's row-wise comparison of
+    // them the bundle publishes, every row is handed its new record, and each
+    // row's reader runs again for a line that has not moved.
+    expect(checks.woke).toBe(2);
+  });
+
+  it("publishes nothing while a reading that says nothing arrives again", () => {
+    // A PR still being resolved is re-delivered on every poll, and the bundle
+    // it folds to — no reason unavailable, no PR — says the same thing every
+    // time. Five, not four: the diagnostic names a memo at four equal
+    // publishes.
+    const pending = () =>
+      terminal({
+        repoName: "kolu",
+        branch: "resize-bug",
+        cwd: "/home/srid/code/kolu/.worktrees/resize-bug",
+        pr: { kind: "pending" },
+      });
+    const { setMeta } = mount(pending());
+    expect(prLink()).toBeNull();
+
+    for (let frame = 1; frame <= 5; frame += 1) setMeta(pending());
+
+    expect(prLink()).toBeNull();
+    expect(el("inspector-ci")).toBeNull();
+    expect(el("inspector-pr-checks")).toBeNull();
+    // The identity half still paints from the same subject.
+    expect(text("inspector-branch")).toBe("resize-bug");
+  });
 });
 
 describe("WorkSection odu CI readout", () => {
@@ -521,7 +659,10 @@ describe("WorkSection odu CI readout", () => {
     paint(() => (
       <WorkSection subject={paneSubject(RESIZE_BUG, LOCAL)} odu={odu.link} />
     ));
-    return setFrame;
+    return (next: CheckoutFrame | undefined) => {
+      setFrame(next);
+      flush();
+    };
   }
 
   /** Each recent row's DURATION cell, in list order. Its own cell rather than
@@ -578,7 +719,7 @@ describe("WorkSection odu CI readout", () => {
     // has been open another half minute, because a settled run's duration is
     // not a subtraction against the reader's clock.
     expect(took()).toEqual(["45s", "45s"]);
-    clock.advance(30_000);
+    advance(30_000);
     expect(took()).toEqual(["45s", "45s"]);
   });
 
@@ -608,7 +749,7 @@ describe("WorkSection odu CI readout", () => {
     // At this instant the age cell says "30s ago" as well, so the claim is only
     // worth anything read off the duration cell itself.
     expect(took()).toEqual(["30s"]);
-    clock.advance(25_000);
+    advance(25_000);
     expect(took()).toEqual(["55s"]);
   });
 
@@ -701,7 +842,7 @@ describe("WorkSection odu CI readout", () => {
     // A hundred seconds later the run is twice as long, so the same two facts
     // occupy different fractions of it: the live lane has grown, the settled
     // one has slid left into a track that grew around it.
-    clock.advance(100_000);
+    advance(100_000);
     expect(bars()).toEqual([
       { left: "25%", width: "75%" },
       { left: "0%", width: "25%" },
@@ -1047,6 +1188,7 @@ describe("WorkSection odu CI readout", () => {
     });
 
     setMeta(PI);
+    flush();
     expect(wire.input?.()).toEqual({
       repoRoot: "/home/srid/code/AI/.worktrees/pi",
     });
@@ -1073,15 +1215,17 @@ describe("WorkSection odu CI readout", () => {
     document.body.append(host);
     dispose = render(
       () => (
-        <Shown.Provider value={shown}>
+        <Shown value={shown}>
           <WorkSection subject={paneSubject(RESIZE_BUG, LOCAL)} />
-        </Shown.Provider>
+        </Shown>
       ),
       host,
     );
+    flush();
     expect(wire.input?.()).toBeNull();
 
     setShown(true);
+    flush();
     expect(wire.input?.()).toEqual({
       repoRoot: "/home/srid/code/kolu/.worktrees/resize-bug",
     });

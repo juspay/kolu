@@ -41,6 +41,7 @@ import {
   Match,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import CodeTab from "../code-view/CodeTab";
 import { buildCodeQueries, createCodeLeases } from "../code-view/codeQueries";
@@ -63,8 +64,12 @@ const Read: Component<{
   id: WorkId;
   place: WorkPlace;
 }> = (props) => {
-  // The work is fixed for this mount: a card is one work's.
-  const owner = codeOwner("work", props.id);
+  // The work is fixed for this mount: a card is one work's, and every card is
+  // built keyed by that id (`WorkColumn.tsx`). READ ONCE, so the body takes no
+  // reactive read of its own — the owner and the view state are built from
+  // this id and never re-made.
+  const work = untrack(() => props.id);
+  const owner = codeOwner("work", work);
   const subject = createMemo(
     (): CodeSubject => ({
       owner,
@@ -79,10 +84,15 @@ const Read: Component<{
       comments: { kind: "work", id: props.id },
     }),
   );
-  const state = workCodeState(props.id, () => props.place.lister);
+  const state = workCodeState(work, () => props.place.lister);
   const leases = createCodeLeases();
   const queries = {
-    ...buildCodeQueries({ subject, state, active: leases.shown }),
+    ...buildCodeQueries({
+      subject,
+      state,
+      active: leases.shown,
+      showsPick: leases.showsPick,
+    }),
     lease: leases.lease,
   };
   const door = createCodeDoor((mode) => ({
@@ -91,9 +101,13 @@ const Read: Component<{
     repoRoot: props.place.repoPath,
     mode,
   }));
-  // The work's back/forward follows its root, handed over with the work it
-  // belongs to as one pair.
-  createEffect(() => syncWorkCodeRoot(props.id, props.place.repoPath));
+  // The work's back/forward follows its root.
+  createEffect(
+    () => props.place.repoPath,
+    (root) => {
+      syncWorkCodeRoot(work, root);
+    },
+  );
   const [box, setBox] = createSignal<HTMLDivElement>();
   const boxSize = createElementSize(box);
   // The box's width once it has been measured, and from then on. A fresh

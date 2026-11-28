@@ -8,17 +8,20 @@
 import type { PadiDiagnostics, TimingSummary } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import type { HostKey } from "kolu-common/hostKey";
+import { type HostKey, hostKeysEqual } from "kolu-common/hostKey";
 import {
   type Accessor,
   type Component,
+  createEffect,
+  createMemo,
   createSignal,
   For,
-  type JSX,
   Match,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { runAction } from "./runAction";
 import { formatSize } from "./ui/memory";
 import Row from "./ui/Row";
@@ -26,7 +29,9 @@ import Section from "./ui/Section";
 import { activeHost, padiMap } from "./wire";
 
 export type PadiDiagnosticsFetch =
-  | { readonly kind: "loading"; readonly host: HostKey }
+  /** `host: null` is the value the fetch is built with, before its first ask
+   *  — replaced in the mount's own flush, so it is never painted. */
+  | { readonly kind: "loading"; readonly host: HostKey | null }
   | {
       readonly kind: "not-connected";
       readonly host: HostKey;
@@ -44,18 +49,45 @@ export interface PadiDiagnosticsFetcher {
   readonly refresh: () => void;
 }
 
-/** The dialog's one fetch of the active host's diagnostics: asked once now,
- *  and again on `refresh()`. A superseded answer is dropped. */
+/** The dialog's one fetch of the active host's diagnostics: asked once as the
+ *  dialog mounts, and again on `refresh()`. A superseded answer is dropped.
+ *
+ *  The question's two reads — which host is active, and whether that host's
+ *  padi is connected — are taken in a MEMO, never in the imperative phase.
+ *  A keyed-entry read registers its subscription ref-count through
+ *  `onCleanup` under whatever scope reads it, and a settle callback forbids
+ *  children, so reading the entry there throws. The memo is both a legal
+ *  owner for that cleanup and the right lifetime for it: the ref-count is
+ *  released when the dialog goes away.
+ *
+ *  The ask is the effect's apply arm, where a write belongs, and only its
+ *  FIRST run asks — a later host switch or connection change recomputes the
+ *  memo and asks nothing, so this stays the dialog's one automatic question.
+ *  That run lands in the mount's flush, so the section opens on "Asking
+ *  padi…" with the question already put. */
 export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
   const [state, setState] = createSignal<PadiDiagnosticsFetch>({
     kind: "loading",
-    host: activeHost(),
+    host: null,
   });
   let generation = 0;
-  const refresh = (): void => {
-    const host = activeHost();
-    const entry = padiMap.entry(host);
-    const connection = entry.state().kind;
+  /** The question's two inputs. The entry's status is a fresh record on every
+   *  publish — a reconnect countdown ticking, a probe landing — so an
+   *  ungated memo would mint an equal-but-new pair for a host and a
+   *  connection that had not moved. The gate is the two values the ask
+   *  reads. */
+  const target = createMemo(
+    () => {
+      const host = activeHost();
+      return { host, connection: padiMap.entry(host).state().kind };
+    },
+    {
+      equals: (a, b) =>
+        hostKeysEqual(a.host, b.host) && a.connection === b.connection,
+    },
+  );
+  const ask = (now: { host: HostKey; connection: string }): void => {
+    const { host, connection } = now;
     const mine = ++generation;
     if (connection !== "connected") {
       setState({ kind: "not-connected", host, connection });
@@ -64,21 +96,35 @@ export function createPadiDiagnosticsFetch(): PadiDiagnosticsFetcher {
     setState({ kind: "loading", host });
     runAction(
       "read padi diagnostics",
-      entry.procedures.diagnostics.read().pipe(
-        Effect.match({
-          onSuccess: (answer) => {
-            if (mine === generation) setState({ kind: "answer", host, answer });
-          },
-          onFailure: (err) => {
-            if (mine === generation) {
-              setState({ kind: "error", host, message: toError(err).message });
-            }
-          },
-        }),
-      ),
+      padiMap
+        .entry(host)
+        .procedures.diagnostics.read()
+        .pipe(
+          Effect.match({
+            onSuccess: (answer) => {
+              if (mine === generation) {
+                setState({ kind: "answer", host, answer });
+              }
+            },
+            onFailure: (err) => {
+              if (mine === generation) {
+                setState({
+                  kind: "error",
+                  host,
+                  message: toError(err).message,
+                });
+              }
+            },
+          }),
+        ),
     );
   };
-  refresh();
+  createEffect(target, (now, previous) => {
+    if (previous === undefined) ask(now);
+  });
+  /** The Refresh button — a DOM event handler, which may read freely; the
+   *  memo is already owned, so taking its current value registers nothing. */
+  const refresh = (): void => ask(untrack(target));
   return { state, refresh };
 }
 
@@ -173,7 +219,7 @@ const Answer: Component<{ answer: PadiDiagnostics }> = (props) => (
             each={props.answer.children.rows}
             fallback={
               <tr>
-                <td class="italic text-fg-3/60" colSpan={4}>
+                <td class="italic text-fg-3/60" colspan={4}>
                   none started
                 </td>
               </tr>
@@ -229,7 +275,7 @@ const Answer: Component<{ answer: PadiDiagnostics }> = (props) => (
             each={props.answer.calls.rows}
             fallback={
               <tr>
-                <td class="italic text-fg-3/60" colSpan={4}>
+                <td class="italic text-fg-3/60" colspan={4}>
                   no calls
                 </td>
               </tr>

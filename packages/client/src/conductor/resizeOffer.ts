@@ -22,20 +22,37 @@
 import { sameGrid, type TerminalGrid } from "@kolu/xterm-kit/solid";
 
 export interface ResizeOfferDeps {
-  /** The terminal's real size, as its record states it. */
-  readonly real: () => TerminalGrid | null | undefined;
-  /** The size the pane would ask for, `null` until it has measured. */
-  readonly asked: () => TerminalGrid | null | undefined;
   /** How long a mismatch must hold before the press is offered. */
   readonly settleMs: number;
   /** Show or hide the press. */
   readonly show: (offered: boolean) => void;
 }
 
+/** THE TWO SIZES A TICK IS ABOUT, handed in rather than read: the caller is
+ *  the pane's effect, whose imperative half reads no reactive state — its
+ *  compute has already read both. */
+export interface ResizeOfferNow {
+  /** The terminal's real size, as its record states it. */
+  readonly real: TerminalGrid | null | undefined;
+  /** The size the pane would ask for, `null` until it has measured. */
+  readonly asked: TerminalGrid | null | undefined;
+}
+
+/** A GRID'S TWO NUMBERS, COPIED OFF WHATEVER HOLDS THEM — the terminal's
+ *  record is a subscription store, so its grid arrives as a proxy whose
+ *  `cols` and `rows` are reads of their own. Taking them here, in the
+ *  caller's COMPUTE, is what makes {@link ResizeOffer.observe} a comparison
+ *  of plain numbers — and what makes the effect wake at all when a resize
+ *  someone else asked for is merged into the record in place, leaving the
+ *  `grid` key the compute would otherwise track untouched. */
+export const plainGrid = (
+  g: TerminalGrid | null | undefined,
+): TerminalGrid | null => (g ? { cols: g.cols, rows: g.rows } : null);
+
 export interface ResizeOffer {
   /** Re-read both sizes. Safe on every tick: an unchanged pair, compared by
    *  value, keeps whatever wait or answer stands. */
-  observe(): void;
+  observe(now: ResizeOfferNow): void;
   /** Cancel a pending wait — the pane's teardown. */
   dispose(): void;
 }
@@ -54,9 +71,9 @@ export function createResizeOffer(deps: ResizeOfferDeps): ResizeOffer {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => clearTimeout(timer);
   return {
-    observe() {
-      const nextReal = deps.real();
-      const nextAsked = deps.asked();
+    observe(now) {
+      const nextReal = now.real;
+      const nextAsked = now.asked;
       if (seen && same(nextReal, real) && same(nextAsked, asked)) return;
       seen = true;
       real = nextReal;

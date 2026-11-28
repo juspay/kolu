@@ -5,6 +5,7 @@
  *  (e.g. on view change). */
 
 import { type Component, Show } from "solid-js";
+import { trueWord } from "../ui/attrWord";
 import { CloseIcon, SearchIcon } from "../ui/Icons";
 
 const FileSearchInput: Component<{
@@ -24,13 +25,13 @@ const FileSearchInput: Component<{
       placeholder="filter files…"
       class="flex-1 min-w-0 bg-transparent outline-none border-0 placeholder:text-fg-3/40 text-fg"
       data-testid="diff-filter-search"
-      spellcheck={false}
+      spellcheck="false"
       autocomplete="off"
     />
     <Show when={props.value.length > 0}>
       <button
         type="button"
-        data-touch={props.touch || undefined}
+        data-touch={trueWord(props.touch)}
         onClick={() => props.onChange("")}
         title="Clear filter"
         class="grid place-items-center shrink-0 text-fg-3 hover:text-fg cursor-pointer p-0.5 -mr-0.5 data-[touch=true]:p-0 data-[touch=true]:h-6 data-[touch=true]:w-6"

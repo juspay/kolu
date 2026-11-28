@@ -35,18 +35,22 @@
  *  the pair out of the draft).
  */
 
+import type { AgentModels } from "@kolu/agent-distro/models";
+import { toError } from "@kolu/surface/run-stream";
 import { Option } from "effect";
 import { decodeHostKey } from "kolu-common/hostKey";
 import {
   type Chosen,
   harnessForModel,
   hostOf,
+  isAsked,
   type KoluChoice,
   type ModelChoices,
   modelNotOffered,
   type Recalled,
   roleOfKey,
   type SentAnswer,
+  setupKeyOf,
   type SetupMemory,
   unofferedWhy,
   type Work,
@@ -54,7 +58,7 @@ import {
 import {
   type Component,
   createMemo,
-  createResource,
+  isPending,
   Match,
   Show,
   Switch,
@@ -63,8 +67,14 @@ import { agentDistroListing } from "../agents/useAgentDistro";
 import { runActionPromise } from "../runAction";
 import { padiRpcOf } from "../wire";
 import AskOptions, { type AskOption } from "./AskOptions";
-import { pickOnly, seededChips, typedKey, typeOnly } from "./askForm";
-import { askDraft } from "./drafts";
+import {
+  draftOf,
+  forgetAskFields,
+  pickOnly,
+  seededChips,
+  typedDraftOf,
+  typeOnly,
+} from "./askForm";
 
 /** One option as this question draws it — and how answering with it is
  *  chosen: a pick, or a model typed before, which goes back in the box. */
@@ -104,6 +114,36 @@ type Offer =
       readonly empty: string;
     };
 
+/** WHAT THE HOST ANSWERED about one harness's models: the list it read, or
+ *  why it could not read one. A failure is a VALUE here — a question that
+ *  could not be asked is still answerable, and an exception travelling
+ *  through the graph would reach readers of this question that are nowhere
+ *  near it. */
+type Listed =
+  | { readonly kind: "read"; readonly answer: AgentModels }
+  | { readonly kind: "unread"; readonly why: string };
+
+/** WHERE AND WHAT A MODEL QUESTION IS ASKED OF — the harness it is a model
+ *  of, and the checkout to ask it in. */
+interface Where {
+  readonly harness: string;
+  readonly cwd: string;
+}
+
+/** ... and that, or nothing to ask of, WITH WHY: a harness question (and a
+ *  model question nobody has named a harness for) asks nothing because there
+ *  is no harness, and a watch asks nothing because there is no checkout to
+ *  ask it in. The reason travels in the subject so that the host read and
+ *  every word drawn beside it are said from one value. */
+type Subject =
+  | { readonly kind: "unasked"; readonly why: "no-harness" }
+  | {
+      readonly kind: "unasked";
+      readonly why: "no-checkout";
+      readonly harness: string;
+    }
+  | { readonly kind: "asked"; readonly where: Where };
+
 const BOX_CLASS =
   "mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent";
 
@@ -123,14 +163,43 @@ const WorkChoiceQuestion: Component<{
    *  role and one of its two. */
   const what = (): "harness" | "model" => roleOfKey(props.decision.key).what;
 
-  /** This form's picks so far, as {@link harnessForModel} reads them: the
-   *  harness answered beside this question counts before it is sent. */
+  /** This form's answer to THE ONE QUESTION {@link harnessForModel} reads —
+   *  this role's harness — as it stands: answered beside this question
+   *  before it is sent, and the one it OPENS on while nobody has touched it
+   *  ({@link draftOf}).
+   *
+   *  ONLY that key. A model question reads this; a harness question does
+   *  not, so the graph runs one way. Asking every other decision of the ask
+   *  for its default would make two model questions each a source of the
+   *  other's {@link harness} memo — a cycle, which Solid answers with a
+   *  throw out of the flush, and `full` mode draws exactly that pair. */
   const drafted = (): ReadonlyMap<string, SentAnswer> => {
+    const key = setupKeyOf(roleOfKey(props.decision.key).role, "harness");
     const values = new Map<string, SentAnswer>();
     for (const one of props.work.decisions)
-      if (one.ask === props.ask)
-        values.set(one.id, askDraft(props.ask, one.id));
+      if (
+        one.ask === props.ask &&
+        one.topic === "setup" &&
+        Option.contains(key, one.key)
+      )
+        values.set(one.id, draftOf(props.ask, one.id));
     return values;
+  };
+
+  /** THE MODEL QUESTIONS BESIDE THIS HARNESS that are still being asked —
+   *  what a harness pressed here takes with it, since a model is a model of
+   *  one harness. */
+  const modelsBeside = (): ReadonlyArray<string> => {
+    const key = setupKeyOf(roleOfKey(props.decision.key).role, "model");
+    return props.work.decisions
+      .filter(
+        (one) =>
+          one.ask === props.ask &&
+          one.topic === "setup" &&
+          isAsked(one) &&
+          Option.contains(key, one.key),
+      )
+      .map((one) => one.id);
   };
 
   /** The harness this model is for — read by the host call, by the memory
@@ -141,7 +210,6 @@ const WorkChoiceQuestion: Component<{
       what() === "model"
         ? harnessForModel(props.work, props.ask, props.decision.key, drafted())
         : Option.none<string>(),
-    undefined,
     // BY VALUE: every keystroke in the form re-reads the draft, and a fresh
     // `Option` of the same harness is not news — re-asking the host for it
     // would drop the list back to loading under the person typing.
@@ -157,35 +225,30 @@ const WorkChoiceQuestion: Component<{
       : Option.none<string>(),
   );
 
-  /** WHERE AND WHAT TO ASK — the harness and the checkout — compared by value
-   *  for the same reason as {@link harness}. */
-  const where = createMemo(
-    () =>
-      Option.getOrUndefined(
-        Option.flatMap(harness(), (one) =>
-          Option.map(repo(), (cwd) => ({ harness: one, cwd })),
-        ),
-      ),
-    undefined,
+  /** WHAT THIS QUESTION IS BEING ASKED OF — the harness and the checkout, or
+   *  nothing to ask of and why. Compared by value for the same reason as
+   *  {@link harness}, and ONE value rather than a nullable because it is what
+   *  the model read below is made from and what all its content reads. */
+  const subject = createMemo<Subject>(
+    () => {
+      const one = Option.getOrUndefined(harness());
+      if (one === undefined) return { kind: "unasked", why: "no-harness" };
+      const cwd = Option.getOrUndefined(repo());
+      if (cwd === undefined)
+        return { kind: "unasked", why: "no-checkout", harness: one };
+      return { kind: "asked", where: { harness: one, cwd } };
+    },
     {
       equals: (a, b) =>
-        a === b ||
-        (a !== undefined &&
-          b !== undefined &&
-          a.harness === b.harness &&
-          a.cwd === b.cwd),
+        a.kind === "asked"
+          ? b.kind === "asked" &&
+            a.where.harness === b.where.harness &&
+            a.where.cwd === b.where.cwd
+          : b.kind === "unasked" &&
+            a.why === b.why &&
+            (a.why === "no-harness" ||
+              (b.why === "no-checkout" && a.harness === b.harness)),
     },
-  );
-
-  /** What the host says that harness offers. The source is the harness and
-   *  the place to ask from, so a change in the same form re-asks and a
-   *  question with no harness yet asks nothing at all. */
-  const [models] = createResource(
-    where,
-    (one: { harness: string; cwd: string }) =>
-      runActionPromise(
-        padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models(one),
-      ),
   );
 
   const harnessOffer = (): Offer => {
@@ -224,152 +287,38 @@ const WorkChoiceQuestion: Component<{
       .modelsUsed(harness)
       .map((one) => choiceOf(one.value, one.chosen));
 
-  const modelOffer = (): Offer => {
+  /** WHAT A QUESTION STILL BEING ASKED SAYS — one of the three offers this
+   *  question is drawn from, not a boundary's fallback: the host read answers
+   *  `undefined` while it is in flight rather than holding anything, so this
+   *  is ordinary content and the question is never torn out and rebuilt for a
+   *  list that lands in a few milliseconds. The harness is handed in by the
+   *  subject the read was said from, so these words never name a harness the
+   *  answer on screen is not of. */
+  const asking = (one: string): Offer => ({
+    kind: "waiting",
+    words: `Asking what ${one} offers here…`,
+  });
+
+  /** THE HOST COULD NOT LIST — said in its own words, beside what a harness
+   *  with no list gets: the models used before and a box to type one. This is
+   *  the `Errored` fallback's offer: the read throws the host's own failure,
+   *  and a question that could not be asked is still answerable. */
+  const unread = (why: string): Offer => {
     const one = Option.getOrUndefined(harness());
-    if (one === undefined)
-      return {
-        kind: "waiting",
-        words: "Choose the harness first — a model is a model of one.",
-      };
-    if (Option.isNone(repo()))
-      return {
-        kind: "failed",
-        words: `This work watches a terminal, so there is no checkout to ask ${one} what it offers in.`,
-      };
-    if (models.loading)
-      return { kind: "waiting", words: `Asking what ${one} offers here…` };
-    // THE HOST COULD NOT LIST — said in its own words, beside what a harness
-    // with no list gets: the models used before and a box to type one.
-    const unread = models.error as Error | undefined;
-    if (unread !== undefined)
-      return {
-        kind: "choices",
-        context: one,
-        options: usedBefore(one),
-        offered: { kind: "unavailable", why: unread.message },
-        empty: `No model was run with ${one} before — type the one to run.`,
-      };
-    const answer = models();
-    if (answer === undefined)
-      return { kind: "waiting", words: `Asking what ${one} offers here…` };
-    if (answer.models.kind === "unlisted")
-      return {
-        kind: "choices",
-        context: one,
-        options: usedBefore(one),
-        offered: answer.models,
-        empty: `${one} cannot list its models — type the one to run.`,
-      };
+    if (one === undefined) return { kind: "failed", words: why };
     return {
       kind: "choices",
       context: one,
-      options: answer.models.ids.map((id) => choiceOf(id, "picked")),
-      offered: answer.models,
-      empty: `${one} lists no models on this host.`,
+      options: usedBefore(one),
+      offered: { kind: "unavailable", why },
+      empty: `No model was run with ${one} before — type the one to run.`,
     };
-  };
-
-  /** Read by the three branches below and by the seeding, so it is a memo. */
-  const offer = createMemo(() =>
-    what() === "harness" ? harnessOffer() : modelOffer(),
-  );
-
-  const waiting = () => {
-    const now = offer();
-    return now.kind === "waiting" ? now : null;
-  };
-  const failed = () => {
-    const now = offer();
-    return now.kind === "failed" ? now : null;
-  };
-  const choices = () => {
-    const now = offer();
-    return now.kind === "choices" ? now : null;
   };
 
   /** Whether this question takes a model typed into a box: a harness that
    *  cannot list, or a host that could not list just now. */
   const takesTyped = (offered: ModelChoices): boolean =>
     offered.kind !== "listed";
-
-  /** What this person answered last, if it is still something they can answer
-   *  here, as it was chosen: a pick that is still drawn (or, with no list to
-   *  hold it to, still a model id), or a typed model where there is a box to
-   *  put it back in (words saved as a model before kolu drew these options
-   *  are not put back under their hands). */
-  const standing = (): Option.Option<Recalled> => {
-    const now = choices();
-    if (now === null) return Option.none();
-    return Option.filter(
-      props.memory.last(props.decision.key, harness()),
-      (want) =>
-        (want.chosen === "picked" || takesTyped(now.offered)) &&
-        Option.isNone(modelNotOffered(want.value, want.chosen, now.offered)),
-    );
-  };
-
-  /** WHY THE MODEL TYPED IN THE BOX IS NOT ONE KOLU WOULD RECORD — the rule
-   *  the answer is checked by where it is recorded, said as it is typed, so a
-   *  refusal is never the first a person hears of it. None while the box is
-   *  empty or holds a model id — and for a question with no box. */
-  const typedWhy = (): Option.Option<string> => {
-    const now = choices();
-    const typed = askDraft(props.ask, typedKey(props.decision.id))[0] ?? "";
-    if (now === null || typed === "") return Option.none();
-    return Option.map(
-      modelNotOffered(typed, "typed", now.offered),
-      (why) =>
-        // The box is only ever drawn for a model question, so the list's own
-        // context IS its harness.
-        `${JSON.stringify(typed)} ${unofferedWhy(
-          { key: props.decision.key, value: typed, why, harness: now.context },
-          [],
-          hostOf(props.work),
-        )}.`,
-    );
-  };
-
-  /** The options as they are drawn — the default first, and that default in
-   *  the draft once the list it belongs to is known. */
-  const chips = seededChips(
-    props.ask,
-    props.decision.id,
-    () => Option.fromNullishOr(choices()?.context),
-    () => choices()?.options ?? [],
-    standing,
-  );
-
-  /** How answering with `value` is chosen — a pick, unless it is a model this
-   *  person typed before, which goes back in the box as typed. */
-  const chosenOf = (value: string): Chosen =>
-    choices()?.options.find((one) => one.value === value)?.chosen ?? "picked";
-
-  /** A chip pressed: a pick goes in as the pick; a model typed before goes
-   *  back in the box, so it is sent as typed again. */
-  const press = (value: string): void => {
-    if (chosenOf(value) === "typed")
-      typeOnly(props.ask, props.decision.id, value);
-    else pickOnly(props.ask, props.decision.id, value);
-  };
-
-  /** Whether a chip reads as the answer: the pick, or the words in the box. */
-  const isPressed = (value: string): boolean =>
-    chosenOf(value) === "typed"
-      ? (askDraft(props.ask, typedKey(props.decision.id))[0] ?? "") === value
-      : askDraft(props.ask, props.decision.id).includes(value);
-
-  /** WHAT THIS PERSON ANSWERED THIS BEFORE, most recent first — what a long
-   *  list rests on: every model they ran this harness on, or the harness they
-   *  last chose for this role. */
-  const usedValues = (): ReadonlyArray<string> =>
-    Option.match(harness(), {
-      onSome: (one) => usedBefore(one).map((model) => model.value),
-      onNone: () =>
-        Option.match(props.memory.last(props.decision.key, Option.none()), {
-          onSome: (last) => [last.value],
-          onNone: () => [],
-        }),
-    });
 
   /** THE ONE THING A PERSON MUST BE TOLD about a question they cannot answer
    *  yet: pressing Answer does not answer it, and it will still be there
@@ -398,100 +347,287 @@ const WorkChoiceQuestion: Component<{
     </p>
   );
 
-  return (
-    <Switch>
-      <Match when={waiting()}>
-        {(now) => (
-          <>
-            <p
-              data-testid="conductor-ask-waiting"
-              data-field={props.decision.id}
-              class={LINE_CLASS}
-            >
-              {now().words}
-            </p>
-            <StaysOpen />
-          </>
-        )}
-      </Match>
-      <Match when={failed()}>
-        {(now) => (
-          // THE HOST'S OWN WORDS. Not "no models": a question that could not
-          // be asked is answered by saying so.
-          <>
-            <Failed words={now().words} />
-            <StaysOpen />
-          </>
-        )}
-      </Match>
-      <Match when={choices()}>
-        {(now) => (
-          <>
-            {/* THE HOST COULD NOT LIST: its own words, ABOVE what can still
-                be chosen — a person answering this does so knowing the list
-                was not read. */}
-            <Show
-              when={(() => {
-                const offered = now().offered;
-                return offered.kind === "unavailable" ? offered : null;
-              })()}
-            >
-              {(unread) => <Failed words={unread().why} />}
-            </Show>
-            <Show when={now().options.length > 0}>
-              <AskOptions
-                field={props.decision.id}
-                options={chips()}
-                usedBefore={usedValues()}
-                picked={isPressed}
-                onPick={press}
-                searchLabel={what() === "model" ? "models" : "harnesses"}
-              />
-            </Show>
-            <Show when={now().options.length === 0 && now().empty !== ""}>
+  /** THE QUESTION AS IT IS DRAWN, for ONE offer — the three states a person
+   *  must tell apart, each with its own face. The offer is a prop because the
+   *  same face draws every one of them: what is still being asked (the
+   *  pending model read, {@link asking}) and what could not be asked (the
+   *  `Errored` fallback's offer, {@link unread}) are offers like any other,
+   *  and the chips, the box and the seeding behave the same under each. */
+  const Offered: Component<{ readonly offer: Offer }> = (shown) => {
+    const waiting = () => (shown.offer.kind === "waiting" ? shown.offer : null);
+    const failed = () => (shown.offer.kind === "failed" ? shown.offer : null);
+    const choices = () => (shown.offer.kind === "choices" ? shown.offer : null);
+
+    /** What this person answered last, if it is still something they can
+     *  answer here, as it was chosen: a pick that is still drawn (or, with no
+     *  list to hold it to, still a model id), or a typed model where there is
+     *  a box to put it back in (words saved as a model before kolu drew these
+     *  options are not put back under their hands). */
+    const standing = (): Option.Option<Recalled> => {
+      const now = choices();
+      if (now === null) return Option.none();
+      return Option.filter(
+        props.memory.last(props.decision.key, harness()),
+        (want) =>
+          (want.chosen === "picked" || takesTyped(now.offered)) &&
+          Option.isNone(modelNotOffered(want.value, want.chosen, now.offered)),
+      );
+    };
+
+    /** WHY THE MODEL TYPED IN THE BOX IS NOT ONE KOLU WOULD RECORD — the rule
+     *  the answer is checked by where it is recorded, said as it is typed, so
+     *  a refusal is never the first a person hears of it. None while the box
+     *  is empty or holds a model id — and for a question with no box. */
+    const typedWhy = (): Option.Option<string> => {
+      const now = choices();
+      const typed = typedDraftOf(props.ask, props.decision.id)[0] ?? "";
+      if (now === null || typed === "") return Option.none();
+      return Option.map(
+        modelNotOffered(typed, "typed", now.offered),
+        (why) =>
+          // The box is only ever drawn for a model question, so the list's own
+          // context IS its harness.
+          `${JSON.stringify(typed)} ${unofferedWhy(
+            {
+              key: props.decision.key,
+              value: typed,
+              why,
+              harness: now.context,
+            },
+            [],
+            hostOf(props.work),
+          )}.`,
+      );
+    };
+
+    /** The options as they are drawn — the default first, and that same
+     *  default read as the answer until somebody touches this question. */
+    const chips = seededChips(
+      () => props.ask,
+      () => props.decision.id,
+      () => choices()?.options ?? [],
+      standing,
+    );
+
+    /** How answering with `value` is chosen — a pick, unless it is a model
+     *  this person typed before, which goes back in the box as typed. */
+    const chosenOf = (value: string): Chosen =>
+      choices()?.options.find((one) => one.value === value)?.chosen ?? "picked";
+
+    /** A chip pressed: a pick goes in as the pick; a model typed before goes
+     *  back in the box, so it is sent as typed again.
+     *
+     *  A MODEL IS A MODEL OF ONE HARNESS. Naming a different harness here
+     *  takes the model answered beside it with it, so that question is
+     *  untouched again and opens on the new harness's own last model rather
+     *  than carrying a model the new harness does not run. */
+    const press = (value: string): void => {
+      const moved = what() === "harness" && !isPressed(value);
+      if (chosenOf(value) === "typed")
+        typeOnly(props.ask, props.decision.id, value);
+      else pickOnly(props.ask, props.decision.id, value);
+      if (moved) forgetAskFields(props.ask, modelsBeside());
+    };
+
+    /** Whether a chip reads as the answer: the pick, or the words in the
+     *  box. */
+    const isPressed = (value: string): boolean =>
+      chosenOf(value) === "typed"
+        ? (typedDraftOf(props.ask, props.decision.id)[0] ?? "") === value
+        : draftOf(props.ask, props.decision.id).includes(value);
+
+    /** WHAT THIS PERSON ANSWERED THIS BEFORE, most recent first — what a long
+     *  list rests on: every model they ran this harness on, or the harness
+     *  they last chose for this role. */
+    const usedValues = (): ReadonlyArray<string> =>
+      Option.match(harness(), {
+        onSome: (one) => usedBefore(one).map((model) => model.value),
+        onNone: () =>
+          Option.match(props.memory.last(props.decision.key, Option.none()), {
+            onSome: (last) => [last.value],
+            onNone: () => [],
+          }),
+      });
+
+    return (
+      <Switch>
+        <Match when={waiting()}>
+          {(now) => (
+            <>
               <p
-                data-testid="conductor-ask-none"
+                data-testid="conductor-ask-waiting"
                 data-field={props.decision.id}
                 class={LINE_CLASS}
               >
-                {now().empty}
+                {now().words}
               </p>
-            </Show>
-            <Show when={takesTyped(now().offered)}>
-              <input
-                type="text"
-                data-testid="conductor-ask-other"
-                data-field={props.decision.id}
-                placeholder="or name the model yourself"
-                value={
-                  askDraft(props.ask, typedKey(props.decision.id))[0] ?? ""
-                }
-                class={BOX_CLASS}
-                onInput={(event) =>
-                  typeOnly(
-                    props.ask,
-                    props.decision.id,
-                    event.currentTarget.value,
-                  )
-                }
-              />
-              <Show when={Option.getOrUndefined(typedWhy())}>
-                {(why) => (
-                  <p
-                    data-testid="conductor-ask-invalid"
-                    data-field={props.decision.id}
-                    class="mt-1.5 m-0 text-alert"
-                  >
-                    {why()}
-                  </p>
-                )}
+              <StaysOpen />
+            </>
+          )}
+        </Match>
+        <Match when={failed()}>
+          {(now) => (
+            // THE HOST'S OWN WORDS. Not "no models": a question that could not
+            // be asked is answered by saying so.
+            <>
+              <Failed words={now().words} />
+              <StaysOpen />
+            </>
+          )}
+        </Match>
+        <Match when={choices()}>
+          {(now) => (
+            <>
+              {/* THE HOST COULD NOT LIST: its own words, ABOVE what can still
+                  be chosen — a person answering this does so knowing the list
+                  was not read. */}
+              <Show
+                when={(() => {
+                  const offered = now().offered;
+                  return offered.kind === "unavailable" ? offered : null;
+                })()}
+              >
+                {(why) => <Failed words={why().why} />}
               </Show>
-            </Show>
-          </>
-        )}
-      </Match>
-    </Switch>
+              <Show when={now().options.length > 0}>
+                <AskOptions
+                  field={props.decision.id}
+                  options={chips()}
+                  usedBefore={usedValues()}
+                  picked={isPressed}
+                  onPick={press}
+                  searchLabel={what() === "model" ? "models" : "harnesses"}
+                />
+              </Show>
+              <Show when={now().options.length === 0 && now().empty !== ""}>
+                <p
+                  data-testid="conductor-ask-none"
+                  data-field={props.decision.id}
+                  class={LINE_CLASS}
+                >
+                  {now().empty}
+                </p>
+              </Show>
+              <Show when={takesTyped(now().offered)}>
+                <input
+                  type="text"
+                  data-testid="conductor-ask-other"
+                  data-field={props.decision.id}
+                  placeholder="or name the model yourself"
+                  value={typedDraftOf(props.ask, props.decision.id)[0] ?? ""}
+                  class={BOX_CLASS}
+                  onInput={(event) =>
+                    typeOnly(
+                      props.ask,
+                      props.decision.id,
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+                <Show when={Option.getOrUndefined(typedWhy())}>
+                  {(why) => (
+                    <p
+                      data-testid="conductor-ask-invalid"
+                      data-field={props.decision.id}
+                      class="mt-1.5 m-0 text-alert"
+                    >
+                      {why()}
+                    </p>
+                  )}
+                </Show>
+              </Show>
+            </>
+          )}
+        </Match>
+      </Switch>
+    );
+  };
+
+  /** WHAT THE HOST SAYS THAT HARNESS OFFERS. A question with no harness
+   *  named yet asks nothing at all.
+   *
+   *  AN ASYNC MEMO WITH `undefined` DECLARED AS ITS LOADING VALUE — the one
+   *  thing that keeps this question un-held. A read that can be not-ready
+   *  needs a `Loading` boundary over it, and a boundary over a question whose
+   *  host answers in a few milliseconds (every local host) does the one thing
+   *  a boundary must not do: it rips the whole question out, draws a line of
+   *  text and puts the question back a frame later — a spinner that appeared
+   *  and vanished (Solid 2's FALLBACK_FLASH, and nothing kolu can preload its
+   *  way out of, because the list is the host's to answer and is never
+   *  stored). Declared, the read is never pending to a reader: the question
+   *  is drawn once, says it is asking in its own words ({@link asking}, as
+   *  Solid 1's `models.loading` did), and gains the list in place.
+   *
+   *  A FAILED read is NOT swallowed and is NOT thrown either: the rejection
+   *  is read into the value as the host's own words, and the question is
+   *  drawn again around what can still be chosen ({@link unread}). Thrown, it
+   *  would reach every reader of this question's offer — including the form's
+   *  Answer fold, which sits outside any boundary this question could put
+   *  around itself, and which an escalated error halts. An offer that carries
+   *  its failure is a value like any other. */
+  const models = createMemo<Listed | undefined>(
+    () => {
+      const one = subject();
+      return one.kind === "unasked"
+        ? undefined
+        : runActionPromise(
+            padiRpcOf(decodeHostKey(hostOf(props.work))).agentDistro.models(
+              one.where,
+            ),
+          ).then(
+            (answer): Listed => ({ kind: "read", answer }),
+            (why): Listed => ({ kind: "unread", why: toError(why).message }),
+          );
+    },
+    { loadingValue: undefined },
   );
+
+  /** Said from {@link subject} ALONE — one value, so that the words on screen
+   *  and the answer they are about can never be of two different harnesses.
+   *  A read still in flight is `asking`, not the harness they left: the memo
+   *  keeps the last answer while the next one is out, so `isPending` is what
+   *  tells the two apart (Solid 1 read `models.loading` for this). */
+  const modelOffer = (): Offer => {
+    const one = subject();
+    if (one.kind === "unasked")
+      return one.why === "no-harness"
+        ? {
+            kind: "waiting",
+            words: "Choose the harness first — a model is a model of one.",
+          }
+        : {
+            kind: "failed",
+            words: `This work watches a terminal, so there is no checkout to ask ${one.harness} what it offers in.`,
+          };
+    const named = one.where.harness;
+    if (isPending(models)) return asking(named);
+    const listed = models();
+    if (listed === undefined) return asking(named);
+    if (listed.kind === "unread") return unread(listed.why);
+    const answer = listed.answer;
+    if (answer.models.kind === "unlisted")
+      return {
+        kind: "choices",
+        context: named,
+        options: usedBefore(named),
+        offered: answer.models,
+        empty: `${named} cannot list its models — type the one to run.`,
+      };
+    return {
+      kind: "choices",
+      context: named,
+      options: answer.models.ids.map((id) => choiceOf(id, "picked")),
+      offered: answer.models,
+      empty: `${named} lists no models on this host.`,
+    };
+  };
+
+  /** Read by the branches below and by the seeding, so it is a memo. */
+  const offer = createMemo(() =>
+    what() === "harness" ? harnessOffer() : modelOffer(),
+  );
+
+  return <Offered offer={offer()} />;
 };
 
 export default WorkChoiceQuestion;

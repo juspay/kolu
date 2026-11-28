@@ -98,6 +98,20 @@ Feature: Deep links — every view addressable by a #/… URL
     When I follow the live deep link "#/bananas"
     Then a toast should appear with text "doesn't point anywhere kolu knows"
 
+  Scenario: Following the same work link twice answers twice
+    # Each follow of a #/work/… link is a new request, even for the same work.
+    # A work that is not in kolu answers with a toast once its membership bound
+    # passes. The first toast is waited out before the second follow, so the
+    # second toast can only come from the second follow. Setting the identical
+    # address twice in a row fires no hashchange, so a host link changes the
+    # address in between, as a person following the link again would.
+    When I follow the live deep link "#/work/branch%3Alocal%2F%252Fhome%252Fme%252Fcode%252Folai%2Fchat-on-any-entity"
+    Then a toast should appear with text "That piece of work isn't in kolu"
+    And the toast "That piece of work isn't in kolu" should go away
+    When I follow the live deep link "#/h/local"
+    And I follow the live deep link "#/work/branch%3Alocal%2F%252Fhome%252Fme%252Fcode%252Folai%2Fchat-on-any-entity"
+    Then a toast should appear with text "That piece of work isn't in kolu"
+
   Scenario: Back and forward never replay a consumed deep link — the view stays put (DL3)
     # The deployed-build repro inverted: hashchange fires on history TRAVERSAL
     # too, and routing a browser-restored old hash teleported the view to a

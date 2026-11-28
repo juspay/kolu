@@ -26,6 +26,20 @@
       "url": "https://github.com/juspay/agent-distro/archive/c484767289442a956cc7681147a1b223382ab45f.tar.gz",
       "hash": "sha256-bVBeX2g3CENEk6DRbmIFVE8ABFkcc+fs1OymekaQ/kQ="
     },
+    "corvu-next": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "opencenter-cloud",
+        "repo": "corvu-next"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "bda3ccce64e781b587315f5776277d4d3070159c",
+      "url": "https://github.com/opencenter-cloud/corvu-next/archive/bda3ccce64e781b587315f5776277d4d3070159c.tar.gz",
+      "hash": "sha256-0D2U61afrVRy8AvsUwxfsZZ1fwf87UepVzOL+Cu/3Dw=",
+      "frozen": true
+    },
     "iTerm2-Color-Schemes": {
       "type": "Git",
       "repository": {

@@ -1,9 +1,8 @@
-import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { Stream } from "effect";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createRoot, createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createEffect, createRoot, createSignal, createStore } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 // `useTerminalMetadata` pulls `padi` (a live surface socket) and `solid-sonner`
@@ -115,15 +114,19 @@ vi.mock("solid-sonner", () => ({
   }),
 }));
 
+import type { TerminalKey } from "@kolu/terminal-vocab/terminalKey";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { PaneNode } from "./terminalTree";
 import {
+  mergeDisplayInfo,
   sameTerminalIdOrder,
   useTerminalMetadata,
 } from "./useTerminalMetadata";
 
 const tids = (...xs: string[]) => xs as TerminalId[];
-/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it.
+ *  Named `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("root-ancestor flatten vs nested pane tree (#2059)", () => {
   // Canvas paints every descendant under a root as a flat split tab; the Dock
@@ -148,7 +151,7 @@ describe("root-ancestor flatten vs nested pane tree (#2059)", () => {
         });
       const { terminalIds, getSplitPaneIds, getPaneTree } = useTerminalMetadata(
         {
-          list: () => ids.map((id) => ({ id }) as TerminalInfo),
+          list: () => ids,
         },
       );
       return { terminalIds, getSplitPaneIds, getPaneTree, dispose };
@@ -260,22 +263,22 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let downstreamRuns = 0;
       let lastRef: TerminalId[] = [];
-      createEffect(() => {
+      createEffect(terminalIds, (ids) => {
         downstreamRuns++;
-        lastRef = terminalIds();
+        lastRef = ids;
       });
-      await flush();
+      await settle();
       expect(downstreamRuns).toBe(1);
       const prevRef = lastRef;
 
       // A git/PR/agent field updates on one terminal; the id set is identical.
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: 42 }) }));
-      await flush();
+      await settle();
       expect(Object.is(prevRef, lastRef)).toBe(true);
       expect(downstreamRuns).toBe(1);
 
@@ -294,28 +297,28 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let downstreamRuns = 0;
       let lastRef: TerminalId[] = [];
-      createEffect(() => {
+      createEffect(terminalIds, (ids) => {
         downstreamRuns++;
-        lastRef = terminalIds();
+        lastRef = ids;
       });
-      await flush();
+      await settle();
       const refAfterTwo = lastRef;
       expect(downstreamRuns).toBe(1);
 
       setStore((s) => ({ ...s, c: meta() }));
       setKeys(tids("a", "b", "c")); // a terminal was created
-      await flush();
+      await settle();
       expect(Object.is(refAfterTwo, lastRef)).toBe(false);
       expect(downstreamRuns).toBe(2);
       const refAfterThree = lastRef;
 
       setKeys(tids("a", "b")); // "c" closed
-      await flush();
+      await settle();
       expect(Object.is(refAfterThree, lastRef)).toBe(false);
       expect(downstreamRuns).toBe(3);
 
@@ -335,21 +338,21 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as TerminalInfo),
+        list: keys,
       });
 
       let downstreamRuns = 0;
       let lastRef: TerminalId[] = [];
-      createEffect(() => {
+      createEffect(terminalIds, (ids) => {
         downstreamRuns++;
-        lastRef = terminalIds();
+        lastRef = ids;
       });
-      await flush();
+      await settle();
       const prevRef = lastRef;
       expect(downstreamRuns).toBe(1);
 
       setKeys(tids("c", "b", "a")); // order drives sidebar position labels
-      await flush();
+      await settle();
       expect(Object.is(prevRef, lastRef)).toBe(false);
       expect(downstreamRuns).toBe(2);
 
@@ -380,7 +383,7 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       bag.metaOf = () => meta;
       bag.clockOffset = () => offset;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       const out = getMetadata(tids("a")[0] as TerminalId);
       dispose();
@@ -459,31 +462,29 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       bag.metaOf = (id) => records[id] as unknown as TestMeta;
       bag.clockOffset = () => 90_000;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
-      await flush();
+      await settle();
       const a = tids("a")[0] as TerminalId;
       const agentOf = (id: TerminalId) =>
         (getMetadata(id) as { agent?: unknown } | undefined)?.agent;
       expect(agentOf(a)).toMatchObject({ state: "fresh" });
-      setRecords(
-        produce((all) => {
-          const record = all.a;
-          if (!record) throw new Error("no record a");
-          Object.assign(record.agent, {
-            kind: "claude-code",
-            state: "thinking",
-            sessionId: "s1",
-            model: "m",
-            summary: null,
-            taskProgress: null,
-            workflow: null,
-            contextTokens: null,
-            startedAt: START,
-          });
-        }),
-      );
-      await flush();
+      setRecords((all) => {
+        const record = all.a;
+        if (!record) throw new Error("no record a");
+        Object.assign(record.agent, {
+          kind: "claude-code",
+          state: "thinking",
+          sessionId: "s1",
+          model: "m",
+          summary: null,
+          taskProgress: null,
+          workflow: null,
+          contextTokens: null,
+          startedAt: START,
+        });
+      });
+      await settle();
       expect(agentOf(a)).toMatchObject({
         state: "thinking",
         startedAt: START - 90_000,
@@ -537,9 +538,9 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       bag.metaOf = (id) => store()[id];
       bag.clockOffset = () => 0;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
-      await flush();
+      await settle();
       const a = tids("a")[0] as TerminalId;
 
       const r1 = getMetadata(a);
@@ -550,14 +551,14 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       // An unrelated field ticks (lastActivityAt) — the reconcile keeps the record's
       // proxy identity; a re-introduced fresh-object mint would fail this.
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 5_000 }) }));
-      await flush();
+      await settle();
       const r2 = getMetadata(a);
       expect(Object.is(r1, r2)).toBe(true);
 
       // A redundant re-emit of an equal record lands identical projected values —
       // still the same reference (reconcile is a no-op).
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 5_000 }) }));
-      await flush();
+      await settle();
       expect(Object.is(r1, getMetadata(a))).toBe(true);
 
       dispose();
@@ -574,31 +575,36 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       bag.metaOf = (id) => store()[id];
       bag.clockOffset = offset;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
       const a = tids("a")[0] as TerminalId;
 
       let runs = 0;
       let seen: string | null | undefined;
-      createEffect(() => {
-        runs++;
-        const git = getMetadata(a)?.git;
-        seen = git?.kind === "repo" ? git.info.repoRoot : null;
-      });
-      await flush();
+      createEffect(
+        () => {
+          const git = getMetadata(a)?.git;
+          return git?.kind === "repo" ? git.info.repoRoot : null;
+        },
+        (repoRoot) => {
+          runs++;
+          seen = repoRoot;
+        },
+      );
+      await settle();
       expect(runs).toBe(1);
       expect(seen).toBe("/p");
 
       // lastActivityAt ticks — repoRoot unchanged. The #1714 flicker was this
       // re-running (→ the Code tab remount). Post-fix the leaf reader is untouched.
       setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 1_000 }) }));
-      await flush();
+      await settle();
       expect(runs).toBe(1);
 
       // The active host's clock offset re-measures — reprojects the epoch but not
       // repoRoot. The leaf reader must still not re-run.
       setOffset(30_000);
-      await flush();
+      await settle();
       expect(runs).toBe(1);
 
       // repoRoot ACTUALLY changes (a `cd` to a different repo) — now it re-runs.
@@ -620,7 +626,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
           lastActivityAt: START + 1_000,
         }),
       }));
-      await flush();
+      await settle();
       expect(runs).toBe(2);
       expect(seen).toBe("/q");
 
@@ -642,22 +648,26 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       bag.metaOf = (id) => store()[id];
       bag.clockOffset = () => 0;
       const { getMetadata } = useTerminalMetadata({
-        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+        list: () => tids("a"),
       });
-      await flush();
       const a = tids("a")[0] as TerminalId;
-      const agent1 = (getMetadata(a) as { agent?: unknown }).agent;
 
+      // The leaf reader is wired SYNCHRONOUSLY, inside the root's owner: after
+      // an await the owner is gone, and an effect created there would have none
+      // (NO_OWNER_EFFECT) — a real consumer never creates one that way.
       let stateRuns = 0;
       let seenState: unknown;
-      createEffect(() => {
-        stateRuns++;
-        seenState = (getMetadata(a) as { agent?: { state?: string } })?.agent
-          ?.state;
-      });
-      await flush();
+      createEffect(
+        () => (getMetadata(a) as { agent?: { state?: string } })?.agent?.state,
+        (state) => {
+          stateRuns++;
+          seenState = state;
+        },
+      );
+      await settle();
       expect(stateRuns).toBe(1);
       expect(seenState).toBe("thinking");
+      const agent1 = (getMetadata(a) as { agent?: unknown }).agent;
 
       // A sibling top-level field ticks; the agent sub-object is unchanged. The
       // `reconcile` keeps the agent proxy, and the state leaf reader does not re-run.
@@ -665,7 +675,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
         ...s,
         a: { cwd: "/p2", agent } as unknown as TestMeta,
       }));
-      await flush();
+      await settle();
       expect(
         Object.is(agent1, (getMetadata(a) as { agent?: unknown }).agent),
       ).toBe(true);
@@ -680,7 +690,7 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
           agent: { ...agent, state: "tool_use" },
         } as unknown as TestMeta,
       }));
-      await flush();
+      await settle();
       expect(stateRuns).toBe(2);
       expect(seenState).toBe("tool_use");
 
@@ -701,21 +711,25 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     bag.metaOf = (id) => records()[id];
     bag.clockOffset = () => 0;
     const store = useTerminalMetadata({
-      list: () => ids.map((id) => ({ id }) as TerminalInfo),
+      list: () => ids,
     });
     let splitWakes = 0;
     let displayWakes = 0;
-    createEffect(() => {
-      store.getPaneTree("a");
-      splitWakes++;
-    });
-    createEffect(() => {
-      store.getDisplayInfo("b")?.key.label;
-      displayWakes++;
-    });
-    await flush();
+    createEffect(
+      () => store.getPaneTree("a"),
+      () => {
+        splitWakes++;
+      },
+    );
+    createEffect(
+      () => store.getDisplayInfo("b")?.key.label,
+      () => {
+        displayWakes++;
+      },
+    );
+    await settle();
     setRecords((old) => ({ ...old, a: { ...old.a, lastActivityAt: 20 } }));
-    await flush();
+    await settle();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
     const oldKey = store.getDisplayInfo("a")?.key;
@@ -723,12 +737,106 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
       ...old,
       a: { ...old.a, cwd: "/different/renamed" },
     }));
-    await flush();
+    await settle();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
-    expect(oldKey?.label).toBe("/work/a");
+    // `a`'s OWN row did move — and it moved as a MERGE: the display table writes
+    // the leaves that changed rather than dropping a fresh row in, so the key a
+    // consumer is holding is still the key, now reading the new label. A
+    // replacement would have handed `a` a new row object (and woken every reader
+    // under it) for the one field that moved.
+    expect(store.getDisplayInfo("a")?.key).toBe(oldKey);
     expect(store.getDisplayInfo("a")?.key.label).toBe("/different/renamed");
-    expect(store.getDisplayInfo("a")?.key).not.toBe(oldKey);
+    expect(oldKey?.label).toBe("/different/renamed");
     dispose();
+  });
+});
+
+describe("the display row merge is TOTAL over the row's keys", () => {
+  const key = (suffix?: string): TerminalKey => ({
+    group: "kolu",
+    label: "main",
+    ...(suffix === undefined ? {} : { suffix }),
+  });
+  const row = (
+    over: Partial<TerminalDisplayInfo> = {},
+  ): TerminalDisplayInfo => ({
+    repoColor: "oklch(0.7 0.1 10)",
+    annotationColor: "oklch(0.7 0.1 80)",
+    subCount: 0,
+    key: key(),
+    ...over,
+  });
+
+  it("writes a field no hand-written list of leaves could name", () => {
+    // A field added to `TerminalDisplayInfo` tomorrow: the merge is the ONE
+    // write path into the display table, so a field it does not carry over is a
+    // field no consumer ever sees, silently and without a type error.
+    type Extended = TerminalDisplayInfo & { badge: string };
+    const into: Extended = { ...row(), badge: "old" };
+    mergeDisplayInfo<Extended>(into, { ...row(), badge: "new" });
+    expect(into.badge).toBe("new");
+  });
+
+  it("drops a leaf the fresh row no longer carries, and keeps the container", () => {
+    // The collision that gave this tile its `suffix` is gone. The whole-row
+    // write this merge replaces could not leave a stale leaf behind; neither may
+    // it — while the container a consumer holds stays the same object.
+    const into = row({ key: key("#a3f2"), subCount: 2 });
+    const heldKey = into.key;
+    mergeDisplayInfo(into, row({ subCount: 3 }));
+    expect(into.key).toBe(heldKey);
+    expect("suffix" in into.key).toBe(false);
+    expect(into.subCount).toBe(3);
+  });
+});
+
+/** THE TRI-STATE CENSUS is three counts, and the canvas's loading gate reads
+ *  it. A census tick that moves a record's fields leaves all three alone, so
+ *  without an equality gate the gate re-decides on every tick — Solid's
+ *  `UNSTABLE_MEMO_OUTPUT`, which `@kolu/solid-test-setup` fails the test on. */
+describe("recordPhases — the loading gate's input", () => {
+  it("does not republish when four ticks leave the three counts alone", async () => {
+    await createRoot(async (dispose) => {
+      const [keys] = createSignal(tids("a", "b"));
+      const [store, setStore] = createSignal<Record<string, TestMeta>>({
+        a: { cwd: "/home/user/p" },
+        b: { cwd: "/home/user/p" },
+      });
+      bag.keys = keys;
+      bag.metaOf = (id) => store()[id];
+
+      const { recordPhases } = useTerminalMetadata({
+        list: keys,
+      });
+
+      let runs = 0;
+      let last = { awaited: -1, parked: -1, live: -1 };
+      createEffect(recordPhases, (phases) => {
+        runs++;
+        last = phases;
+      });
+      await settle();
+      expect(runs).toBe(1);
+      expect(last).toEqual({ awaited: 0, parked: 0, live: 2 });
+
+      for (let i = 1; i <= 4; i++) {
+        setStore((s) => ({
+          ...s,
+          a: { cwd: "/home/user/p", lastActivityAt: i },
+        }));
+        await settle();
+      }
+      expect(runs).toBe(1);
+
+      // A record that ARRIVES moves a count, and that must still publish.
+      bag.metaOf = (id) => (id === "b" ? undefined : store()[id]);
+      setStore((s) => ({ ...s }));
+      await settle();
+      expect(runs).toBe(2);
+      expect(last).toEqual({ awaited: 1, parked: 0, live: 1 });
+
+      dispose();
+    });
   });
 });

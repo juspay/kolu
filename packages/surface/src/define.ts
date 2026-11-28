@@ -280,7 +280,7 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  for the same erasure reason. */
   client?: ClientCellPolicy<TPolicy>;
   /** WHAT IDENTIFIES AN ELEMENT OF AN ARRAY inside this cell's value, as a field
-   *  name — the one thing `solid-js/store`'s `reconcile` cannot be told anywhere
+   *  name — the one thing `solid-js`'s `reconcile` cannot be told anywhere
    *  else, and must never guess (`./solid/writeValue.ts` argues that at length).
    *
    *  Undeclared, a frame REPLACES every array element it merges, so a frame that
@@ -288,7 +288,8 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  array under it: a keyed `<For>` tears its DOM down per frame, and every
    *  per-row binding re-runs for every row for a one-character change in one row.
    *  Declared, an array whose elements carry the field is diffed BY IT: a repeated
-   *  frame notifies NOTHING and a reorder MOVES the objects a keyed view follows.
+   *  frame notifies NOTHING and a reorder MOVES the store rows a keyed view
+   *  follows instead of rebuilding them.
    *
    *  ONE field per member, because `reconcile` takes one. It reaches EVERY array in
    *  the value, at every depth; arrays whose elements do not carry the field are
@@ -297,13 +298,14 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  whose identity a consumer actually follows, and read the rest by value.
    *
    *  NAME A FIELD THE SCHEMA TYPES REQUIRED AND NON-NULLABLE. The merge decides
-   *  keyed-versus-positional for a whole array from its FIRST element's value, so
-   *  an optional field lets one row decide for every other row in that frame. It
-   *  cannot corrupt anything — an object survives a position only when its key
-   *  matches the one already there, so a mismatch replaces rather than recycles —
-   *  but it silently drops that frame back to the undeclared behaviour, which is
-   *  the whole thing you came here to stop. The schema is where that is made
-   *  unrepresentable; the merge sees values, not schemas.
+   *  keyed-versus-positional PER ELEMENT, and an element whose key reads
+   *  `undefined` takes the positional fallback: it adopts whatever row stands at
+   *  its index, which inside a declared array is some other record's. So an
+   *  optional field does not merely drop that array back to the undeclared
+   *  behaviour — it hands one record's store identity to another, silently and
+   *  one row at a time, which is the whole thing you came here to stop. The
+   *  schema is where that is made unrepresentable; the merge sees values, not
+   *  schemas.
    *
    *  DECLARED HERE and nowhere else: it is a fact about the member's SHAPE, so the
    *  spec is the one place both sides can read it from — the descriptor carries it
@@ -343,22 +345,24 @@ export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
    *  on the wire and in the store; this names a field inside the value filed
    *  there.
    *
-   *  WHICH DELIVERY APPLIES IT, precisely, because a collection has two and they
-   *  are chosen per CALL SITE, not per collection:
+   *  BOTH DELIVERIES APPLY IT, each at the grain it writes:
    *
    *    - the PER-KEY path — `.use({ keys })`, and any collection whose verbs omit
    *      `deltas` — opens one subscription per key through the same
    *      `createSubscription` seam a cell uses, so the merge is the same merge and
    *      the declaration governs it exactly as it governs a cell's.
-   *    - the BATCHED `deltas` path replaces each named leaf WHOLE rather than
-   *      merging into it, and must: a `fold` consumer may be holding the very
-   *      object a merge would mutate, so from that store's point of view a frame
-   *      handed onward is frozen. There is no merge there for a key to govern.
+   *    - the BATCHED `deltas` path merges each named ENTRY into the one standing
+   *      there (`solid/writeValue.ts`'s `writeEntryValue`), so a delta that moved
+   *      one field of a record wakes that field's readers and not the record's
+   *      other leaves — and the declaration governs the arrays inside that entry
+   *      exactly as it does on the per-key path.
    *
-   *  So a `deltas`-declaring collection may still declare this and mean it — the
-   *  narrowed `.use({ keys })` on that same collection is served per-key and will
-   *  honour it. What the batched path does is a property of that delivery, stated
-   *  where the delivery is, not a declaration silently dropped. */
+   *  That merge does NOT cost a `fold` consumer the frame objects it holds, which
+   *  is the thing this path has to protect: `reconcile` ADOPTS the incoming frame
+   *  at every level it reaches — an internal pointer swap, no clones and no
+   *  user-object mutation (`@solidjs/signals` 2.0.4 `dist/dev.js` `adoptPB`
+   *  :4364) — so a frame handed onward is still frozen, as it was when every
+   *  entry was replaced whole. */
   arrayKey?: string;
 }
 

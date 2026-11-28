@@ -27,7 +27,7 @@ import {
   type Component,
   createEffect,
   createSignal,
-  Index,
+  For,
   onCleanup,
 } from "solid-js";
 import { writeTextToClipboard } from "./clipboard";
@@ -115,15 +115,20 @@ export const LogTail: Component<LogTailProps> = (props) => {
 
   // Follow the newest line while the reader is at the bottom; leave the view
   // exactly where a reader who scrolled up put it.
-  createEffect(() => {
-    // Tracked read: a consumer hands a FRESH array from its memo exactly when
-    // the tail changed, so this re-runs on a new line whether the block is still
-    // filling its depth or already sliding at a fixed one.
-    const lines = props.lines;
-    if (lines.length > 0 && pinned() && box !== undefined) {
-      box.scrollTop = box.scrollHeight;
-    }
-  });
+  createEffect(
+    () => {
+      // Tracked reads: a consumer hands a FRESH array from its memo exactly
+      // when the tail changed, so this re-runs on a new line whether the block
+      // is still filling its depth or already sliding at a fixed one.
+      const lines = props.lines;
+      return lines.length > 0 && pinned();
+    },
+    (follow) => {
+      if (follow && box !== undefined) {
+        box.scrollTop = box.scrollHeight;
+      }
+    },
+  );
 
   const copy = () => {
     // Built BEFORE the write, synchronously in the click handler: the
@@ -161,9 +166,9 @@ export const LogTail: Component<LogTailProps> = (props) => {
         // row's own text never runs underneath it on a long line.
         class={`${LOG_TAIL_SURFACE} w-full pr-12 ${props.class ?? ""}`}
       >
-        <Index each={props.lines}>
+        <For each={props.lines} keyed={false}>
           {(entry) => <div class={LOG_TAIL_LINE}>{entry().line}</div>}
-        </Index>
+        </For>
       </div>
       {/* In the block's corner, and OUTSIDE the scroller so it cannot scroll
           away. A real <button>, so it is tab-reachable like any other control. */}

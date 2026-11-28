@@ -53,17 +53,32 @@
  *  shows its degraded state structurally (an errored `terminals`/`session` reads empty
  *  → the canvas's connecting/empty surface). */
 
-import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
+import {
+  encodeHostLocation,
+  LOCAL_LOCATION,
+  rosterIsEstablished,
+  tileTerminalOf,
+} from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
+  foldEach,
   type Subscription,
 } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import type { LivePlacement } from "../terminal/focusedTerminal";
+import {
+  containingTileOf,
+  type ParentEdge,
+  sameIdOrder,
+} from "../terminal/terminalTree";
 import { interpretClientError, padiMap } from "../wire";
+
+/** The empty roster — a stable reference, so a host that has not published a
+ *  standing does not mint a fresh key list on every read. */
+const NO_IDS: readonly TerminalId[] = [];
 
 /** The map entry lens `createHostWire` opens its cells/collections through. Aliased
  *  only to NAME the retained members' result types on {@link HostWire} PORTABLY —
@@ -75,6 +90,15 @@ type PadiEntry = ReturnType<typeof padiMap.entry>;
 /** One host's retained wire subscriptions. Its members are read through
  *  `activeScope().wire` by the exported facades and the metadata/daemon readers. */
 export interface HostWire {
+  /** The host's KEY LIST as the stream answers it — every id the registry
+   *  holds, tiles, splits and parked rows alike, and `undefined` until it has
+   *  answered at all.
+   *
+   *  It is also the LIVENESS fact, the one an absence-reader must use instead
+   *  of a record: a kill changes this list, while a record merely arriving
+   *  does not, so "the host no longer has this id" is answerable here a
+   *  daemon round trip before the composed records land. `createViewState`'s
+   *  visit prune reads it for exactly that reason. */
   terminalKeys: Subscription<TerminalId[]>;
   terminals: ReturnType<PadiEntry["collections"]["terminals"]["use"]>;
   session: ReturnType<PadiEntry["cells"]["session"]["use"]>;
@@ -83,10 +107,36 @@ export interface HostWire {
    *  because every reader that concludes an ABSENCE from `terminalKeys` needs
    *  both in the same breath (`listIsAuthoritative`, the fleet standing). */
   roster: ReturnType<PadiEntry["cells"]["roster"]["use"]>;
+  /** The READING of that pair — whether this host's list can be trusted as a
+   *  COMPLETE census right now. The one authority fact the removal reconcile
+   *  suppresses its eviction writes on and the focus derivation gates its
+   *  auto-switch on, so a supervised recycle's drain cannot be read as a
+   *  departure by one of them and not the other. `listIsAuthoritative`
+   *  (`kaval/useDaemonStatus`) is this for the ACTIVE host, conjoined with
+   *  the link-liveness leg. */
+  listIsCensus: Accessor<boolean>;
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
   /** Pure placement lookup over this host's retained terminal collection. */
   placementOf: (id: TerminalId) => LivePlacement;
+  /** This host's live TOP-LEVEL tiles, in the server's census order.
+   *
+   *  The membership the visit trail is READ against
+   *  (`createViewState.mruOrder`) instead of being written into it: the trail
+   *  is a durable record of GESTURES, and "which of those are still here, and
+   *  which tiles it has never seen" is a function of this census. Parked
+   *  registry rows are restore-card entries, not tiles, so they are dropped
+   *  exactly as `createBootPick` drops them. */
+  tileIds: Accessor<TerminalId[]>;
+  /** The PARENT EDGE of every record this host has delivered — `null` for a
+   *  top-level tile — in the server's census order, and absent for an id
+   *  whose record has not arrived or is parked.
+   *
+   *  Published beside {@link tileIds} because the boot pick needs the same
+   *  edge to resolve a deep link's target tile and to know that the census is
+   *  COMPLETE (`size` against the key list), and re-walking the records there
+   *  would put every one of them on that memo. */
+  tileParents: Accessor<ReadonlyMap<TerminalId, TerminalId | null>>;
 }
 
 export function createHostWire(host: HostKey): HostWire {
@@ -151,6 +201,65 @@ export function createHostWire(host: HostKey): HostWire {
       : { kind: "split", parentId: terminal.parentId };
   };
 
+  /** ONE ROW PER LISTED TERMINAL — the key list's own reading of each id,
+   *  folded through {@link foldEach} so no scope reads more than a chunk of
+   *  them. A host with a few hundred panes otherwise put every pane's record
+   *  on the census memo, which Solid's development build judges past 200
+   *  sources. `parent` is `undefined` for a record that has NOT ARRIVED or
+   *  one that is PARKED — neither is a tile, which is why both fall out of
+   *  the census below while the id stays in the list. */
+  const censusRows = foldEach<
+    TerminalId,
+    { id: TerminalId; parent: TerminalId | null | undefined }
+  >(
+    "hostWire.census",
+    keys,
+    (id) => {
+      const record = tileTerminalOf(terminals.byKey(id)?.());
+      return {
+        id,
+        parent: record === undefined ? undefined : (record.parentId ?? null),
+      };
+    },
+    (a, b) => a.id === b.id && a.parent === b.parent,
+  );
+
+  /** The ids the list carries, in the server's order — the membership half of
+   *  the census reading, read at one source. */
+  const listedIds = createMemo<TerminalId[]>(
+    () => censusRows().map((row) => row.id),
+    { name: "hostWire.listedIds", equals: sameIdOrder },
+  );
+
+  /** The parent edge of every ARRIVED, unparked record, in the server's
+   *  order. One source for any number of panes. */
+  const tileParents = createMemo<ReadonlyMap<TerminalId, TerminalId | null>>(
+    () =>
+      new Map(
+        censusRows().flatMap((row) =>
+          row.parent === undefined ? [] : [[row.id, row.parent] as const],
+        ),
+      ),
+    { name: "hostWire.tileParents" },
+  );
+
+  // The host's live top-level tiles — see {@link HostWire.tileIds}. Derived
+  // from the same census rows the boot pick folds (the key list and each
+  // key's composed record), so the trail's live membership and the pick can
+  // never be answered from two different censuses.
+  const tileIds = createMemo<TerminalId[]>(
+    () => {
+      const parents = tileParents();
+      const parentEdge: ParentEdge = (id) => parents.get(id);
+      return [...parents.keys()].filter(
+        (id) => containingTileOf(id, parentEdge) === id,
+      );
+    },
+    // A census move that changes no tile (a split's title, a record arriving
+    // under a tile already listed) must not wake the MRU and the WebGL budget.
+    { name: "hostWire.tileIds", equals: sameIdOrder },
+  );
+
   // The persisted saved-session cell (host-owned, restore-relevant).
   const session = entry.cells.session.use();
 
@@ -164,6 +273,44 @@ export function createHostWire(host: HostKey): HostWire {
   // whose terminals all exited.
   const roster = entry.cells.roster.use();
 
+  /** The ids the STANDING names, folded a chunk at a time for the same reason
+   *  the key list is: a roster is one id per terminal, and a scope that read
+   *  the whole of it would be as wide as the host is big. */
+  const rosterIds = foldEach<TerminalId, TerminalId>(
+    "hostWire.rosterIds",
+    () => {
+      const standing = roster.value();
+      return standing !== undefined && rosterIsEstablished(standing)
+        ? standing.ids
+        : NO_IDS;
+    },
+    (id) => id,
+  );
+
+  // …AND THE READING OF THAT PAIR, once, here: the list is a census when the
+  // standing is established AND the list has delivered every id the standing
+  // names. A host that is adopting, recycling or restarting fails the first
+  // test; a list still arriving fails the second (#2376). Both the removal
+  // reconcile's suppression and the focus derivation's auto-switch gate read
+  // this one answer, through `listIsAuthoritative`, which conjoins the
+  // link-liveness leg the fleet owns.
+  //
+  // The two id lists arrive already folded, so this reading is five sources
+  // for any number of terminals.
+  const listIsCensus = createMemo(
+    () => {
+      const standing = roster.value();
+      if (standing === undefined || !rosterIsEstablished(standing))
+        return false;
+      // An ANSWERED list is the second half: an empty one from a host that has
+      // not spoken yet is not the same fact as a host with no terminals.
+      if (terminalKeys() === undefined) return false;
+      const listed = new Set(listedIds());
+      return rosterIds().every((id) => listed.has(id));
+    },
+    { name: "hostWire.listIsCensus" },
+  );
+
   // The kaval daemon-status collection (this host's local kaval, keyed by its
   // local location). `useDaemonStatus` reads it through `activeScope().wire`. Its
   // `hostToast` "daemon status" policy (4C ruling) rides the spec; only `keys` stays.
@@ -176,8 +323,11 @@ export function createHostWire(host: HostKey): HostWire {
     terminals,
     session,
     roster,
+    listIsCensus,
     activityFeed,
     daemonStatus,
     placementOf,
+    tileIds,
+    tileParents,
   };
 }

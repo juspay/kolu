@@ -16,8 +16,9 @@
  *  place meant the browser clamping the shorter document to its end overwrote
  *  the reader's place in the whole conversation — read as "following", so
  *  coming back sent a reader who had scrolled up to the bottom. The place is
- *  therefore kept per document ({@link showTranscriptDocument}), and the
- *  clamp lands on the narrowed document, where "at the end" is true.
+ *  therefore kept per document: every question about the place, and every
+ *  write of it, names the key its caller already holds, and the clamp lands
+ *  on the narrowed document, where "at the end" is true.
  *
  *  The rule itself is the terminal scrollback's, not a second one:
  *  `xterm-kit/src/solid/scrollLock.ts` follows new output only while the
@@ -34,8 +35,7 @@
  *  element only when the reader themself moved it, and every frame after that
  *  reads the remembered answer. */
 
-import { createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createStore } from "solid-js";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
  *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */
@@ -63,44 +63,32 @@ export function atEnd(el: ScrollMetrics): boolean {
  *  work's id (`chatScope`), so no work may ever be named this. */
 export const WHOLE_TRANSCRIPT = "whole";
 
-/** WHICH DOCUMENT THE SCROLLER SHOWS. The whole conversation and a chat about
- *  one work are two documents in the same element: one has every turn, the
- *  other only the turns about that work. Which one is shown is a fact about
- *  the pane, not about its layout, so it is set whether or not the pane is on
- *  screen. */
-const [documentKey, setDocumentKey] = createSignal(WHOLE_TRANSCRIPT);
-
 /** THE READER'S PLACE, PER DOCUMENT. `null` means at the end; no entry means
  *  the document has never been shown, which also opens at its newest line.
  *  The store makes `transcriptPinned` stay reactive as the shown document or
  *  its place changes. */
 const [places, setPlaces] = createStore<Record<string, number | null>>({});
 
-/** The scroller now shows `key`'s document. Called by the transcript from a
- *  computed on the chat's scope, above its follow effect. */
-export function showTranscriptDocument(key: string): void {
-  setDocumentKey(key);
+/** THE READER'S PLACE IN `key`'s DOCUMENT, or `null` for its end — read by
+ *  the transcript's follow effect in its COMPUTE (the effect phase may read
+ *  nothing reactive) and by its mount restore. */
+export function transcriptPlace(key: string): number | null {
+  return places[key] ?? null;
 }
 
-/** The place in the document now shown, or `null` for its end. */
-const offset = (): number | null => places[documentKey()] ?? null;
-
-/** Write the place of the document now shown. Never another document's: a
- *  clamp inside a work's chat says where that chat is, not where the whole
+/** Write the place of `key`'s document. Never another document's: a clamp
+ *  inside a work's chat says where that chat is, not where the whole
  *  conversation was. */
-const setOffset = (place: number | null): void => {
-  const key = documentKey();
-  setPlaces(
-    produce((all) => {
-      all[key] = place;
-    }),
-  );
+const setOffset = (key: string, place: number | null): void => {
+  setPlaces((all) => {
+    all[key] = place;
+  });
 };
 
-/** Is the view following the conversation? The one question the render path
+/** Is the view following `key`'s document? The one question the render path
  *  asks — never the element, which by then is describing the new content. */
-export function transcriptPinned(): boolean {
-  return offset() === null;
+export function transcriptPinned(key: string): boolean {
+  return transcriptPlace(key) === null;
 }
 
 /** Where each scroller stood when this module last saw it: after its own
@@ -118,11 +106,12 @@ const stood = new WeakMap<object, number>();
  *  and the event finds the view short of a new end it never left. Recorded as
  *  the reader's place, that short view is where the conversation would reopen.
  *  A view no higher than where it stood is still following. */
-export function rememberTranscriptScroll(el: ScrollMetrics): void {
+export function rememberTranscriptScroll(el: ScrollMetrics, key: string): void {
   const was = stood.get(el);
   stood.set(el, el.scrollTop);
-  if (offset() === null && was !== undefined && el.scrollTop >= was) return;
-  setOffset(atEnd(el) ? null : el.scrollTop);
+  if (transcriptPlace(key) === null && was !== undefined && el.scrollTop >= was)
+    return;
+  setOffset(key, atEnd(el) ? null : el.scrollTop);
 }
 
 /** The reader asked to go up, BEFORE the view has moved — a wheel notch, which
@@ -132,25 +121,41 @@ export function rememberTranscriptScroll(el: ScrollMetrics): void {
  *  the end and re-states `null` — the reader is dragged back and cannot get
  *  away. The `scroll` that follows corrects the pixel; this only decides that
  *  we are no longer following. */
-export function unpinTranscript(el: ScrollMetrics): void {
-  if (offset() === null) setOffset(el.scrollTop);
+export function unpinTranscript(el: ScrollMetrics, key: string): void {
+  if (transcriptPlace(key) === null) setOffset(key, el.scrollTop);
 }
 
-/** Follow the end again — the pill, a sent message, and a conversation that was
- *  replaced wholesale (whose remembered offset means nothing) all want exactly
- *  this, so it is one writer and not three. */
-export function pinTranscript(): void {
-  setOffset(null);
+/** Follow the end of `key`'s document again — the pill and a sent message
+ *  both want exactly this, so it is one writer and not two. */
+export function pinTranscript(key: string): void {
+  setOffset(key, null);
 }
 
-/** Put the container where the reader is — at the end while they are
- *  following, else at their own pixel. A fresh mount, a document change and
- *  every step of following all land here. */
-export function applyTranscriptScroll(el: {
-  scrollTop: number;
-  readonly scrollHeight: number;
-}): void {
-  el.scrollTop = offset() ?? el.scrollHeight;
+/** THE CONVERSATION WAS REPLACED WHOLESALE: a new session, a cleared one, a
+ *  store recovered. Every document's remembered pixel described turns that
+ *  are gone, so none of them survives — each opens at its newest line again,
+ *  including the ones nobody is looking at right now. */
+export function forgetTranscriptPlaces(): void {
+  setPlaces((all) => {
+    for (const key of Object.keys(all)) delete all[key];
+  });
+}
+
+/** Put the container at `place` — the reader's pixel in the document being
+ *  shown, or `null` for its end. A fresh mount, a document change and every
+ *  step of following all land here.
+ *
+ *  THE PLACE IS HANDED IN rather than read from {@link transcriptPlace}: the
+ *  caller is an effect's imperative half, which reads no reactive state, and
+ *  the place its own compute already took is the place that run is about. */
+export function applyTranscriptScroll(
+  el: {
+    scrollTop: number;
+    readonly scrollHeight: number;
+  },
+  place: number | null,
+): void {
+  el.scrollTop = place ?? el.scrollHeight;
   stood.set(el, el.scrollTop);
 }
 

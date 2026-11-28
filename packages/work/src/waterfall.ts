@@ -1022,38 +1022,62 @@ export interface SetupMemory {
   readonly modelsUsed: (harness: string) => ReadonlyArray<Recalled>;
 }
 
-export const setupMemory = (
-  works: ReadonlyArray<Work>,
+/** ONE SETUP ANSWER, as the memory reads it: what was chosen and how, on
+ *  which host and when, plus the harness the role it belongs to ran on IN
+ *  THAT WORK — which is why an answer is read off its own work and never off
+ *  the collection it sits in. */
+export interface SetupAnswer {
+  readonly host: string;
+  readonly key: SetupKey;
+  readonly at: string;
+  readonly value: string;
+  readonly chosen: Chosen;
+  readonly harness: Option.Option<string>;
+  readonly model: boolean;
+}
+
+/** ONE WORK'S OWN SETUP ANSWERS, in the order its decisions carry them — the
+ *  per-work half of the setup reading, so a reader mirroring a collection of
+ *  works can read each work once and join the answers ({@link setupMemoryOf}),
+ *  rather than walking every decision of every work again whenever any one of
+ *  them moves. */
+export const setupAnswersOf = (work: Work): ReadonlyArray<SetupAnswer> =>
+  work.decisions.flatMap((one) => {
+    if (
+      one.topic !== "setup" ||
+      one.kind !== "settled" ||
+      one.answer.how !== "answered"
+    )
+      return [];
+    const named = roleOfSetupKey(one.key);
+    return [
+      {
+        host: hostOf(work),
+        key: one.key,
+        at: one.answer.at,
+        value: one.answer.value,
+        chosen:
+          "chosen" in one.answer ? one.answer.chosen : ("picked" as const),
+        harness: Option.flatMap(named, ({ role }) =>
+          roleAnswer(work, role, "harness"),
+        ),
+        model: Option.exists(named, ({ what }) => what === "model"),
+      },
+    ];
+  });
+
+/** THE MEMORY OVER ANSWERS ALREADY READ — the second half of the setup
+ *  reading, over the answers {@link setupAnswersOf} took. The answers may
+ *  arrive in any order (a join of per-work readings is in the works' order,
+ *  not time's); recency is what the memory is about, so they are ordered
+ *  here, newest first. */
+export const setupMemoryOf = (
+  answers: ReadonlyArray<SetupAnswer>,
   host: string,
 ): SetupMemory => {
-  /** Every setup answer, with the harness its role ran on in that work. */
-  const answers = works
-    .flatMap((work) =>
-      work.decisions.flatMap((one) => {
-        if (
-          one.topic !== "setup" ||
-          one.kind !== "settled" ||
-          one.answer.how !== "answered"
-        )
-          return [];
-        const named = roleOfSetupKey(one.key);
-        return [
-          {
-            host: hostOf(work),
-            key: one.key,
-            at: one.answer.at,
-            value: one.answer.value,
-            chosen:
-              "chosen" in one.answer ? one.answer.chosen : ("picked" as const),
-            harness: Option.flatMap(named, ({ role }) =>
-              roleAnswer(work, role, "harness"),
-            ),
-            model: Option.exists(named, ({ what }) => what === "model"),
-          },
-        ];
-      }),
-    )
-    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const ordered = [...answers].sort((a, b) =>
+    a.at < b.at ? 1 : a.at > b.at ? -1 : 0,
+  );
   const sameHarness = (a: Option.Option<string>, b: Option.Option<string>) =>
     Option.makeEquivalence((x: string, y: string) => x === y)(a, b);
   const recalled = (one: {
@@ -1062,7 +1086,7 @@ export const setupMemory = (
   }): Recalled => ({ value: one.value, chosen: one.chosen });
   return {
     last: (key, harness) => {
-      const here = answers.filter((one) => one.host === host);
+      const here = ordered.filter((one) => one.host === host);
       const found = Option.exists(
         roleOfSetupKey(key),
         ({ what }) => what === "model",
@@ -1079,7 +1103,7 @@ export const setupMemory = (
     // chosen is the one it comes back as.
     modelsUsed: (harness) => {
       const seen = new Set<string>();
-      return answers
+      return ordered
         .filter(
           (one) =>
             one.model &&

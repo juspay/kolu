@@ -61,9 +61,11 @@ declare global {
      *  call — set by `usePendingLayouts`. Each entry records the ids
      *  the call seeded. E2e tests use this to assert that arrange
      *  seeded pending synchronously without depending on the read
-     *  hitting the brief window before `dropEvicted` clears entries
-     *  (which under CI load can be shorter than the polling
-     *  interval). The history survives the cleanup. */
+     *  hitting the brief window before the eviction pass clears
+     *  entries — `usePendingLayouts` names the evictable ids in an
+     *  effect's compute (`evictedIds`) and drops them in that effect
+     *  (`dropIds`) — a window that under CI load can be shorter than
+     *  the polling interval. The history survives the cleanup. */
     __koluPendingApplyHistory?: string[][];
   }
 
@@ -93,8 +95,8 @@ declare global {
   /** xterm's per-container reference. `Terminal.tsx` attaches the xterm
    *  instance to the canvas tile's wrapping `<div>` so e2e tests can
    *  reach the terminal API without going through the SolidJS reactivity
-   *  layer. `__xterm` is `undefined` until the component's `onMount`
-   *  body runs and is cleared on cleanup (#591 leak fix). */
+   *  layer. `__xterm` is `undefined` until the component's mount-time
+   *  (`onSettled`) body runs and is cleared on cleanup (#591 leak fix). */
   interface HTMLDivElement {
     __xterm?: KoluXtermProbe;
   }

@@ -8,7 +8,7 @@
  * verified on screen instead.
  */
 
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LogTail } from "./LogTail";
 import type { LogLine } from "./LogTail";

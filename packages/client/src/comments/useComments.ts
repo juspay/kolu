@@ -16,7 +16,7 @@
  *  No flush logic lives here. `formatMarkdown` is a separate pure
  *  function; the tray's "Copy to clipboard" calls it directly. */
 
-import { createComputed, untrack, type Accessor } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { backfillSurface } from "./backfillSurface";
@@ -128,8 +128,11 @@ export function useComments(queue: CommentQueue) {
 
 type Comments = ReturnType<typeof useComments>;
 
-/** Initialize on identity changes before exposing a read-only reactive
- *  lookup. A queue that may be none (a kept file has nothing to anchor a
+/** A queue's comments API as a DERIVATION of the queue: the store is created
+ *  (or re-used from the module map) by `useComments` for whatever queue is
+ *  current, and the memo owns that creation — its persisted signal's cleanup
+ *  binds to this scope and is released when the queue changes or the caller
+ *  is disposed. A queue that may be none (a kept file has nothing to anchor a
  *  comment to) reads as none. */
 export function commentsFor(queue: Accessor<CommentQueue>): () => Comments;
 export function commentsFor(
@@ -138,12 +141,11 @@ export function commentsFor(
 export function commentsFor(
   queue: Accessor<CommentQueue | null>,
 ): () => Comments | null {
-  createComputed(() => {
-    const one = queue();
-    if (one !== null) untrack(() => storeFor(one));
-  });
-  return () => {
-    const one = queue();
-    return one === null ? null : useComments(one);
-  };
+  return createMemo(
+    () => {
+      const one = queue();
+      return one === null ? null : useComments(one);
+    },
+    { name: "commentsFor" },
+  );
 }

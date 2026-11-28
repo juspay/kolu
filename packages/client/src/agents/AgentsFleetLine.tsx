@@ -7,20 +7,20 @@
  *  run, its events and its own actions live; Settings keeps no per-machine
  *  facts of its own.
  *
- *  Everything here is KEYED (`<Key>`, never `<For>`): the fold mints fresh
- *  group AND host objects on every read, so a plain `<For>` rebuilt every row
- *  and every machine button whenever ANY machine's state moved, dropping
- *  hover and focus. Keyed on the group's `key` and on each machine's host
- *  key, only the words move. */
+ *  Everything here is KEYED (`<For keyed>`, never a plain `<For>`): the fold
+ *  mints fresh group AND host objects on every read, so an unkeyed `<For>`
+ *  rebuilt every row and every machine button whenever ANY machine's state
+ *  moved, dropping hover and focus. Keyed on the group's `key` and on each
+ *  machine's host key, only the words move. */
 
-import { Key } from "@solid-primitives/keyed";
-import { type Component, onCleanup, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import type { AgentFleetGroup } from "@kolu/agent-distro/status";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   openHostDiagnostics,
   releaseHostDiagnosticsAnchor,
 } from "../host/useHostDiagnosticsOpen";
+import { refWithRelease } from "../ui/refWithRelease";
 
 /** One group's dot colour, by its tone. */
 const DOT: Record<AgentFleetGroup<never>["tone"], string> = {
@@ -44,7 +44,7 @@ const AgentsFleetLine: Component<{
       data-testid="agents-fleet"
       class="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-fg-2"
     >
-      <Key each={props.groups} by="key">
+      <For each={props.groups} keyed={(group) => group.key}>
         {(group, i) => (
           <>
             <Show when={i() > 0}>
@@ -64,33 +64,39 @@ const AgentsFleetLine: Component<{
               <Show when={group().lead !== ""}>
                 <span>{group().lead}</span>
               </Show>
-              <Key each={group().hosts} by={(h) => encodeHostKey(h.host)}>
-                {(host, at) => (
-                  <>
-                    <Show when={at() > 0}>
-                      <span>and</span>
-                    </Show>
-                    <button
-                      ref={(el) =>
-                        onCleanup(() => releaseHostDiagnosticsAnchor(el))
-                      }
-                      type="button"
-                      data-testid="agents-fleet-host"
-                      data-host={host().label}
-                      title={`Agents on ${host().label} — open its host details`}
-                      class="cursor-pointer text-accent underline-offset-2 hover:underline"
-                      onClick={(e) =>
-                        openHostDiagnostics(
-                          encodeHostKey(host().host),
-                          e.currentTarget,
-                        )
-                      }
-                    >
-                      {host().label}
-                    </button>
-                  </>
-                )}
-              </Key>
+              <For each={group().hosts} keyed={(h) => encodeHostKey(h.host)}>
+                {(host, at) => {
+                  // The row's own owner releases the button it handed to the
+                  // details panel when the row goes.
+                  const anchorRef = refWithRelease<HTMLElement>(
+                    () => {},
+                    releaseHostDiagnosticsAnchor,
+                  );
+                  return (
+                    <>
+                      <Show when={at() > 0}>
+                        <span>and</span>
+                      </Show>
+                      <button
+                        ref={anchorRef}
+                        type="button"
+                        data-testid="agents-fleet-host"
+                        data-host={host().label}
+                        title={`Agents on ${host().label} — open its host details`}
+                        class="cursor-pointer text-accent underline-offset-2 hover:underline"
+                        onClick={(e) =>
+                          openHostDiagnostics(
+                            encodeHostKey(host().host),
+                            e.currentTarget,
+                          )
+                        }
+                      >
+                        {host().label}
+                      </button>
+                    </>
+                  );
+                }}
+              </For>
               <Show when={group().trail !== ""}>
                 <span
                   data-testid="agents-fleet-text"
@@ -102,7 +108,7 @@ const AgentsFleetLine: Component<{
             </span>
           </>
         )}
-      </Key>
+      </For>
     </div>
   </Show>
 );

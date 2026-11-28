@@ -10,8 +10,8 @@
  * the card never unmounting.
  */
 
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   PaletteCommand,
@@ -107,6 +107,8 @@ describe("CreateIdentityPreview — live card, never a frozen snapshot", () => {
     setMode({ kind: "value", leaf });
     setQuery("feat-fun-ui");
     setHighlighted({ kind: "label", name: "claude", data: "claude" });
+    // The card redraws on the frame the palette's move lands in.
+    flush();
 
     // Same mounted card — the model never went null, so nothing remounted.
     expect(
@@ -124,8 +126,10 @@ describe("CreateIdentityPreview — live card, never a frozen snapshot", () => {
     setHighlighted(undefined);
 
     setQuery("fea");
+    flush();
     expect(text("create-preview-annotation")).toBe("fea");
     setQuery("feat-fun");
+    flush();
     expect(text("create-preview-annotation")).toBe("feat-fun");
     expect(text("create-preview-agent-label")).toBe("Plain shell");
   });
@@ -140,6 +144,7 @@ describe("CreateIdentityPreview — live card, never a frozen snapshot", () => {
     expect(anno()?.className).toContain("text-fg-3");
 
     setQuery("feat-fun-ui");
+    flush();
     expect(anno()?.className).toContain("annotation-ink");
     expect(anno()?.className).not.toContain("text-fg-3");
     expect(anno()?.getAttribute("style")).toMatch(/--annotation-color:/);

@@ -21,7 +21,7 @@
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { useDockFocus } from "../canvas/dock/useDockFocus";
-import { selectHostTab } from "../host/selectHostTab";
+import { landHostSwitch, selectHostTab } from "../host/selectHostTab";
 
 export function useOpenTile(): (at: {
   /** The ENCODED host key the terminal lives on (`local`, `remote:…`) — the
@@ -32,6 +32,12 @@ export function useOpenTile(): (at: {
   const focus = useDockFocus();
   return (at) => {
     selectHostTab(decodeHostKey(at.host));
+    // The focus half reads the terminal store of the host it lands on, and
+    // that store is the ACTIVE host's — so the switch is landed first, or the
+    // gate asks the host we just left whether this tile exists and toasts
+    // "Terminal no longer exists" for a tile that does. Every caller is a
+    // click handler, where `landHostSwitch` is legal.
+    landHostSwitch();
     focus(at.id);
   };
 }

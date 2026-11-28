@@ -25,7 +25,7 @@
  *  empty, never a crash. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { createSignal, untrack } from "solid-js";
 import { activeScope } from "./hostScope/hostScopes";
 
 /** A canvas camera pose — the viewport's pan offset (canvas-space) and zoom.
@@ -60,18 +60,20 @@ export function useViewState() {
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
 
-  /** Fire the "pan to the active tile" impulse for the CURRENT host without
-   *  touching the active selection or reporting to the server — the switch-in
-   *  center-on-active path (a local viewport command, never a wrong-host RPC). */
-  function requestCenterActive(): void {
-    const id = activeId();
-    if (id !== null) setCenterActiveRequest(id);
+  /** Fire the "pan to this tile" impulse for the CURRENT host without touching
+   *  the active selection or reporting to the server — the switch-in
+   *  center-on-active path (a local viewport command, never a wrong-host RPC).
+   *
+   *  The tile is NAMED by the caller instead of read from `activeId()` here.
+   *  Both kinds of caller need it that way: a store verb fires this in the same
+   *  synchronous step that writes the selection, where the selection signal
+   *  still reads its PRE-write value, and the canvas fires it from an effect,
+   *  which is not a window to read reactive state in. The caller always knows
+   *  the tile it means — the one it just activated, or the active tile its
+   *  compute resolved. */
+  function requestCenterActive(tileId: TerminalId): void {
+    setCenterActiveRequest(tileId);
   }
-
-  const reconcileLiveIds = (liveIds: readonly TerminalId[]): void =>
-    view()?.reconcileLiveIds(liveIds);
-
-  const forgetFromMru = (id: TerminalId): void => view()?.forgetFromMru(id);
 
   function toggleCanvasMaximized() {
     view()?.setCanvasMaximized((prev) => !prev);
@@ -87,6 +89,37 @@ export function useViewState() {
     view()?.reset();
   }
 
+  /** Does the ACTIVE host's derived boot pick already stand on this tile? The
+   *  hydration seed asks before it writes the focus fact — see
+   *  `hostScope/createBootPick`. Floors the removal race to `false` (a departing
+   *  host's seed writes, and its write is the usual no-op). */
+  const seedCovers = (id: TerminalId): boolean =>
+    view()?.seedCovers(id) ?? false;
+
+  /** Reader/actor pair, like the visit-trail verbs above: the hydration effect's
+   *  COMPUTE resolves the scope, and the actor performs the covered seed's side
+   *  effects (unread mark, visit trail, the host's active-terminal report). */
+  const planNoteSeededActivation = (id: TerminalId): (() => void) => {
+    const scope = view();
+    return () => scope?.noteSeededActivation(id);
+  };
+
+  /** The ACTIVE host's derived auto-switch for the eviction of `from`, taken
+   *  once — see `hostScope/createViewState.takeAutoSwitch`. A departing host
+   *  has no owner to have moved anything, so the removal race reads "nothing
+   *  moved". */
+  const takeAutoSwitch = (from: TerminalId): TerminalId | null | undefined =>
+    view()?.takeAutoSwitch(from);
+
+  /** Its imperative half, plus the canvas pan the write verb used to carry.
+   *  SAMPLED: the removal reconcile runs this from its effect's apply arm, a
+   *  strict-read window, so resolving the active scope must not subscribe that
+   *  effect to host membership. The scope the eviction is about is the one
+   *  standing when it is performed. */
+  const noteAutoSwitch = (id: TerminalId): void => {
+    untrack(view)?.noteAutoSwitch(id);
+    requestCenterActive(id);
+  };
   return {
     focusedTerminalId,
     activeId,
@@ -95,11 +128,13 @@ export function useViewState() {
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
-    reconcileLiveIds,
-    forgetFromMru,
     centerActiveRequest,
     requestCenterActive,
     isUnread,
+    seedCovers,
+    planNoteSeededActivation,
+    takeAutoSwitch,
+    noteAutoSwitch,
     reset,
   };
 }

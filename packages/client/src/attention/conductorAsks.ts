@@ -75,15 +75,30 @@ export interface Rang {
   readonly reply: TypedReply | null;
 }
 
+/** WHERE THE PERSON IS, taken with the reading that may ring — carried from
+ *  `observe` straight to `deliver`, never read here: a ring is handed the
+ *  facts its OWN reading came with, rather than whatever the view says by
+ *  the time the delivery runs. */
+export interface BellView {
+  /** Is the conversation the view on screen? Whether the WINDOW has focus is
+   *  a DOM question, asked at the instant of the ring. */
+  readonly conductorShown: boolean;
+  /** The title of the work a typed reply belongs to, when it has one. */
+  readonly replyTitle: string | undefined;
+  readonly alertsEnabled: boolean;
+}
+
 export interface ConductorBellHooks {
-  /** Hand over what is new. Whether and how it reaches the human is the one
-   *  path's (`attend.ts`), never decided here. */
-  deliver(rang: Rang): void;
+  /** Hand over what is new, with the view its reading was taken with.
+   *  Whether and how it reaches the human is the one path's (`attend.ts`),
+   *  never decided here. */
+  deliver(rang: Rang, view: BellView): void;
 }
 
 export interface ConductorBell {
-  /** Feed one reading. Nothing in it is kept but what is NEW in it. */
-  observe(reading: BellReading): void;
+  /** Feed one reading and the view it was taken with. Nothing in it is kept
+   *  but what is NEW in it. */
+  observe(reading: BellReading, view: BellView): void;
 }
 
 /** How the bell remembers a thing it has heard. */
@@ -112,7 +127,7 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
     return fresh ? item : null;
   };
   return {
-    observe(reading) {
+    observe(reading, view) {
       const memory =
         reading.memory === undefined
           ? null
@@ -149,12 +164,15 @@ export function createConductorBell(hooks: ConductorBellHooks): ConductorBell {
       }
       for (const work of reading.works) known.add(work);
       if (items.length > 0 || own || memory !== null || reply !== null)
-        hooks.deliver({
-          items,
-          ownOpen: own ? reading.ownAsks.length : null,
-          memory,
-          reply,
-        });
+        hooks.deliver(
+          {
+            items,
+            ownOpen: own ? reading.ownAsks.length : null,
+            memory,
+            reply,
+          },
+          view,
+        );
     },
   };
 }

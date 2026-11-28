@@ -18,7 +18,8 @@ import {
   type ConductorUnreadable,
   DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorRefusal from "./ConductorRefusal";
 
@@ -75,6 +76,7 @@ describe("a conversation the AGENT refused", () => {
   it("offers exactly one thing: asking again", () => {
     const { at } = mount({ refusal: "the agent would not open a session" });
     at("conductor-retry")?.click();
+    flush();
     expect(verbs.newSession).toHaveBeenCalledTimes(1);
     expect(at("conductor-recover-backup")).toBeUndefined();
     expect(at("conductor-recover-empty")).toBeUndefined();
@@ -87,6 +89,7 @@ describe("a RECORD kolu could not read", () => {
     const backup = at("conductor-recover-backup");
     expect(backup?.textContent).toBe("Restore the newest backup that reads");
     backup?.click();
+    flush();
     expect(verbs.recoverStore).toHaveBeenCalledWith("works", "backup");
     // *Try again* is gone: it would ask the same file the same question.
     expect(at("conductor-retry")).toBeUndefined();
@@ -102,6 +105,7 @@ describe("a RECORD kolu could not read", () => {
     );
     // One press OPENS the confirm; it does not act.
     at("conductor-recover-empty")?.click();
+    flush();
     expect(verbs.recoverStore).not.toHaveBeenCalled();
     const copy = at("conductor-recover-empty-confirm")?.parentElement
       ?.parentElement?.textContent;
@@ -110,6 +114,7 @@ describe("a RECORD kolu could not read", () => {
     );
     expect(copy).toContain("nothing is deleted");
     at("conductor-recover-empty-confirm")?.click();
+    flush();
     expect(verbs.recoverStore).toHaveBeenCalledWith("works", "empty");
   });
 
@@ -132,7 +137,9 @@ describe("a RECORD kolu could not read", () => {
       "Start with an empty transcript",
     );
     at("conductor-recover-empty")?.click();
+    flush();
     at("conductor-recover-empty-confirm")?.click();
+    flush();
     expect(verbs.recoverStore).toHaveBeenCalledWith("transcript", "empty");
   });
 });

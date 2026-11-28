@@ -17,8 +17,8 @@ import {
   JUSPAY_PROFILE,
   type ProfileSuggestion,
 } from "@kolu/agent-distro/status";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import AgentsProfileList, { type ProfileListRow } from "./AgentsProfileList";
 
@@ -71,7 +71,12 @@ function mount(
   return {
     host,
     changes,
-    setRows,
+    /** The caller's rows, as the surface above hands them down — read back
+     *  after the frame they land in. */
+    setRows: (next: readonly ProfileListRow[]) => {
+      setRows(next);
+      flush();
+    },
     input,
     rows: () =>
       all("[data-testid=agents-profile-row]").map((r) => r.dataset.reference),
@@ -99,14 +104,17 @@ function options(): HTMLElement[] {
 
 function key(input: HTMLInputElement, k: string): void {
   input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+  flush();
 }
 
-/** Typing, as the browser reports it: an `insertText` input event. */
+/** Typing, as the browser reports it: an `insertText` input event — and the
+ *  frame the field redraws in. */
 function type(input: HTMLInputElement, text: string): void {
   input.value = text;
   input.dispatchEvent(
     new InputEvent("input", { bubbles: true, inputType: "insertText" }),
   );
+  flush();
 }
 
 describe("the rows", () => {
@@ -151,8 +159,10 @@ describe("the rows", () => {
     expect(f.button("up", 0)?.disabled).toBe(true);
     expect(f.button("down", 2)?.disabled).toBe(true);
     f.button("down", 0)?.click();
+    flush();
     expect(f.changes).toEqual([["b", "a", "c"]]);
     f.button("up", 2)?.click();
+    flush();
     expect(f.changes.at(-1)).toEqual(["b", "c", "a"]);
   });
 
@@ -170,6 +180,7 @@ describe("the rows", () => {
   it("remove hands the list without it", () => {
     const f = mount([row("a"), row("b")]);
     f.button("remove", 0)?.click();
+    flush();
     expect(f.changes).toEqual([["b"]]);
     expect(f.rows()).toEqual(["b"]);
   });
@@ -199,11 +210,20 @@ describe("the rows", () => {
 });
 
 describe("adding", () => {
+  it('writes spellcheck="false" on the add field', () => {
+    // `spellcheck` is an ENUMERATED attribute: the word `"false"` turns the
+    // checker off, and a missing attribute means "inherit". Solid 2 removes
+    // an attribute given `false`, so the word has to be written.
+    const f = mount([]);
+    expect(f.input()?.getAttribute("spellcheck")).toBe("false");
+  });
+
   it("focusing the field opens its suggestions, Juspay's first", () => {
     const f = mount([]);
     const input = f.input();
     if (input === null) throw new Error("no input");
     input.focus();
+    flush();
     expect(options().map((o) => o.dataset.value)).toEqual([
       JUSPAY_PROFILE,
       "github:me/p",
@@ -228,11 +248,13 @@ describe("adding", () => {
       f.host.querySelector("[data-testid=agents-profiles]")?.firstElementChild,
     ).toBe(juspay());
     f.input()?.focus();
+    flush();
     expect(options().map((o) => o.dataset.value)).toEqual([
       "github:me/p",
       "~/work/profile",
     ]);
     juspay()?.click();
+    flush();
     expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
     expect(juspay()).toBeNull();
   });
@@ -242,6 +264,7 @@ describe("adding", () => {
     const input = f.input();
     if (input === null) throw new Error("no input");
     input.focus();
+    flush();
     options()[0]?.click();
     expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
   });
@@ -274,6 +297,7 @@ describe("adding", () => {
     );
     expect(chevron?.getAttribute("aria-expanded")).toBe("false");
     chevron?.click();
+    flush();
     expect(chevron?.getAttribute("aria-expanded")).toBe("true");
     expect(options().map((o) => o.dataset.value)).toEqual([
       JUSPAY_PROFILE,
@@ -296,6 +320,25 @@ describe("adding", () => {
     expect(options()).toEqual([]);
   });
 
+  it("↓ on a menu closed while filtered opens every row and lands on the first", () => {
+    const f = mount([]);
+    const input = f.input();
+    if (input === null) throw new Error("no input");
+    // A draft nothing matches, then Escape: the menu closes with its filter
+    // still armed.
+    type(input, "zzz");
+    expect(options()).toEqual([]);
+    key(input, "Escape");
+    // One press both opens the menu unfiltered AND moves into it.
+    key(input, "ArrowDown");
+    expect(options().map((o) => o.dataset.value)).toEqual([
+      JUSPAY_PROFILE,
+      "github:me/p",
+      "~/work/profile",
+    ]);
+    expect(options()[0]?.dataset.active).toBe("");
+  });
+
   it("a click on a row adds it", () => {
     const f = mount([]);
     const input = f.input();
@@ -316,5 +359,28 @@ describe("adding", () => {
     key(input, "Escape");
     expect(input.value).toBe("");
     expect(f.changes).toEqual([]);
+  });
+
+  it("typing on, with the same row still the only match, republishes no rows", () => {
+    // `matching` mints a fresh array of the very SAME suggestion objects on
+    // every keystroke, so a draft that keeps narrowing onto one row publishes
+    // an equal-but-new list each frame — which re-checks the whole menu, and
+    // which Solid's dev attribution reports as UNSTABLE_MEMO_OUTPUT (array)
+    // once four consecutive runs do it.
+    const f = mount([]);
+    const input = f.input();
+    if (input === null) throw new Error("no input");
+    type(input, "j");
+    expect(options().map((o) => o.dataset.value)).toEqual([JUSPAY_PROFILE]);
+    const row = options()[0];
+
+    for (const draft of ["ju", "jus", "jusp", "juspa"]) {
+      type(input, draft);
+      expect(options().map((o) => o.dataset.value)).toEqual([JUSPAY_PROFILE]);
+    }
+
+    // The one matching row is the same object each pass, so its button is the
+    // same element: identity per index is what the gate compares.
+    expect(options()[0]).toBe(row);
   });
 });

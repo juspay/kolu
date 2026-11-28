@@ -12,7 +12,7 @@
  */
 
 import type { SelectedLineRange } from "@pierre/diffs";
-import { type Accessor, createEffect, createSignal, on } from "solid-js";
+import { type Accessor, createMemo, createSignal } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { CopyIcon, OpenIcon } from "./Icons";
 import { formatLineRef, type LineRef } from "./lineRef";
@@ -41,7 +41,7 @@ export type LineSelection = {
 export interface LineSelectionOptions {
   /** Externally-driven initial range — caller updates this when a new
    *  navigation request lands (e.g. terminal `path:line` click). The
-   *  effect below pushes it into the controller's range, which means
+   *  derivation below folds it into the controller's range, which means
    *  the right-click menu and the Pierre highlight stay in sync. */
   initialRange?: Accessor<SelectedLineRange | null | undefined>;
   /** Accessor — re-read at `buildItems()` time. Returning a handler
@@ -58,36 +58,94 @@ export function useLineSelection(
   scope: Accessor<string>,
   options: LineSelectionOptions = {},
 ): LineSelection {
-  const [range, setRange] = createSignal<SelectedLineRange | null>(
-    options.initialRange?.() ?? null,
+  /** THE RESEED, DERIVED. What the controller holds is "the selection this
+   *  scope has, until the user makes another one" — a value, so it is
+   *  computed, not written from an effect.
+   *
+   *  As an effect it was a relay: the apply arm wrote `range`, and the
+   *  viewer's own binding folds BOTH legs of one path change in a single memo
+   *  (`@kolu/solid-pierre`'s `useCodeViewSelection` reads `range()` and
+   *  `id()`, the very `() => props.filePath` the reseed is keyed on —
+   *  `code-view/BrowseFileView.tsx:56-59`). So each path change ran that memo
+   *  twice: once with the new id and the STALE range (Pierre told to
+   *  highlight the old file's lines in the new file), and again after the
+   *  write relayed the change. Solid grades it `EFFECT_RELAY_TEAR`.
+   *
+   *  As a WRITABLE MEMO keyed on the scope edge — the same idiom as
+   *  `CommandPalette`'s `onOpenEdge` — the reseed arrives in the SAME flush
+   *  as the change that caused it, and `handleSelect`'s writes stay exactly
+   *  as they were: the edge's own memory (`scope`/`initial`) rides in the
+   *  state, so the derivation sees only `prev` and nothing reseeds over a
+   *  user selection while both stand still. */
+  type SelectionState = {
+    /** The scope and the request this state was seeded for — the edge's
+     *  memory, so a re-publish of the same pair is not an edge. */
+    readonly scope: string;
+    readonly initial: SelectedLineRange | null;
+    readonly anchor: string | null;
+    readonly range: SelectedLineRange | null;
+  };
+  /** Two ranges that paint the same highlight — `@pierre/diffs`'
+   *  `areSelectionsEqual` (`dist/utils/areSelectionsEqual.js`), by value so a
+   *  range rebuilt with identical bounds is not a new selection. */
+  const sameRange = (
+    a: SelectedLineRange | null,
+    b: SelectedLineRange | null,
+  ): boolean =>
+    a === b ||
+    (a != null &&
+      b != null &&
+      a.start === b.start &&
+      a.end === b.end &&
+      a.side === b.side &&
+      a.endSide === b.endSide);
+  const [state, setState] = createSignal<SelectionState>(
+    (prev?: SelectionState): SelectionState => {
+      // Reseed on either trigger — a new file replaces the selection scope (a
+      // stale "Copy path:N" entry must not survive), and an external request
+      // ticks `initialRange` with the new target. Both seed from the same
+      // source, so one keyed state covers both.
+      const nextScope = scope();
+      const initial = options.initialRange?.() ?? null;
+      if (prev && prev.scope === nextScope && prev.initial === initial) {
+        return prev;
+      }
+      return { scope: nextScope, initial, anchor: null, range: initial };
+    },
+    { name: "lineSelectionState" },
   );
+  // Memos, so a reader wakes for a CHANGED value and not for an edge that left
+  // it alone (a reseed to the range already shown).
+  const range = createMemo(() => state().range, { name: "lineSelectionRange" });
   // The file a selection landed in, when it is not `scope` itself. Held
-  // beside `range` and reset with it, so the anchor can't outlive the view.
-  const [anchor, setAnchor] = createSignal<string | null>(null);
-  const path = () => anchor() ?? scope();
-
-  // Reseed the controller on either trigger — a new file replaces the
-  // selection scope (a stale "Copy path:N" entry must not survive),
-  // and an external request ticks `initialRange` with the new target.
-  // Both seed from the same source, so one effect with a combined
-  // dep tuple suffices.
-  createEffect(
-    on(
-      () => [scope(), options.initialRange?.() ?? null] as const,
-      ([, initial]) => {
-        setAnchor(null);
-        setRange(initial);
-      },
-      { defer: true },
-    ),
-  );
+  // beside `range` and reseeded with it, so the anchor can't outlive the view.
+  const path = () => state().anchor ?? scope();
 
   return {
     path,
     range,
     handleSelect: (r, p) => {
-      setAnchor(p ?? null);
-      setRange(r);
+      setState((prev) => {
+        // The anchor is the file a selection landed in when it is NOT `scope`
+        // itself (see `path` above), so a report naming the view's own file is
+        // the state already held — and the file viewer names no file at all
+        // for the same selection the right-click anchored.
+        //
+        // And a viewer re-asserting the selection it was HANDED is not a
+        // change: `@pierre/diffs` answers a prop-driven `setSelectedLines` by
+        // calling `onSelectedLinesChange` back with the very range it was
+        // given (`InteractionManager.setSelection` → `notifySelectionCommitted`),
+        // synchronously, inside the wrapper effect's apply arm. Two
+        // default-equality signals swallowed that echo; one composite state
+        // has to say so by value, or the echo is a change, the bridge memo
+        // (`useCodeViewSelection`, which reads `path` — the raw state) re-runs
+        // and the viewer's own effect re-runs on its own write
+        // (`EFFECT_WRITES_OWN_SOURCE`).
+        const anchor = p != null && p !== prev.scope ? p : null;
+        return anchor === prev.anchor && sameRange(prev.range, r)
+          ? prev
+          : { ...prev, anchor, range: r };
+      });
     },
     buildItems: () => {
       // The menu is line-anchored: every entry refers to a specific

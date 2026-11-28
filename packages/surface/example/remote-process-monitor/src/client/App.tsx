@@ -20,8 +20,15 @@ import type { StreamingProcedure } from "@kolu/surface/client";
 import type { SurfaceHealth } from "@kolu/surface/solid";
 import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
 import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
-import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  createStore,
+  For,
+  reconcile,
+  Show,
+} from "solid-js";
 import {
   type CoreId,
   type CpuCore,
@@ -74,24 +81,25 @@ export default function App() {
         if (msg.kind === "snapshot") {
           const next: Record<Pid, Process> = {};
           for (const [pid, value] of msg.entries) next[pid] = value;
-          // `{ key: null }`, always. Solid's default (`key: "id"`) reads a field
-          // named `id` as an element's IDENTITY and recycles the previous objects
-          // it thinks matched — which is a guess about YOUR payload, and a wrong
-          // guess leaves an object holding a record it never described. The
-          // framework's own bound stores do the same thing for the same reason
-          // (see `@kolu/surface/solid`'s `writeValue`); a raw stream should too.
-          setProcesses(reconcile(next, { key: null }));
+          // `null`, always — this table declares NO element identity. Solid's
+          // default (`key: "id"`) reads a field named `id` as an element's
+          // IDENTITY and hands the row standing there the incoming one, which is
+          // a guess about YOUR payload; a wrong guess leaves a row holding a
+          // record it never described. Here the real identity is the dictionary
+          // key (the pid), so each entry merges field by field under its own pid
+          // and nothing is matched by a guessed field. The framework's own bound
+          // stores refuse the same guess for the same reason (see
+          // `@kolu/surface/solid`'s `writeValue`); a raw stream should too.
+          setProcesses(reconcile(next, null));
         } else {
-          setProcesses(
-            produce((all) => {
-              for (const [pid, value] of msg.upserts) {
-                const held = all[pid];
-                if (held) Object.assign(held, value);
-                else all[pid] = value;
-              }
-              for (const pid of msg.removes) delete all[pid];
-            }),
-          );
+          setProcesses((all) => {
+            for (const [pid, value] of msg.upserts) {
+              const held = all[pid];
+              if (held) Object.assign(held, value);
+              else all[pid] = value;
+            }
+            for (const pid of msg.removes) delete all[pid];
+          });
         }
       },
     },

@@ -42,7 +42,6 @@ import {
   profilesWithMoved,
   profilesWithRemoved,
 } from "@kolu/agent-distro/status";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Component,
   createEffect,
@@ -51,9 +50,10 @@ import {
   For,
   Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import DocLink from "../ui/DocLink";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
+import { refWithRelease } from "../ui/refWithRelease";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import FailureWords from "./FailureWords";
@@ -96,8 +96,16 @@ const AddField: Component<{
   // Typing filters; the chevron shows every row.
   const [filtering, setFiltering] = createSignal(false);
   const [active, setActive] = createSignal<number | undefined>();
-  const rows = createMemo(() =>
-    filtering() ? matching(props.suggestions, draft()) : props.suggestions,
+  const rows = createMemo(
+    () =>
+      filtering() ? matching(props.suggestions, draft()) : props.suggestions,
+    // `matching` filters a list of stable suggestion objects, so an unchanged
+    // draft re-publishes a new array of the very same rows and re-checks the
+    // whole menu. Identity per index is the whole test.
+    {
+      equals: (a, b) =>
+        a.length === b.length && a.every((row, i) => row === b[i]),
+    },
   );
   let field: HTMLDivElement | undefined;
   let input: HTMLInputElement | undefined;
@@ -116,10 +124,19 @@ const AddField: Component<{
     setDraft("");
     props.onAdd(value);
   };
-  const move = (step: 1 | -1) => {
-    const count = rows().length;
+  /** Move the highlight one row through `through`, from `at`. Both are the
+   *  CALLER's, never read back here: ↓ on a closed menu OPENS it and moves in
+   *  the same press, and a Solid 2 write is staged until the flush — reading
+   *  `rows()` or `active()` here would answer the pre-open filter and
+   *  highlight, which lands the press on the wrong row (or, with a draft
+   *  nothing matched, on none at all). */
+  const move = (
+    step: 1 | -1,
+    through: readonly ProfileSuggestion[],
+    at: number | undefined,
+  ) => {
+    const count = through.length;
     if (count === 0) return;
-    const at = active();
     setActive(
       at === undefined
         ? step === 1
@@ -139,45 +156,59 @@ const AddField: Component<{
     flip: true,
   });
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
+  // Native, so Escape can stop here: with the menu open it closes the menu,
+  // not Settings around it. The ref ATTACHES it (a key pressed before the
+  // next microtask must reach it) and the field's owner takes it off again.
+  const onKeyDown = (e: KeyboardEvent) => {
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp": {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        // A closed menu opens UNFILTERED on this press, so the rows it moves
+        // through are every suggestion and the highlight starts from nothing
+        // — the state `show` just wrote, not the one still readable.
+        if (open()) move(step, rows(), active());
+        else {
+          show(false);
+          move(step, props.suggestions, undefined);
+        }
+        return;
+      }
+      case "Enter": {
+        e.preventDefault();
+        const at = active();
+        const row = at === undefined ? undefined : rows()[at];
+        add(open() && row !== undefined ? row.value : draft());
+        return;
+      }
+      case "Escape":
+        if (open()) {
+          e.stopPropagation();
+          close();
+        } else if (draft() !== "") {
+          e.stopPropagation();
+          setDraft("");
+        }
+        return;
+    }
+  };
+  const inputRef = refWithRelease<HTMLInputElement>(
+    (el) => {
+      input = el;
+      el.addEventListener("keydown", onKeyDown);
+    },
+    (el) => el.removeEventListener("keydown", onKeyDown),
+  );
 
   return (
     <div ref={field} class="relative min-w-0">
       <input
-        ref={(el) => {
-          input = el;
-          // Native, so Escape can stop here: with the menu open it closes the
-          // menu, not Settings around it.
-          makeEventListener(el, "keydown", (e) => {
-            switch (e.key) {
-              case "ArrowDown":
-              case "ArrowUp":
-                e.preventDefault();
-                if (!open()) show(false);
-                move(e.key === "ArrowDown" ? 1 : -1);
-                return;
-              case "Enter": {
-                e.preventDefault();
-                const at = active();
-                const row = at === undefined ? undefined : rows()[at];
-                add(open() && row !== undefined ? row.value : draft());
-                return;
-              }
-              case "Escape":
-                if (open()) {
-                  e.stopPropagation();
-                  close();
-                } else if (draft() !== "") {
-                  e.stopPropagation();
-                  setDraft("");
-                }
-                return;
-            }
-          });
-        }}
+        ref={inputRef}
         id="agents-profile-input"
         type="text"
         role="combobox"
-        aria-expanded={open()}
+        aria-expanded={open() ? "true" : "false"}
         aria-controls="agents-profile-options"
         aria-autocomplete="list"
         aria-label="Add a profile — a flake reference or a path"
@@ -186,7 +217,7 @@ const AddField: Component<{
             ? undefined
             : `agents-profile-option-${active()}`
         }
-        spellcheck={false}
+        spellcheck="false"
         autocomplete="off"
         data-testid="agents-profile-input"
         class="h-8 w-full rounded-lg border border-edge bg-surface-1 pl-2.5 pr-8 font-mono text-xs text-fg placeholder:text-fg-3 transition-colors focus:border-accent/50 focus:bg-surface-2 focus:outline-none"
@@ -204,9 +235,9 @@ const AddField: Component<{
           type="button"
           data-testid="agents-profile-chevron"
           aria-label="Show suggested profiles"
-          aria-expanded={open()}
+          aria-expanded={open() ? "true" : "false"}
           aria-controls="agents-profile-options"
-          tabIndex={-1}
+          tabindex={-1}
           class="absolute inset-y-0 right-0 flex w-8 cursor-pointer items-center justify-center rounded-r-lg text-fg-3 transition-colors hover:text-fg"
           // Keep the focus in the input: a blur there closes the menu.
           onMouseDown={(e) => e.preventDefault()}
@@ -237,18 +268,20 @@ const AddField: Component<{
               {(row, i) => (
                 <button
                   type="button"
-                  tabIndex={-1}
+                  tabindex={-1}
                   id={`agents-profile-option-${i()}`}
                   role="option"
-                  aria-selected={active() === i()}
+                  aria-selected={active() === i() ? "true" : "false"}
                   data-testid="agents-profile-option"
                   data-value={row.value}
                   data-active={active() === i() ? "" : undefined}
-                  class="flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-xs"
-                  classList={{
-                    "bg-surface-3 text-fg": active() === i(),
-                    "text-fg-2 hover:bg-surface-2": active() !== i(),
-                  }}
+                  class={[
+                    "flex cursor-pointer items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-xs",
+                    {
+                      "bg-surface-3 text-fg": active() === i(),
+                      "text-fg-2 hover:bg-surface-2": active() !== i(),
+                    },
+                  ]}
                   // Keep the focus in the input: a blur there closes the menu.
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActive(i())}
@@ -293,11 +326,13 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
       fallback={
         <p
           title={props.line.text}
-          class="truncate"
-          classList={{
-            "text-fg-3/70 italic": props.line.kind === "pending",
-            "text-fg-3": props.line.kind === "resolved",
-          }}
+          class={[
+            "truncate",
+            {
+              "text-fg-3/70 italic": props.line.kind === "pending",
+              "text-fg-3": props.line.kind === "resolved",
+            },
+          ]}
         >
           {props.line.text}
         </p>
@@ -354,24 +389,36 @@ const AgentsProfileList: Component<{
       }
     | undefined
   >();
-  createEffect(() => {
-    const target = refocus();
-    const now = JSON.stringify(references());
-    if (target === undefined || list === undefined || now === target.before)
-      return;
-    const row = [
-      ...list.querySelectorAll<HTMLElement>("[data-testid=agents-profile-row]"),
-    ].find((el) => el.dataset.reference === target.reference);
-    const buttons = row
-      ? [...row.querySelectorAll<HTMLButtonElement>("button[data-action]")]
-      : [];
-    // A row moved to an end has that direction disabled: take the other one.
-    const button =
-      buttons.find((b) => b.dataset.action === target.action && !b.disabled) ??
-      buttons.find((b) => !b.disabled);
-    button?.focus();
-    setRefocus(undefined);
-  });
+  // The refocus already spent, as a plain variable: consuming the slot must
+  // not be a write this effect's own compute reads back.
+  let refocused: object | undefined;
+  createEffect(
+    () => {
+      const target = refocus();
+      if (target === undefined || target === refocused) return null;
+      // Wait for the list the edit asked for: the write comes back through the
+      // preferences cell, so the rows are still the old ones for a beat.
+      return JSON.stringify(references()) === target.before ? null : target;
+    },
+    (target) => {
+      if (target === null || list === undefined) return;
+      refocused = target;
+      const row = [
+        ...list.querySelectorAll<HTMLElement>(
+          "[data-testid=agents-profile-row]",
+        ),
+      ].find((el) => el.dataset.reference === target.reference);
+      const buttons = row
+        ? [...row.querySelectorAll<HTMLButtonElement>("button[data-action]")]
+        : [];
+      // A row moved to an end has that direction disabled: take the other one.
+      const button =
+        buttons.find(
+          (b) => b.dataset.action === target.action && !b.disabled,
+        ) ?? buttons.find((b) => !b.disabled);
+      button?.focus();
+    },
+  );
 
   const edit = (
     next: readonly string[],

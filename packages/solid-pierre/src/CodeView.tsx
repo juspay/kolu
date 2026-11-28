@@ -22,11 +22,11 @@ import {
 import {
   type Component,
   createEffect,
-  type JSX,
-  on,
   onCleanup,
-  onMount,
+  onSettled,
+  untrack,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import type { CodeViewItem } from "./codeViewItem";
 import { safeApply } from "./safeApply";
 import { getCodeViewWorkerPool, HIGHLIGHTER_CONTRACT } from "./workerPool";
@@ -155,6 +155,39 @@ export const codeViewItemIdAt = (node: Node): string | undefined => {
 export const CodeView: Component<CodeViewProps> = (props) => {
   let root!: HTMLDivElement;
   let instance: CodeViewClass | undefined;
+  // The two handlers PIERRE holds, mirrored into plain fields by the effect
+  // below — the one place they are read reactively.
+  //
+  // Pierre keeps the selection callback it is constructed with and fires it
+  // when the user completes a gutter selection, which is inside its own
+  // dispatch — a strict-read window, where reading `props` is a defect. And
+  // `props` here is routinely a `merge()` key bag (`BrowseFileView` and
+  // `BrowseDiffView` spread `{...koluCodeViewProps()}`), so the read lands on
+  // the merge proxy rather than on a plain object. The Pierre-facing closure
+  // reads the field instead; the field is kept current by a tracked compute,
+  // so a consumer swapping its handler still takes effect with no reconstruct.
+  //
+  // `onError` rides along: it is the channel every `safeApply` reports
+  // through, including the one in `onSettled` that builds the instance, so
+  // one mirror serves both and there is a single spelling for "the current
+  // handler". The effect is created before the instance is, so it has already
+  // run when anything fires.
+  //
+  // Plain fields rather than memos: nothing else reads these, and the compute
+  // below is already the tracking scope a memo would add.
+  let emitSelection: ((s: CodeViewLineSelection | null) => void) | undefined;
+  let reportError!: (err: Error) => void;
+  createEffect(
+    () => ({
+      onSelected: props.onSelectedLinesChange,
+      onError: props.onError,
+    }),
+    ({ onSelected, onError }) => {
+      emitSelection = onSelected;
+      reportError = onError;
+    },
+    { name: "codeView.handlerMirror" },
+  );
   // Per-item version state — keyed by `id`. When the same id appears in a
   // new items array with a different content reference, bump its version
   // so Pierre publishes the new content. Without this, the `version`-gated
@@ -209,13 +242,17 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     overflow: props.overflow ?? "wrap",
     lineHoverHighlight: "both",
     enableLineSelection: props.enableLineSelection ?? false,
-    onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
+    // The MIRROR, not `props`: Pierre fires this from its own dispatch, a
+    // strict-read window (see the fields above). A fresh closure per call is
+    // deliberate — `setOptions` compares option identity, and that comparison
+    // is what bumps Pierre's render revision for a reused element.
+    onSelectedLinesChange: (s) => emitSelection?.(s),
     ...(props.lineHeight != null
       ? { itemMetrics: { lineHeight: props.lineHeight } }
       : {}),
   });
 
-  onMount(() => {
+  onSettled(() => {
     safeApply(() => {
       // The shared worker pool moves syntax tokenization off the UI thread;
       // it is a session-lived singleton, so `cleanUp()` below tears down this
@@ -233,46 +270,64 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       mountedViews.set(root, instance);
       instance.setItems(versionedItems(props.items));
       if (props.selectedLines !== undefined) {
-        instance.setSelectedLines(props.selectedLines);
+        instance.setSelectedLines(props.selectedLines, { notify: false });
       }
       instance.render(true);
       // An initial selection (e.g. file opened at a terminal `path:line`)
       // centers — there is no prior scroll position to disturb at mount,
       // so the navigation intent reads best with the range centered.
       scrollToSelection(props.selectedLines, "center");
-    }, props.onError);
+    }, reportError);
   });
 
   createEffect(
-    on(
-      () => props.items,
-      (items) =>
-        safeApply(() => {
-          if (!instance) return;
-          instance.setItems(versionedItems(items));
-          // Pierre 1.3's FileDiff.render early-returns when layout has
-          // already stored the new fileDiff (`fileDiff === this.fileDiff`)
-          // and the viewport range is unchanged — so a same-path hunk
-          // swap (Code tab live git) never paints. setOptions with a
-          // fresh callback identity fails areOptionsEqual and bumps
-          // renderOptionsRevision, which is the forceRender the reused
-          // element path needs.
-          instance.setOptions(buildOptions());
-        }, props.onError),
-      { defer: true },
-    ),
+    // The effect phase is a strict-read window, so everything it needs comes
+    // from here. `buildOptions()` is read with `untrack`: the items apply must
+    // re-run for a NEW `items` only — tracking the option sources here would
+    // re-apply the whole item list on a theme toggle (the options effect below
+    // already owns that). The error channel is the mirrored field: it is a
+    // channel, not a trigger.
+    () => ({ items: props.items, options: untrack(buildOptions) }),
+    ({ items, options }) => {
+      safeApply(() => {
+        if (!instance) return;
+        instance.setItems(versionedItems(items));
+        // Pierre 1.3's FileDiff.render early-returns when layout has
+        // already stored the new fileDiff (`fileDiff === this.fileDiff`)
+        // and the viewport range is unchanged — so a same-path hunk
+        // swap (Code tab live git) never paints. setOptions with a
+        // fresh callback identity fails areOptionsEqual and bumps
+        // renderOptionsRevision, which is the forceRender the reused
+        // element path needs.
+        instance.setOptions(options);
+      }, reportError);
+    },
+    { defer: true },
   );
 
   createEffect(
-    on(
-      () => props.selectedLines,
-      (s) =>
-        safeApply(() => {
-          instance?.setSelectedLines(s ?? null);
-          scrollToSelection(s, "nearest");
-        }, props.onError),
-      { defer: true },
-    ),
+    // A fresh record per pass, so an identical `selectedLines` reference still
+    // re-applies: Pierre owns the painted highlight, and the wrapper's job is
+    // to assert the prop over whatever Pierre currently holds.
+    () => ({ selected: props.selectedLines }),
+    ({ selected }) => {
+      safeApply(() => {
+        // PROVENANCE, not de-duping: a selection the consumer PUSHED is not a
+        // user selection, so it stops here instead of round-tripping back out
+        // through `onSelectedLinesChange`. Without the gate Pierre answers
+        // this very call synchronously, inside this apply arm, with the range
+        // it was handed (`InteractionManager.setSelection` →
+        // `notifySelectionCommitted`) — and a consumer that treats that echo
+        // as a change is an effect writing its own source. `FileTree` has
+        // gated the same way since the tree's 60-120 Hz ping-pong
+        // (`FileTree.tsx:251-268`, `:872-890`); this viewer never got it.
+        // Pierre's own gutter gestures are unaffected: it reports those from
+        // its pointer paths whatever an apply said.
+        instance?.setSelectedLines(selected ?? null, { notify: false });
+        scrollToSelection(selected, "nearest");
+      }, reportError);
+    },
+    { defer: true },
   );
 
   // A theme toggle (or any other option flip) lands on the existing
@@ -282,12 +337,15 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // tracked set automatically — the two cannot drift if a new option
   // is added to `buildOptions` later. Pierre's `setOptions` is
   // idempotent on identical input, so any incidental re-fire is harmless.
+  // The selection handler is no longer among what `buildOptions` reads — the
+  // closure Pierre holds delegates to the mirror — so this effect tracks the
+  // option sources only.
   createEffect(
-    on(
-      buildOptions,
-      (opts) => safeApply(() => instance?.setOptions(opts), props.onError),
-      { defer: true },
-    ),
+    buildOptions,
+    (opts) => {
+      safeApply(() => instance?.setOptions(opts), reportError);
+    },
+    { defer: true },
   );
 
   onCleanup(() => {

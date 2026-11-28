@@ -11,7 +11,8 @@
  * scaffolding; only the copy, tone, and the confirmed action differ per caller.
  */
 
-import { type Component, createSignal, type JSX, Show } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 /** Per-tone accent for the trigger + the confirm's action button. */
 const CONFIRM_ACCENT: Record<"neutral" | "danger" | "warning", string> = {

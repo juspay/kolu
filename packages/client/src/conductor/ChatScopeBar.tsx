@@ -14,6 +14,7 @@
 import type { ConductorRow } from "kolu-common/conductor";
 import { type Component, createMemo, Show } from "solid-js";
 import { chatScope, showAllChat } from "./chatScope";
+import { sameFields } from "./sameItems";
 import type { Turn } from "./turnWorks";
 import WorkChip from "./WorkChip";
 
@@ -21,19 +22,25 @@ const ChatScopeBar: Component<{
   rows: readonly ConductorRow[];
   turns: ReadonlyMap<string, Turn>;
 }> = (props) => {
-  const tally = createMemo(() => {
-    const at = chatScope();
-    if (at === null) return null;
-    let total = 0;
-    let shown = 0;
-    for (const row of props.rows) {
-      const turn = props.turns.get(row.id);
-      if (turn === undefined || turn.head !== row.id) continue;
-      total += 1;
-      if (turn.works.includes(at.id)) shown += 1;
-    }
-    return { ...at, total, shown };
-  });
+  // GATED on what the bar says: the count is folded again over the whole
+  // conversation on every chunk, and the chip under it is drawn from the
+  // record this carries.
+  const tally = createMemo(
+    () => {
+      const at = chatScope();
+      if (at === null) return null;
+      let total = 0;
+      let shown = 0;
+      for (const row of props.rows) {
+        const turn = props.turns.get(row.id);
+        if (turn === undefined || turn.head !== row.id) continue;
+        total += 1;
+        if (turn.works.includes(at.id)) shown += 1;
+      }
+      return { ...at, total, shown };
+    },
+    { equals: sameFields },
+  );
 
   return (
     <Show when={tally()}>

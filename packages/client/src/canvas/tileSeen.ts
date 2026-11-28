@@ -26,13 +26,7 @@
  *  that has NEVER been seen has nothing to hold — it is not attached, and no
  *  timer runs for it. */
 
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  on,
-  onCleanup,
-} from "solid-js";
+import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import type { CanvasTileMode } from "./CanvasTile";
 
 /** How long a tile that has left the view keeps its attach.
@@ -112,32 +106,42 @@ export function tileIsSeen(facts: TileSeenFacts): boolean {
  *  Owned by the caller's reactive owner: the timer is cleared when the tile
  *  goes, so a closed tile cannot flip a disposed signal. */
 export function createHeldSeen(seen: Accessor<boolean>): Accessor<boolean> {
-  const [held, setHeld] = createSignal(seen());
+  // The hold is expressed as a DERIVATION of `seen`, not as a mirror signal
+  // fed by the effect: a mirror needs a seed, and seeding it means reading
+  // `seen` in the component body that calls this — a read no reactive scope
+  // may make. Here the only state of its own is "has the grace period
+  // expired", which starts spent: a tile nobody has seen yet holds nothing.
+  const [letGo, setLetGo] = createSignal(true);
+  // Plain mirror of `letGo` for the effect phase, which reads no reactive
+  // state (and a compute that read `letGo` would feed on this effect's own
+  // write).
+  let released = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => {
     if (timer === undefined) return;
     clearTimeout(timer);
     timer = undefined;
   };
-  createEffect(
-    on(seen, (now) => {
-      if (now) {
-        // Arriving is never delayed, and it spends a pending departure.
-        cancel();
-        setHeld(true);
-        return;
-      }
-      // Never seen (or already let go): nothing is attached, so nothing is
-      // owed a grace period. (No "already counting down" case to guard: this
-      // effect runs on CHANGES of `seen`, and the `true` that must precede a
-      // second `false` has already cancelled the timer above.)
-      if (!held()) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        setHeld(false);
-      }, SEEN_HOLD_MS);
-    }),
-  );
+  createEffect(seen, (now) => {
+    if (now) {
+      // Arriving is never delayed, and it spends a pending departure.
+      cancel();
+      released = false;
+      setLetGo(false);
+      return;
+    }
+    // Never seen (or already let go): nothing is attached, so nothing is
+    // owed a grace period. (No "already counting down" case to guard: this
+    // effect runs on CHANGES of `seen`, and the `true` that must precede a
+    // second `false` has already cancelled the timer above.)
+    if (released) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      released = true;
+      setLetGo(true);
+    }, SEEN_HOLD_MS);
+  });
   onCleanup(cancel);
-  return held;
+  // Seen now, or still inside the grace period of the last sighting.
+  return () => seen() || !letGo();
 }

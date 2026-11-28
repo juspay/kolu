@@ -33,9 +33,12 @@
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/log": "workspace:*",
-    "kolu-pty": "workspace:*",
+    "@kolu/solid-test-setup": "workspace:*",
+    "@solidjs/vite-plugin": "^3.0.1",
     "@types/node": "^22.0.0",
-    "solid-js": "^1.9.0",
+    "happy-dom": "^21.0.4",
+    "kolu-pty": "workspace:*",
+    "solid-js": "^2.0.4",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

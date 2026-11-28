@@ -10,7 +10,8 @@
 import type { PrInfo } from "anyforge/schemas";
 import { Option } from "effect";
 import { ABOUT_WORK, type Work } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { createEffect, flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkSubject } from "../right-panel/WorkSection";
 import { type WorkPr, workPrOf } from "./workPr";
@@ -21,7 +22,16 @@ const handed = vi.hoisted(() => ({ subject: null as unknown }));
 // pinned here is WHAT this part hands it.
 vi.mock("../right-panel/WorkSection", () => ({
   default: (props: { subject: unknown }) => {
-    handed.subject = props.subject;
+    // IN A TRACKING SCOPE, as the section itself reads it: every read of the
+    // subject in the real one is in a memo. A read at the body's top would
+    // be the untracked read Solid refuses — and would hold the first value
+    // for ever.
+    createEffect(
+      () => props.subject,
+      (one) => {
+        handed.subject = one;
+      },
+    );
     return <span data-testid="work-section-stub" />;
   },
 }));
@@ -93,6 +103,9 @@ afterEach(() => {
 function mount(one: Work, pr: Option.Option<WorkPr>): WorkSubject {
   host = document.createElement("div");
   dispose = render(() => <WorkWorktree work={one} pr={pr} />, host);
+  // The stub takes the subject in its effect, which runs on the flush after
+  // it is created — where a person would see the section's first paint.
+  flush();
   return handed.subject as WorkSubject;
 }
 

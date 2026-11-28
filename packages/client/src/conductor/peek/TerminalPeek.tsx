@@ -1,5 +1,5 @@
 import { createWindowSize } from "@solid-primitives/resize-observer";
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   type Component,
@@ -7,10 +7,10 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
-  onCleanup,
-  onMount,
+  onSettled,
+  runWithOwner,
   Show,
+  untrack,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
@@ -26,6 +26,7 @@ import WorkLock from "../WorkLock";
 import { ROLE_WORD } from "../workReadings";
 import { useMembership, useWorkMembers } from "../useWorks";
 import { liveArm, terminalStatus } from "../terminalStatus";
+import { createLookable } from "./lookable";
 import PeekTerminal, { type PeekTerminalHandle } from "./PeekTerminal";
 import { TerminalControls, TerminalStatusLine } from "./TerminalHead";
 import {
@@ -44,7 +45,7 @@ import {
   peekTarget,
   peekTyping,
   peekFootWords,
-  setPeekTyping,
+  usePeekTyping,
   type PeekTarget,
 } from "./usePeek";
 import { fitWidth, setFitWidth } from "../fitWidth";
@@ -54,9 +55,12 @@ const TAB_CLASS =
 
 const TerminalPeek: Component = () => {
   const shown = useShown();
-  createEffect(() => {
-    if (!shown()) closePeek();
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) closePeek();
+    },
+  );
   return (
     <ModalDialog
       open={peekTarget() !== null}
@@ -89,12 +93,21 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     fleetTerminalStanding(props.target.host, props.target.id),
   );
   const status = createMemo(() => terminalStatus(standing()));
-  const lookable = () => liveArm(standing()) !== undefined;
+  const lookable = createLookable(standing);
   const openTileAt = useOpenTile();
+  const openingGrid = untrack(() => liveArm(standing())?.grid ?? null);
   const [grid, setGrid] = createSignal<TerminalGrid | null>(
-    liveArm(standing())?.grid ?? null,
+    // READ ONCE: the window opens on the size the terminal has now, and
+    // every size after this one arrives through `onGrid`.
+    openingGrid,
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
+  /** THE CELL ONE CHARACTER TAKES AT THE BASE FONT — a measurement KEPT past
+   *  the dispatch it arrived in, and the only such capture the window holds.
+   *  It is keyed to the screen that produced it by the keyed
+   *  `<Show when={peekTarget()} keyed>` above: a window moved to another
+   *  terminal is another `PeekWindow`, so no cell of the terminal it was
+   *  moved off can size this one (`baseCellPeers.test.tsx`). */
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
   const [phase, setPhase] = createSignal<"reading" | "live" | "reconnecting">(
@@ -102,26 +115,91 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
   );
   const [held, setHeld] = createSignal(false);
   const [focused, setFocused] = createSignal(false);
+  /** The screen's keyboard door, handed up by `PeekTerminal`'s `onReady`.
+   *  `ownedWrite`: this is the window's OWN internal signal, and `onReady`
+   *  runs under this component's owner (the kit re-enters it with
+   *  `runWithOwner` once the font has loaded,
+   *  `xterm-kit/solid/xtermLifecycle.ts`) — so the one write it ever takes
+   *  is, by construction, a write in an owned scope. */
   const [handle, setHandle] = createSignal<PeekTerminalHandle | undefined>(
     undefined,
+    { ownedWrite: true },
   );
   const membership = useMembership();
   const driver = () => membership().get(ref)?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref);
+  /** The peek's typing lock IS this derivation (`usePeek.ts`): the window
+   *  lends it up rather than copying its answer into a signal, so the Esc
+   *  gate above never trails the keyboard by a flush. */
   const typing = () => focused() && mayType();
-  createEffect(() => setPeekTyping(typing()));
-  onCleanup(() => setPeekTyping(false));
+  usePeekTyping(typing);
   createEffect(
-    on(driver, (now, before) => {
-      if (now === "you" && before === "conductor") handle()?.focus();
+    () => ({
+      driver: driver(),
+      // READ ONCE, not depended on: the keyboard follows the DRIVER
+      // changing, not the screen's handle arriving.
+      handle: untrack(handle),
     }),
+    (now, before) => {
+      // SETTLED. The DOM `focus()` is this effect's whole job, and the
+      // screen's own focus listener answers it SYNCHRONOUSLY
+      // (`PeekTerminal.tsx`) with `onFocus(true)` → `setFocused`. Called
+      // inline, that write lands in this apply arm's frame, so the foot —
+      // which folds the same `driver` this arm's compute read with `typing()`
+      // off `focused` — is written twice for one hand-over: the judged
+      // `EFFECT_RELAY_TEAR`, `warn` from its third sighting, and taking the
+      // terminal over three times in one open window is an ordinary thing to
+      // do. An owner-less `onSettled` runs the focus after the flush settles,
+      // in the same task, so nothing visible changes and no frame is lost. It
+      // can never contend with the window's own mount focus below: this arm
+      // requires a hand-over FROM the conductor, which the first run cannot
+      // see.
+      if (now.driver === "you" && before?.driver === "conductor")
+        runWithOwner(null, () => {
+          onSettled(() => {
+            now.handle?.focus();
+          });
+        });
+    },
+    { name: "peekDriverKeyboard" },
   );
-  createEffect(() => {
-    const h = handle();
-    if (h !== undefined && !mayType()) h.focus();
-  });
+  /** THE READER'S KEYBOARD — while the terminal takes no typing the screen
+   *  keeps DOM focus, so the keys a reader uses reach it: the scrollback
+   *  keys, and the Esc xterm's key handler refuses when `mayType()` is false
+   *  (`PeekTerminal.tsx`) so it bubbles out and closes the window. */
+  createEffect(
+    () => ({ handle: handle(), mayType: mayType() }),
+    (now, before) => {
+      const h = now.handle;
+      if (h === undefined || now.mayType) return;
+      // SETTLED, on the HAND BACK — the twin of `peekDriverKeyboard` above
+      // and for the same reason: the screen answers `focus()` SYNCHRONOUSLY
+      // with `onFocus(true)` → `setFocused`, so called inline from this arm
+      // the write lands in the arm's own frame and the foot — which folds
+      // the same `mayType` this compute read with `typing()` off `focused` —
+      // is written twice for one hand back (`EFFECT_RELAY_TEAR`, victim
+      // `p.children`, root `membership.driver`). An owner-less `onSettled`
+      // runs it after the flush settles, in the same task.
+      if (before?.mayType === true)
+        runWithOwner(null, () => {
+          onSettled(() => {
+            h.focus();
+          });
+        });
+      // THE WINDOW OPENING read-only is the other arrival here — the screen's
+      // handle reaching a window that already takes no typing — and it stays
+      // INLINE: the window's own mount focus below is an `onSettled` queued
+      // at mount, so it runs after this flush and the window keeps the
+      // keyboard, exactly as it does today. Settling this arrival too would
+      // queue after that one and take the focus off the window instead.
+      else h.focus();
+    },
+    { name: "peekReadOnlyFocus" },
+  );
   let contentEl: HTMLDivElement | undefined;
-  onMount(() => contentEl?.focus());
+  onSettled(() => {
+    contentEl?.focus();
+  });
   const blurTerminal = () => contentEl?.focus();
   const onWindowKey = (e: KeyboardEvent): void => {
     const target = e.target instanceof Element ? e.target : null;
@@ -159,6 +237,11 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
     const n = baseNatural();
     return n !== null && peekPans(n.width, availWidth());
   };
+  /** THE FONT THE SCREEN DRAWS AT — Fit width's answer at the window's base
+   *  cell, else the base font. Read where it is bound, in the screen's
+   *  `fontSize` prop: the base cell is latched from the font the screen
+   *  reports WITH its measurement, so nothing re-derives this inside a
+   *  render callback. */
   const fontSize = () => {
     const g = grid();
     const c = baseCell();
@@ -186,7 +269,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       ref={(el: HTMLDivElement) => {
         contentEl = el;
       }}
-      tabIndex={-1}
+      tabindex={-1}
       onKeyDown={onWindowKey}
       style={
         layoutMode() === "phone"
@@ -281,6 +364,7 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
       </div>
       <TerminalStatusLine
         kind="peek"
+        lookable={lookable()}
         host={props.target.host}
         id={props.target.id}
         terminal={ref}
@@ -328,10 +412,13 @@ const PeekWindow: Component<{ target: PeekTarget }> = (props) => {
                 fontSize={fontSize()}
                 mayType={mayType}
                 onGrid={setGrid}
-                onCell={(c, p) => {
+                onCell={(c, p, drawnFont) => {
                   setCell(c);
                   setPad(p);
-                  if (fontSize() === DEFAULT_FONT_SIZE) setBaseCell(c);
+                  // THE FONT THIS CELL WAS DRAWN AT, as the screen states
+                  // it: the base cell is the one measured at the base font,
+                  // and nothing here reads the window's own staged state.
+                  if (drawnFont === DEFAULT_FONT_SIZE) setBaseCell(c);
                 }}
                 onPhase={setPhase}
                 onHeld={setHeld}

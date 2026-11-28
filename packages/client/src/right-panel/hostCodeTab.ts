@@ -118,10 +118,13 @@ export function codeSubjectOf(
  *  history reset (`RightPanel`) all read this. */
 const rightPanelSubject = createSharedRoot(() => {
   const store = useTerminalStore();
-  return createMemo((): CodeSubject => {
-    const pane = store.focused();
-    return codeSubjectOf(activeHost(), pane.id, pane.meta);
-  });
+  return createMemo(
+    (): CodeSubject => {
+      const pane = store.focused();
+      return codeSubjectOf(activeHost(), pane.id, pane.meta);
+    },
+    { name: "rightPanelSubject" },
+  );
 });
 export const rightPanelCodeSubject: Accessor<CodeSubject> = () =>
   rightPanelSubject()();
@@ -140,6 +143,7 @@ const codeTabScopes = createSharedRoot(() =>
       subject: rightPanelCodeSubject,
       state: useRightPanel().code,
       active: () => ctx.isActive() && leases.shown(),
+      showsPick: leases.showsPick,
     }),
   ),
 );

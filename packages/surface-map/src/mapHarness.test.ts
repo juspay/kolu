@@ -4,7 +4,7 @@
  * via `directDispatch` and wired through a mock `MapRegistry`.
  *
  * Proves: (1) two entries served (no cross-talk), (2) a `useEntry` switch re-keys
- * synchronously, (3) two views of one cell cause ONE upstream subscription
+ * on the flush it schedules, (3) two views of one cell cause ONE upstream subscription
  * (dedup), (4) removing a member ends its live subs TYPED (no error), drops it
  * from `entries`, and reads `not-a-member`, (5) `entries` is the one authority
  * (warming→connected + a fault member reads failed).
@@ -17,7 +17,7 @@ import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { runStreamScoped } from "@kolu/surface/solid";
 import { Effect, Schema, Stream } from "effect";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
 import {
@@ -109,7 +109,7 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(2) useEntry re-keys synchronously on a signal switch", async () => {
+  it("(2) useEntry re-keys on the flush a signal switch schedules", async () => {
     await createRoot(async (dispose) => {
       const { client, addSession } = setup();
       addSession(
@@ -127,9 +127,12 @@ describe("surface-map mock-entry e2e harness", () => {
       const view = client.useEntry(active);
       const r = view.cells.urgency.use();
       let awaiting: number | undefined;
-      createEffect(() => {
-        awaiting = r.value()?.awaiting;
-      });
+      createEffect(
+        () => r.value()?.awaiting,
+        (v) => {
+          awaiting = v;
+        },
+      );
 
       await settle();
       expect(awaiting).toBe(3); // A
@@ -175,15 +178,24 @@ describe("surface-map mock-entry e2e harness", () => {
         kind: "warming",
         membershipId: testMembershipId(),
       };
-      createEffect(() => {
-        cellError = cell.error();
-      });
-      createEffect(() => {
-        keys = client.entries.use().keys().map(String);
-      });
-      createEffect(() => {
-        state = client.entry(A).state();
-      });
+      createEffect(
+        () => cell.error(),
+        (v) => {
+          cellError = v;
+        },
+      );
+      createEffect(
+        () => client.entries.use().keys().map(String),
+        (v) => {
+          keys = v;
+        },
+      );
+      createEffect(
+        () => client.entry(A).state(),
+        (v) => {
+          state = v;
+        },
+      );
 
       await settle();
       expect(cell.value()?.awaiting).toBe(9);
@@ -210,12 +222,18 @@ describe("surface-map mock-entry e2e harness", () => {
       const view = client.entries.use();
       let stC: EntryStatus | undefined;
       let stD: EntryStatus | undefined;
-      createEffect(() => {
-        stC = view.byKey(C)?.() as EntryStatus | undefined;
-      });
-      createEffect(() => {
-        stD = view.byKey(D)?.() as EntryStatus | undefined;
-      });
+      createEffect(
+        () => view.byKey(C)?.() as EntryStatus | undefined,
+        (v) => {
+          stC = v;
+        },
+      );
+      createEffect(
+        () => view.byKey(D)?.() as EntryStatus | undefined,
+        (v) => {
+          stD = v;
+        },
+      );
 
       addSession(C, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
@@ -251,9 +269,12 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession, setState } = setup();
       const view = client.entries.use();
       let st: EntryStatus | undefined;
-      createEffect(() => {
-        st = view.byKey(C)?.() as EntryStatus | undefined;
-      });
+      createEffect(
+        () => view.byKey(C)?.() as EntryStatus | undefined,
+        (v) => {
+          st = v;
+        },
+      );
 
       addSession(
         C,
@@ -373,18 +394,24 @@ describe("surface-map mock-entry e2e harness", () => {
   });
 
   it("(7) entries is READ-ONLY — a client mutation is a TYPE error, not a runtime reject", () => {
-    const { client } = setup();
-    const e = client.entries;
-    // `entries` is the ONE membership authority, published by one writer; a consumer must
-    // not be able to even EXPRESS a mutation. `ReadOnlyBoundCollection` drops upsert/delete
-    // structurally, so these are compile errors (not the old rejects-at-runtime lie-shape).
-    // @ts-expect-error — upsert is structurally absent from ReadOnlyBoundCollection.
-    const _u: unknown = e.upsert;
-    // @ts-expect-error — delete is likewise absent.
-    const _d: unknown = e.delete;
-    void _u;
-    void _d;
-    expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
+    // Under a ROOT: `connectSurfaceMap` installs its membership-pruning effect at
+    // construction, and an effect with no owner is never disposed
+    // (NO_OWNER_EFFECT) — it would outlive this test.
+    createRoot((dispose) => {
+      const { client } = setup();
+      const e = client.entries;
+      // `entries` is the ONE membership authority, published by one writer; a consumer must
+      // not be able to even EXPRESS a mutation. `ReadOnlyBoundCollection` drops upsert/delete
+      // structurally, so these are compile errors (not the old rejects-at-runtime lie-shape).
+      // @ts-expect-error — upsert is structurally absent from ReadOnlyBoundCollection.
+      const _u: unknown = e.upsert;
+      // @ts-expect-error — delete is likewise absent.
+      const _d: unknown = e.delete;
+      void _u;
+      void _d;
+      expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
+      dispose();
+    });
   });
 
   it("(8) removal DURING the subscribe ends TYPED — no stale value for an absent member", async () => {
@@ -442,9 +469,12 @@ describe("surface-map mock-entry e2e harness", () => {
 
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
-      createEffect(() => {
-        cellError = cell.error();
-      });
+      createEffect(
+        () => cell.error(),
+        (v) => {
+          cellError = v;
+        },
+      );
       await settle(); // forwardStream is now parked on the slow upstream
 
       // Remove A mid-flight: delete (has → false) + notify. The watcher (acquired
@@ -566,9 +596,12 @@ describe("surface-map mock-entry e2e harness", () => {
 
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
-      createEffect(() => {
-        cellError = cell.error();
-      });
+      createEffect(
+        () => cell.error(),
+        (v) => {
+          cellError = v;
+        },
+      );
       await settle(); // parked on the S1 upstream
 
       // Flap: remove A (has → false; the watcher LATCHES removed=true) THEN re-add under a
@@ -915,13 +948,17 @@ describe("membership is time — opaque membershipId (PR3)", () => {
   /** Read A's currently-published `membershipId` off the `entries` authority. */
   const idReader = (client: ReturnType<typeof setup>["client"]) => {
     let id: string | undefined;
-    createEffect(() => {
-      id = (
-        client.entries.use().byKey(A)?.() as
-          | EntryStatus<TestFailure>
-          | undefined
-      )?.membershipId;
-    });
+    createEffect(
+      () =>
+        (
+          client.entries.use().byKey(A)?.() as
+            | EntryStatus<TestFailure>
+            | undefined
+        )?.membershipId,
+      (v) => {
+        id = v;
+      },
+    );
     return () => id;
   };
 
@@ -931,12 +968,18 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const view = client.entries.use();
       let stA: EntryStatus<TestFailure> | undefined;
       let stB: EntryStatus<TestFailure> | undefined;
-      createEffect(() => {
-        stA = view.byKey(A)?.() as EntryStatus<TestFailure> | undefined;
-      });
-      createEffect(() => {
-        stB = view.byKey(B)?.() as EntryStatus<TestFailure> | undefined;
-      });
+      createEffect(
+        () => view.byKey(A)?.() as EntryStatus<TestFailure> | undefined,
+        (v) => {
+          stA = v;
+        },
+      );
+      createEffect(
+        () => view.byKey(B)?.() as EntryStatus<TestFailure> | undefined,
+        (v) => {
+          stB = v;
+        },
+      );
 
       addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
@@ -962,15 +1005,18 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const entry1 = makeEntry({ awaiting: 1, awaitingIds: [] });
       addSession(A, entry1.dispatch, connected(0));
 
-      // A reactive useEntry sub over A's urgency cell (opened synchronously — `useEntry`
+      // A reactive useEntry sub over A's urgency cell (created in the root body — `useEntry`
       // needs a live reactive owner). It is the sub that must REBUILD on a same-key re-add
       // — the exact stranding `createRejoinKeyedSub` used to hand-fix.
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.urgency.use();
       let awaiting: number | undefined;
-      createEffect(() => {
-        awaiting = cell.value()?.awaiting;
-      });
+      createEffect(
+        () => cell.value()?.awaiting,
+        (v) => {
+          awaiting = v;
+        },
+      );
       const idOf = idReader(client);
       await settle();
       expect(awaiting).toBe(1);
@@ -1005,7 +1051,10 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.urgency.use();
-      createEffect(() => void cell.value());
+      createEffect(
+        () => cell.value(),
+        () => {},
+      );
       const idOf = idReader(client);
       await settle();
       const id1 = idOf();
@@ -1049,9 +1098,13 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
     const readIdFromFreshServer = async (): Promise<string | undefined> => {
       const served = serveSurfaceMap(map, reg.registry);
-      const client = connectSurfaceMap(map, directDispatch(served));
       let id: string | undefined;
       await createRoot(async (dispose) => {
+        // The client is built INSIDE the root: `connectSurfaceMap` installs its
+        // membership-pruning effect at construction, and an effect with no owner
+        // is never disposed (NO_OWNER_EFFECT) — it would outlive this server and
+        // keep pruning against the next one.
+        const client = connectSurfaceMap(map, directDispatch(served));
         const idOf = idReader(client);
         await settle();
         id = idOf();
@@ -1083,13 +1136,19 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
       const retained = client.entry(A).cells.urgency.use();
       let retainedAwaiting: number | undefined;
-      createEffect(() => {
-        retainedAwaiting = retained.value()?.awaiting;
-      });
+      createEffect(
+        () => retained.value()?.awaiting,
+        (v) => {
+          retainedAwaiting = v;
+        },
+      );
 
       const [active] = createSignal<HostKey>(A);
       const view = client.useEntry(active).cells.urgency.use();
-      createEffect(() => void view.value());
+      createEffect(
+        () => view.value(),
+        () => {},
+      );
 
       // The frame lands → useEntry re-keys pending→real and builds the real client.
       await settle();
@@ -1125,9 +1184,12 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.health.use();
       let n: number | undefined;
-      createEffect(() => {
-        n = (cell.value() as { n: number } | undefined)?.n;
-      });
+      createEffect(
+        () => (cell.value() as { n: number } | undefined)?.n,
+        (v) => {
+          n = v;
+        },
+      );
       await settle();
       expect(n).toBe(1);
 
@@ -1596,9 +1658,12 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
       expect(anotherA).not.toBe(active()); // a genuinely NEW reference
       setActive(anotherA);
 
-      // No `await settle()` — `createKeyedRoot`'s disposal is SYNCHRONOUS (an eager
-      // `createRenderEffect`), so a re-key would already have reset `pending`/the value
-      // here, before any microtask runs.
+      // The re-key, if there were one, would ride this write's FLUSH: that is
+      // where `createKeyedRoot` disposes the outgoing key's root and builds the
+      // incoming one. Flushing is what makes this evidence of "no re-key" rather
+      // than of "not yet" — the encode-keyed identity sees the SAME key, so
+      // nothing is torn down.
+      flush();
       expect(sub.pending()).toBe(false); // no flash to pending
       expect(sub()).toBe(9); // no stale-then-reset gap
 

@@ -96,26 +96,28 @@ streams: {
 }
 ```
 
-- It exists because `solid-js/store`'s `reconcile` cannot be told this anywhere
+- It exists because Solid's store `reconcile` cannot be told this anywhere
   else, and a framework merging arbitrary app payloads must not guess it (see
   [how a push reconciles](#consuming-in-solidjs)).
 - Undeclared, a frame replaces every array element it merges, so a frame that
   repeats itself still notifies every reader of every array.
 - Declared, an array whose elements carry the field is diffed by it: a repeated
-  frame notifies nothing, and a reorder moves the objects rather than rewriting
-  them.
+  frame notifies nothing, and a reorder moves the store rows a keyed view
+  follows rather than rebuilding them.
 
 #### Name a field the schema types required and non-nullable
 
-The merge decides keyed-versus-positional for a whole array from its *first*
-element's value, so an optional field lets whichever row happens to be first
-decide for every other row in that frame.
+The merge decides keyed-versus-positional *per element*, and an element whose
+key reads `undefined` takes the positional fallback: it adopts whatever row is
+standing at its index.
 
-- It cannot corrupt anything. An object survives a position only when its key
-  matches the one already standing there, so a mismatch replaces rather than
-  recycles.
-- It silently drops that frame back to the undeclared behaviour. The schema is
-  where that is made unrepresentable; the merge sees values, not schemas.
+- Inside an array the declaration was supposed to key, that row belongs to
+  another record — so an optional field does not merely cost identity
+  preservation, it hands one record's row to another, silently and one row at a
+  time.
+- That is the recycling an undeclared member is protected from, reappearing
+  inside a declaration meant to prevent it. The schema is where it is made
+  unrepresentable; the merge sees values, not schemas.
 
 #### Three things `arrayKey` is not
 
@@ -128,12 +130,17 @@ decide for every other row in that frame.
   descriptor, so no `.use()` call site can spell it, override it, or disagree
   with another call site about it.
 
-Which of a collection's two deliveries applies the `arrayKey` is decided per call
-site. The per-key path (`.use({ keys })`, and any collection whose verbs omit
-`deltas`) merges an entry's value through the same seam a cell's goes through, so
-it honours the declaration. The batched `deltas` path replaces each named leaf
-whole rather than merging, since a `fold` consumer may be holding that very
-object, so there is no merge there for a key to govern.
+Both of a collection's deliveries apply the `arrayKey`. The per-key path
+(`.use({ keys })`, and any collection whose verbs omit `deltas`) merges an
+entry's value through the same seam a cell's goes through. The batched `deltas`
+path merges each entry a frame names through that seam too, so a delta that
+moves one field wakes that field's readers and leaves the entry's other leaves
+alone.
+
+A `fold` consumer holding an earlier entry keeps it unchanged. The merge adopts
+the incoming frame: at every level it reaches, the store's backing becomes the
+new object by an internal pointer swap, and nothing already in the store is
+written to.
 
 Arrays whose elements do not carry the field are merged by position: that is the
 declared reach of the key, not a fallback around it, and it too is silent on a
@@ -1015,9 +1022,15 @@ one client per surface, and one fold face for a delta stream.
 | [`surfaceClients(transport, map)`](#surfaceclientstransport-map) | `/solid` | Splits one combined transport into a sibling client per surface. |
 | [`surfaceClientsHealth(clients)`](#surfaceclientshealthclients) | `/solid` | And-reduces a record of clients into one health fact. |
 | [`Subscription<T>`](#subscriptiont) | `/solid` | The accessor plus `pending` / `error` / `complete` and the change channel. |
+| [`framesEqual(a, b)`](#framesequala-b) | `/solid` | Value equality for one frame, for a subscription you publish yourself. |
+| [`joinChunks(name, length, readRange, options?)`](#joinchunksname-length-readrange-options) | `/solid` | A list folded in chunks, so no memo in it reads more than a chunk. |
+| [`joinRows(name, rows)`](#joinrowsname-rows) | `/solid` | The same fold over rows that already exist as accessors. |
+| [`foldEach(name, keys, read, equals?)`](#foldeachname-keys-read-equals) | `/solid` | One row memo per key, joined in chunks. |
 | [`.streams.X.useCollection(input, descriptor)`](#streamsxusecollectioninput-descriptor) | `/solid` | A keyed, read-only collection view over a stream of snapshots and deltas. |
 | [`fold`](#fold-on-a-deltas-collection) | `/solid` | Folds a `deltas` collection's whole frames into your own accumulator. |
 | [`useCollectionDeltas`](#usecollectiondeltas) | `/solid` | The delta hook `.use()` drives, for an un-enrolled stream. |
+| [`NoFn<T>`](#nofnt) | `/solid` | Solid 2's value constraint, for an option handed to Solid as a value. |
+| [The suite harness](#the-suite-harness-kolusurfacesolidtestlib) | `/solid/testlib` | The hand-driven source and the deltas harness a consumer's own suite drives a view through. |
 
 ### `surfaceClient(surface, transport, onClientError?)`
 
@@ -1047,6 +1060,8 @@ Returns a client with a bound accessor per member. It replaces the `source` /
 - A `deltas`-declaring collection's whole-collection `.use()` also carries [`.fold({ init, step })`](#fold-on-a-deltas-collection).
 - A cell's `authority` is `"server"` (the default: every push reconciles) or `"local"` (the local store wins after the first server yield).
 - An `inputFn` that returns `null` pauses a stream or an event.
+- An input change tears the subscription down and opens a fresh one: the accessor reads `undefined`, `error()` clears, `complete()` is `false` and `pending()` is `true` again. Those resets are published once the flush that carried the input change settles, so a computation that reads both the input and the subscription is never torn by them. A fact the fresh subscription has already published, such as a failure at open, stands and is not reset over.
+- A cell's `initial` is typed [`NoFn<T>`](#nofnt): a function there is Solid's derived-store spelling, not a value, so a cell whose value is a function cannot be seeded with one.
 
 #### Calling a procedure
 
@@ -1071,28 +1086,34 @@ member the bound shapes cannot model.
 
 #### How a push reconciles
 
-A push merges by the member's declared key, else positionally, never by an
-inferred one. An undeclared merge into a bound store passes Solid's
-`reconcile(..., { key: null })`.
+A push merges by the member's declared key, else by a key that identifies no
+element at all, never by an inferred one. A merge adopts the frame rather than
+mutating it, so the raw value is always the newest frame's. What it can carry
+across frames is a row's *store identity*: the proxy a `<For>` item, a per-row
+memo or a component holds.
 
-Solid's own default is `key: "id"`, which reads a field called `id` as an
-element's identity and recycles the previous row objects for the records it
-thinks matched. On a payload whose elements have no top-level `id`, every
-element's key reads `undefined` and they all match, so the object that held one
-record comes to hold another.
+#### What a merge without a declared key does
+
+Solid's own default is `key: "id"`. It reads a field called `id` as an element's
+identity, and hands the row standing there the incoming element. On a payload
+whose elements have no top-level `id`, every key reads `undefined`, which is the
+positional fallback: the row that held one record comes to hold another.
 
 A reader that goes by position never notices. A `<For>` keyed by reference, a
 per-row memo, or a component holding a row across frames sees a row whose
-identity and whose fields disagree. A framework merging arbitrary app payloads
-has no basis for inferring identity from a field name, so undeclared, an element
-is replaced rather than recycled.
+identity and fields disagree.
+
+A framework merging arbitrary app payloads cannot infer identity from a field
+name. So an undeclared merge passes a key function that answers only for the
+*incoming* frame's array elements. Nothing in the store can match one, so every
+element is replaced rather than recycled, while objects outside arrays keep
+merging field by field.
 
 The member pays for that safety or opts out of it:
 
 - Replacement is total. A frame that merely repeats what the store holds still replaces every element and notifies every reader of every array under it. A keyed `<For>` tears its DOM down on every frame, and every per-row binding re-runs for every row for a one-character change in one row.
-- A cell or stream that declares [`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead: a repeated frame notifies nothing, and a reorder moves the objects a keyed view is following.
-- A `deltas` collection's keyed dictionary is not merged here at all. Its hook owns a store and writes the keys a frame names, replacing each leaf whole, so an entry a `fold` consumer is holding never mutates under it.
-- A collection's per-key delivery does come through this merge, and honours the same declaration.
+- A cell or stream that declares [`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead: a repeated frame notifies nothing, and a reorder moves the rows a keyed view is following.
+- Both of a collection's deliveries come through this merge and honour the same declaration. The batched `deltas` path merges one entry at a time: its hook owns a store and merges each entry a frame names, so only the leaves that moved notify. An entry a `fold` consumer holds is never written to, since the merge swaps the new object in as the backing.
 
 #### Wire links must carry a watchdog
 
@@ -1121,6 +1142,8 @@ Where it sits differs by member:
 pending, error, set, patch, sub }`, where `value` is the accessor and `sub` is the `Subscription`. The change channel is therefore `cells.X.use(...).sub.updated(...)`.
 - A read-only cell's result has no `set` / `patch`, and its `.use()` accepts only `onError`, since a get-only cell has no wire mutation verb to reconcile against.
 - A collection view answers `error()`, `pending()` and `keys()` whatever the path. Under batched delivery the per-key handle `byKey(id)` returns is assembled from the one stream's signals, so it carries no `.updated()`. Ask [`fold`](#fold-on-a-deltas-collection) instead, which hands over the wire's whole frame rather than one key's before and after.
+- The stream opens in the creating owner's effect phase, on the flush after `.use()` returns — never inside the creating scope, where Solid 2 refuses a write. Until the first frame lands the accessor reads `undefined` and `pending()` reads `true`, even over an in-process link or a replayed snapshot. `events.X.use(...)` attaches on that same flush. A view created during server rendering opens no stream.
+- A view's lifetime is the creating owner's or an external `AbortSignal`'s, and it must be one of the two. A view created with neither is refused, because nothing could interrupt its fiber or close the wire subscription behind it. Created with a signal and no owner, it subscribes at once: without an owner there is no effect phase to defer into, and no owned scope for a frame to be written from.
 
 #### `.updated(handler)` and `.changed(handler)`
 
@@ -1134,6 +1157,59 @@ pending, error, set, patch, sub }`, where `value` is the accessor and `sub` is t
 - `.changed(handler)` is the same law without the payload: same moments, same `Dispose`, no `{ prev, next }`.
 - `.updated()` must hand its handlers a snapshot, because the store adopts a frame and mutates it on the next write, so a retained pair would change out from under the consumer. That snapshot is two `structuredClone`s of a whole frame, and it is the price of the payload. Subscribing with `.changed()`, the clones do not happen at all.
 - Reach for `.updated()` when you read `prev` / `next`, `.changed()` when you do not. Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
+
+### `framesEqual(a, b)`
+
+Structural value equality for a subscription frame: the comparator the
+change-iff-fired law above answers "is this the frame I already published?"
+with.
+
+`framesEqual(a: unknown, b: unknown): boolean`
+
+- It compares primitives, arrays, plain objects, `Date` (by instant), `Map` and `Set`.
+- It answers `false` for anything it cannot prove equal: a class instance, a `RegExp`, a typed array, an own property under a symbol key.
+- Own property names come from `Object.getOwnPropertyNames`, so a non-enumerable property, an augmented array and a sparse array are all compared.
+- Cycles compare by topology. A frame that loops back to itself reads equal only to one that loops back the same way.
+- Reach for it when your own code publishes a wire frame as a value (a hand-rolled `Subscription` over a plain signal), so a re-read that produced the same content stays silent. A wrong answer here republishes equal content; it never drops a change.
+
+### `joinChunks(name, length, readRange, options?)`
+
+Folds a range-readable source into one list, a chunk at a time, so no memo in
+the fold crosses Solid's 200-source `WIDE_SCOPE_DEPS` judge.
+
+`joinChunks<T>(name: string, length: Accessor<number>, readRange: (start: number, end: number) => readonly T[], options?: { chunk?: number; equals?: (a: readonly T[], b: readonly T[]) => boolean }): Accessor<readonly T[]>`
+
+- A chunk memo per `chunk` positions (128 by default) reads `length` and its own range; the join reads the chunk list and every chunk, which is `1 + ⌈N / chunk⌉` sources.
+- `readRange(start, end)` is one chunk's reading of a half-open range, and whatever it tracks is that chunk's sources alone.
+- Pass a smaller `chunk` when a row costs more than one source: this package's own health fold reads two accessors per row and takes 64.
+- `equals` gates both a chunk and the join, so an unchanged reading is not republished. It defaults to element identity in order (`sameMembers`); a reading that mints a fresh record per row passes its own.
+- Chunks are keyed by position, so a value moving re-runs its chunk and the join, while an insertion re-runs the chunks at and after it.
+
+### `joinRows(name, rows)`
+
+The same fold over rows that already exist as accessors:
+`joinRows<T>(name: string, rows: Accessor<readonly Accessor<T | undefined>[]>): Accessor<readonly T[]>`.
+
+- The published list is the present values in row order; a row reading `undefined` is dropped.
+
+### `foldEach(name, keys, read, equals?)`
+
+One row memo per key, joined through `joinRows`:
+`foldEach<K, T>(name: string, keys: Accessor<readonly K[]>, read: (key: K) => T | undefined, equals?: (a: T, b: T) => boolean): Accessor<readonly T[]>`.
+
+- `read` is one item's reading, so whatever it tracks is that row's sources alone.
+- `equals` is when two readings of one item are the same thing — for a `read` that builds a fresh value per run.
+- Memo names in dev diagnostics are `<name>` for the join, `<name>.chunk`, `<name>.byChunk`, `<name>.chunks` and `<name>.row`.
+
+### `NoFn<T>`
+
+Solid 2's value constraint, `Exclude<T, Function>`, defined here and exported
+from `@kolu/surface/solid` because `solid-js` does not forward
+`@solidjs/signals`' own `NoFn`.
+
+- Solid reads a function handed to `createSignal` / `createStore` as a derivation rather than as the value: `createStore(fn)` is the projection form, `createSignal(fn)` the derived form.
+- It types every option this package hands to Solid as a value: `.cells.X.use({ initial })` and the bound cell's own `initial`.
+- Use it on an option of your own that reaches Solid as a value, so the requirement is visible at the call site rather than asserted at the handoff.
 
 ### `surfaceClients(transport, map)`
 
@@ -1219,23 +1295,26 @@ framework never sees inside the accumulator.
 | What `init` is handed | The client store's own values, in its arrival order: the same objects `byKey` reads |
 | `undefined` | Means exactly one thing: there is no valid accumulator |
 | Removes of unknown keys | Delivered verbatim, so `step` must be total over a remove of a key it never saw |
-| Ordering | Assert keys, apply to the store, notify the folds, clear `pending`, all in one tick |
+| Ordering | Assert keys, apply to the store, notify the folds, clear `pending`, all in one tick — the folds inside the frame's own store transaction |
 | Aliasing | `step` receives the wire's decoded frame objects and `init` receives the store's held ones; a fold may retain either without cloning |
 | Errors | The batched stream's error is collection-wide and terminal; a throwing `init` / `step` is contained to its own fold |
 | Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup` |
+
+#### What a fold sees
 
 - First-connect and reconnect are the same event to a fold; it never classifies a frame. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands.
 - `init` is never handed the wire's entries directly. The store's snapshot write is value-diffed, so an entry a reconnect re-serialized unchanged keeps the object already held and the fresh copy is dropped. Seeding from the wire would hand a fold objects the store refused, and make what `init` receives depend on when the fold registered.
 - `undefined` is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it.
 - The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove. The framework does not filter such a remove out, since that would be swallowing part of the frame.
-- A `step` that reads `byKey` sees state consistent with the frame it holds.
+- A `step` that reads `byKey` or `keys()` sees state consistent with the frame it holds. The folds are notified inside the frame's own store transaction. There a store read is served the frame being applied rather than the last flushed one, so the frame argument, the store and the key set all answer the same way. Every other reader sees that frame on the flush, as with any store write.
 
 #### What a fold may hold, and what fails it
 
-- The store adopts a value by replacement and neither side ever mutates one. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them.
+- The store adopts a value by pointer swap and neither side ever mutates one. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them.
 - On a collection-wide error, fold accessors keep their last value, frozen, exactly as `byKey` does, and the failure surfaces through the shared `error()` / `onError` / health enrolment.
 - A throwing `init` / `step` is reported loudly, never killing the stream, the store or another fold, and it invalidates that fold's accumulator. Later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever.
 - Called ownerless, `fold()` throws rather than minting an accumulator nothing can drop.
+- A `step` must not create computations. It runs inside the frame's own store transaction, where a store read is served the frame being applied and does not subscribe, so a memo or effect built over `byKey` there would silently never track.
 
 #### Frames are bounded
 
@@ -1265,6 +1344,23 @@ The hook `.use()` drives for a `deltas` collection, exported from
 - A consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591) health carve-out) hands the raw stream to it as `source` and gets the same store and the same `fold`, instead of hand-rolling a second one.
 - Its result carries one member the bound `.use()` does not: `.stream`, the single batched stream's own `error()` / `pending()` / `complete()`.
 - That reach has no `client.health()` fact to join its feed to, so a dead feed surfaces there or nowhere. Under the enrolled `.use()` the health fact owns that, and a parallel accessor would be one more thing to remember to read.
+
+### The suite harness (`@kolu/surface/solid/testlib`)
+
+What another package's suite needs to drive a `.use()` view: one reactive root,
+one hand-pushed source, and the wait that lets a pushed frame land. It is off
+the `/solid` door so no product runtime imports a test helper.
+
+| Export | What it is |
+| --- | --- |
+| `controllableStream<T>()` | A lazy `Stream` with all three terminations: `push`, `close` (a typed end) and `fail`. |
+| `driveDeltas(descriptor, body)` | Runs `body` against `useCollectionDeltas` over that source, inside a root disposed however the body ends. |
+| `DeltasHarness<K, T>` | What `body` is handed: `view`, `push` / `close` / `fail`, the `errors` the hook reported, and `observe(build)` for an observer added after an `await`. |
+| `settle()` | Two macrotask turns — a pushed frame crosses the stream fiber, lands in the store, and the effects that watch it flush. |
+| `numberRows` / `NumberRow` | The one-number fixture collection, so an assertion is about WHEN a frame lands and on WHICH key. |
+
+- An observer built in a `body` after its first `await` has no owner and is never disposed, so `observe` is how a suite adds one between frames.
+- `settle` is the shared wait on purpose: a timing fix made here is made for every suite, instead of one copy quietly keeping the old timing.
 
 ## The dispatch seam — `@kolu/surface/link`
 
@@ -2631,6 +2727,8 @@ Returns a fact, not a verdict: `{ live: boolean, subs: [{ name, pending, error }
 
 - `live` is the full conjunction of transport-live and every readiness predicate.
 - A subscription error stays in `subs` and is never folded into `live`. That is what lets the UI stay honest. Why: [Reactive honesty](/surface/reactive-honesty).
+- Reading it costs the reading scope two sources whatever the enrolment count: the registry folds its own subscriptions in chunks, so a page with a row per document cannot widen a caller.
+- The fact is the one as of the last flush. A reading computation is re-run by the flush that lands an enrolment or a frame; an imperative reader that enrols and asks in one breath asks after the flush.
 
 ### The readout
 

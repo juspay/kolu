@@ -31,7 +31,7 @@ function streamThat<T>(
 }
 
 /** Resolve pending microtasks so the fire-and-forget fiber advances. */
-const flush = () => new Promise((r) => setTimeout(r, 0));
+const settle = () => new Promise((r) => setTimeout(r, 0));
 
 /** Run the loop the way its one production caller does: one fiber, interrupted
  *  to stop it. The `AbortSignal` this helper used to take is gone — teardown is
@@ -77,7 +77,7 @@ describe("consumeReattachingStream", () => {
     // Drain the loop, waiting past the real-timer 300ms backoff that sits
     // between the failed first attempt and the re-subscribe.
     await new Promise((r) => setTimeout(r, 350));
-    for (let i = 0; i < 10; i++) await flush();
+    for (let i = 0; i < 10; i++) await settle();
 
     expect(onReattach).toHaveBeenCalledTimes(1);
     expect(streamFn).toHaveBeenCalledTimes(2);
@@ -103,7 +103,7 @@ describe("consumeReattachingStream", () => {
       tile(true),
     );
 
-    for (let i = 0; i < 10; i++) await flush();
+    for (let i = 0; i < 10; i++) await settle();
 
     expect(streamFn).toHaveBeenCalledTimes(1); // clean end → no re-subscribe
     expect(onReattach).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe("consumeReattachingStream", () => {
 
     // Past the exit-settle window AND the re-subscribe backoff (300 + 300).
     await new Promise((r) => setTimeout(r, 800));
-    for (let i = 0; i < 10; i++) await flush();
+    for (let i = 0; i < 10; i++) await settle();
 
     expect(streamFn).toHaveBeenCalledTimes(2);
     expect(onReattach).toHaveBeenCalledTimes(1);
@@ -350,11 +350,11 @@ describe("consumeReattachingStream", () => {
       tile(),
     );
 
-    for (let i = 0; i < 5; i++) await flush();
+    for (let i = 0; i < 5; i++) await settle();
     expect(items).toEqual(["a"]);
 
     fiber.interruptUnsafe();
-    for (let i = 0; i < 10; i++) await flush();
+    for (let i = 0; i < 10; i++) await settle();
 
     expect(streamFn).toHaveBeenCalledTimes(1); // stopped, never re-subscribed
     expect(onReattach).not.toHaveBeenCalled();

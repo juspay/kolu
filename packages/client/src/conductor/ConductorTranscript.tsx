@@ -32,21 +32,20 @@ import type {
   ConductorToolRow,
   ConductorWorkAskRow,
 } from "kolu-common/conductor";
-import { Key } from "@solid-primitives/keyed";
 import type { WorkId } from "kolu-work";
 import {
   type Component,
-  createComputed,
   createContext,
   createEffect,
   createMemo,
   createSignal,
   For,
   Match,
-  on,
-  onMount,
+  onSettled,
+  runWithOwner,
   Show,
   Switch,
+  untrack,
   useContext,
 } from "solid-js";
 import ScrollToBottom from "../terminal/ScrollToBottom";
@@ -67,21 +66,22 @@ import {
   applyTranscriptScroll,
   pinTranscript,
   rememberTranscriptScroll,
-  showTranscriptDocument,
   transcriptPinned,
+  transcriptPlace,
   unpinTranscript,
-  WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
-import { type FileHolders, fileHolders } from "./namedFiles";
-import { chatScope } from "./chatScope";
-import { agentNotes, quietChat, type QuietTurn } from "./quietChat";
+import type { FileHolders } from "./namedFiles";
+import { chatScope, shownDocument } from "./chatScope";
+import { sameFields, sameItems } from "./sameItems";
+import { quietChat, type QuietTurn } from "./quietChat";
 import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
-import { useWorkMap } from "./useWorks";
+import { useAgentNotes, useFileHolders, useWorkMap } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 import WorkQuestion from "./WorkQuestion";
+import { createWorkRecord } from "./workRecord";
 
 const NO_WORKS: ReadonlyArray<WorkId> = [];
 
@@ -97,12 +97,8 @@ interface Turns {
 }
 const TurnsContext = createContext<Turns>();
 
-const useTurns = (): Turns => {
-  const turns = useContext(TurnsContext);
-  if (turns === undefined)
-    throw new Error("a transcript row was drawn outside its transcript");
-  return turns;
-};
+// `TurnsContext` has no default, so a row drawn outside its transcript throws
+// (`ContextNotFoundError`).
 
 /** The same works, in the same order: what keeps a row's chips from being
  *  redrawn on every streamed chunk of its turn. */
@@ -136,7 +132,7 @@ const TurnChips: Component<{ works: ReadonlyArray<WorkId> }> = (props) => {
  *  whether that is a row, a fold or a run of failures. A turn that starts
  *  with your message or a wake-up draws them there instead. */
 const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
-  const turns = useTurns();
+  const turns = useContext(TurnsContext);
   const works = createMemo(
     () => {
       const first = props.rows[0];
@@ -145,7 +141,6 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
       const turn = turns.turnOf(first.id);
       return turn.head === first.id ? turn.works : NO_WORKS;
     },
-    NO_WORKS,
     { equals: sameWorks },
   );
   return (
@@ -196,20 +191,24 @@ const FoldLine: Component<{
       data-turn={props.turn.head}
       data-open={props.open ? "" : undefined}
       data-quiet={props.turn.says.kind === "prose" ? undefined : ""}
-      aria-expanded={props.open}
+      aria-expanded={props.open ? "true" : "false"}
       onClick={toggle}
       // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
       // open turn keeps the clear gap between turns.
-      class="flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left"
-      classList={{ "mt-4": props.open }}
+      class={[
+        "flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left",
+        { "mt-4": props.open },
+      ]}
     >
       {/* WHEN, AND WHICH WORKS — on a line of its own when there are several,
           so the sentence is never squeezed to nothing beside them. Open, the
           chips are the wake row's own (pressable, under it), so the line
           keeps only its clock. */}
       <span
-        class="flex min-w-0 max-w-full items-center gap-1.5"
-        classList={{ "basis-full": !props.open && props.works.length > 1 }}
+        class={[
+          "flex min-w-0 max-w-full items-center gap-1.5",
+          { "basis-full": !props.open && props.works.length > 1 },
+        ]}
       >
         <span aria-hidden="true" class="w-2 shrink-0 text-fg-3">
           {props.open ? "▾" : "▸"}
@@ -242,11 +241,13 @@ const FoldLine: Component<{
       <Show when={!(props.open && props.turn.says.kind === "prose")}>
         <span
           data-testid="conductor-fold-says"
-          class="min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]"
-          classList={{
-            "text-fg-2": props.turn.says.kind === "prose",
-            "text-fg-3": props.turn.says.kind !== "prose",
-          }}
+          class={[
+            "min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]",
+            {
+              "text-fg-2": props.turn.says.kind === "prose",
+              "text-fg-3": props.turn.says.kind !== "prose",
+            },
+          ]}
         >
           <Show when={props.turn.says.kind === "noted"}>
             <span class="font-mono text-[0.68rem]">noted · </span>
@@ -271,7 +272,13 @@ const FoldLine: Component<{
  *  rather than an empty form: the row above it still says what was asked. */
 const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
   const works = useWorkMap();
-  const work = createMemo(() => works().get(props.row.work));
+  const held = createMemo(() => works().get(props.row.work), {
+    name: "chatWorkQuestion.record",
+  });
+  /** THE SNAPSHOT the form folds — the work's decisions read off the store
+   *  are a node per leaf of every one of them, and a work a conversation has
+   *  been asking about all week has hundreds. */
+  const work = createWorkRecord(held);
   return (
     <Show when={work()}>
       {(one) => (
@@ -308,10 +315,13 @@ const ConductorTranscript: Component<{
   const items = createMemo(() =>
     foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
   );
-  /** Which work holds which file, built once per change of the works — what
-   *  the prose's file links read. The turns are the pane's (`props.turns`). */
+  /** The works themselves, as the re-place trigger below reads them: rows
+   *  arriving for a work are a reason to put the scroller back where it was. */
   const workMap = useWorkMap();
-  const holders = createMemo(() => fileHolders(workMap()));
+  /** Which work holds which file — what the prose's file links read. The
+   *  app's one index ({@link useFileHolders}), built work by work. The turns
+   *  are the pane's (`props.turns`). */
+  const holders = useFileHolders();
   const turns = () => props.turns;
   const turnsContext: Turns = {
     // Every row of `props.rows` has a turn, and every row drawn is one of
@@ -327,9 +337,10 @@ const ConductorTranscript: Component<{
 
   /** THE FOLD: which turns are one line, what the line says, which one is
    *  open before anybody presses, and how many replies have landed since the
-   *  last thing a person typed. The notes are read once per change of the
-   *  works, never per streamed chunk of the chat. */
-  const notes = createMemo(() => agentNotes(workMap()));
+   *  last thing a person typed. The notes are the app's one reading
+   *  ({@link useAgentNotes}), taken work by work — never per streamed chunk
+   *  of the chat. */
+  const notes = useAgentNotes();
   const quiet = createMemo(() => quietChat(props.rows, notes()));
   /** Is this turn open — what somebody pressed, or the rule. */
   const opened = (turn: QuietTurn): boolean =>
@@ -344,11 +355,14 @@ const ConductorTranscript: Component<{
     );
   };
 
-  // BEFORE the follow effect below, and that order is the fix: declared first,
-  // so Solid runs it first and the first follow check measures a container
-  // already at the reader's position instead of a fresh one at 0 (which it
-  // would correctly read as "scrolled far up" and refuse to move).
-  onMount(() => applyTranscriptScroll(scroller));
+  // The mount's own restore, once the first stable render has put the rows in
+  // the column. The follow effect below places the container too — on its
+  // first run, which is what a conversation that mounts with rows already in
+  // hand goes through — and both land on the same remembered place, so the
+  // two are idempotent with each other.
+  onSettled(() => {
+    applyTranscriptScroll(scroller, transcriptPlace(shownDocument()));
+  });
 
   /** New rows arrived while the reader was away from the end — what makes the
    *  pill's ring, so it says "there is something new down there" rather than
@@ -377,31 +391,51 @@ const ConductorTranscript: Component<{
    *  there" ring compares `signature`, and a diagram replacing its own source
    *  is not new. Opening a folded list writes no HTML and never bumps it, so a
    *  press does not start re-pinning the view. */
-  const [redraws, setRedraws] = createSignal(0);
-  const noteRedrawn = () => setRedraws((n) => n + 1);
+  const [redraws, setRedraws] = createSignal(0, { name: "redraws" });
+  /** Is a note already queued for this flush? Every mounted row's prose
+   *  reports its own rewrite, and one gesture rewrites all of them — the
+   *  follow effect's question is "did the column change", asked once. */
+  let noting = false;
+  /** SETTLED, not immediate. `@kolu/solid-markdown` reports a rewrite from a
+   *  USER effect (`Markdown.tsx`'s `onRendered`), and that rewrite is often
+   *  caused by the same fact the follow effect below reads: opening the
+   *  reader moves the chat aside AND makes a file link read as the open one,
+   *  so the effect has already run for that flush when the note lands.
+   *  Written inline the note is a relay tear — the effect runs a second time
+   *  for one gesture, its first run having placed the view against prose
+   *  about to be replaced (`EFFECT_RELAY_TEAR`, `warn` from its third
+   *  sighting). Settled, the note is a write of its own in a LATER PASS of
+   *  the same flush, so the view still moves in the frame the prose landed
+   *  in and the effect runs once, on the DOM the reader is about to see.
+   *
+   *  Unowned, because an owner here would make `onSettled` a tracked effect
+   *  created under the reporting effect and run inside its frame — the very
+   *  thing this defers. */
+  const noteRedrawn = () => {
+    if (noting) return;
+    noting = true;
+    runWithOwner(null, () =>
+      onSettled(() => {
+        noting = false;
+        setRedraws((n) => n + 1);
+      }),
+    );
+  };
 
   const shown = useShown();
-
-  /** WHICH DOCUMENT THE SCROLLER SHOWS — set here, above the follow effect,
-   *  and NOT behind the effect's `visible` guard: the pane showing a work's
-   *  chat is true whether or not anybody is looking at it, and the scroller's
-   *  place belongs to that document from the moment it is the one shown. */
-  createComputed(() =>
-    showTranscriptDocument(chatScope()?.id ?? WHOLE_TRANSCRIPT),
-  );
 
   /** The document the container was last put at the place of. `undefined`
    *  until the first run, so the mount's restore is not repeated. */
   let atDocument: string | undefined;
 
   createEffect(
-    // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these: what was drawn, a row redrawn in place, the
-    // works, whether the reader is following, whether the conversation is the
-    // view being read, and which document it shows. The pin is a dep because
-    // the pill and a sent message re-pin with no row arriving, and the view
-    // must move then too; a redraw is one because a diagram landing grows its
-    // row with no text arriving.
+    // THE COMPUTE HOLDS EVERY READ, so the effect's reads of the ELEMENT are
+    // not dependencies and the deps are exactly these: what was drawn, a row
+    // redrawn in place, the works, whether the reader is following, whether
+    // the conversation is the view being read, and which document it shows.
+    // The pin is a dep because the pill and a sent message re-pin with no row
+    // arriving, and the view must move then too; a redraw is one because a
+    // diagram landing grows its row with no text arriving.
     //
     // THE WORKS are one because a work's record reaches this page on its own
     // stream, often after the rows that name it, and the column grows when it
@@ -415,41 +449,47 @@ const ConductorTranscript: Component<{
     // mechanism meant to preserve it. Rows that arrive while away leave the
     // remembered offset alone, and coming back re-runs this with the column
     // laid out again.
-    on(
-      [
-        signature,
-        redraws,
-        workMap,
-        transcriptPinned,
-        shown,
-        () => chatScope()?.id,
-      ],
-      ([drawn, , , pinned, visible, doc], prev) => {
-        if (!visible) return;
-        // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
-        // `applyTranscriptScroll` opens a follower at the end and a reader who
-        // had scrolled up at their own pixel. The first run does the same for
-        // the document the transcript mounted with. Nothing else moves the
-        // view for a scope change. The rows the document shows are already
-        // revealed when this runs: the class bindings that hide and show them
-        // are render effects, which Solid runs before this one.
-        if (!placed || doc !== atDocument) {
-          atDocument = doc;
-          applyTranscriptScroll(scroller);
-          placed = scroller.scrollHeight > scroller.clientHeight;
-          return;
-        }
-        // NOT `atEnd(scroller)`. The rows are already in the column by now, so
-        // that measurement answers about the chunk that just landed, not about
-        // the reader — which is precisely how the transcript stopped following.
-        if (pinned) {
-          applyTranscriptScroll(scroller);
-          setUnseen(false);
-          return;
-        }
-        if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
-      },
-    ),
+    () => {
+      const doc = shownDocument();
+      return [
+        signature(),
+        redraws(),
+        workMap(),
+        transcriptPinned(doc),
+        shown(),
+        doc,
+        // READ ONCE, not depended on: the reader's pixel is what this run
+        // puts the container at, and a scroll that only moves that pixel
+        // must not re-run the effect that would then move the view again.
+        untrack(() => transcriptPlace(doc)),
+      ] as const;
+    },
+    ([drawn, , , pinned, visible, doc, place], prev) => {
+      if (!visible) return;
+      // A DOCUMENT CHANGE IS PUT AT ITS OWN PLACE, and then the run is over:
+      // `applyTranscriptScroll` opens a follower at the end and a reader who
+      // had scrolled up at their own pixel. The first run does the same for
+      // the document the transcript mounted with. Nothing else moves the
+      // view for a scope change. The rows the document shows are already
+      // revealed when this runs: the class bindings that hide and show them
+      // are render effects, which Solid runs before this one.
+      if (!placed || doc !== atDocument) {
+        atDocument = doc;
+        applyTranscriptScroll(scroller, place);
+        placed = scroller.scrollHeight > scroller.clientHeight;
+        return;
+      }
+      // NOT `atEnd(scroller)`. The rows are already in the column by now, so
+      // that measurement answers about the chunk that just landed, not about
+      // the reader — which is precisely how the transcript stopped following.
+      if (pinned) {
+        applyTranscriptScroll(scroller, place);
+        setUnseen(false);
+        return;
+      }
+      if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
+    },
+    { name: "transcriptFollow" },
   );
 
   return (
@@ -468,7 +508,9 @@ const ConductorTranscript: Component<{
         // the pin above — so there is no path that leaves the remembered
         // position behind. Recording on unmount instead would read a detached
         // element, whose scrollTop browsers are free to have already reset.
-        onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
+        onScroll={(event) =>
+          rememberTranscriptScroll(event.currentTarget, shownDocument())
+        }
         // A wheel notch UP, read before the browser has moved anything. The
         // `scroll` above is dispatched a frame later, by which time a chunk
         // may have re-pinned the view — and that event would then measure the
@@ -476,7 +518,8 @@ const ConductorTranscript: Component<{
         // transcript and loses. This decides the intent; `scroll` still
         // corrects the pixel.
         onWheel={(event) => {
-          if (event.deltaY < 0) unpinTranscript(event.currentTarget);
+          if (event.deltaY < 0)
+            unpinTranscript(event.currentTarget, shownDocument());
         }}
         // `min-w-0` + `overflow-x-hidden`: this column is a flex child of the
         // pane, and a flex child floors at its CONTENT unless told otherwise —
@@ -515,8 +558,8 @@ const ConductorTranscript: Component<{
             id; a fold's is the id of the boundary that opens its run. Both are
             stable for the thing's life, and an item never changes kind under
             its key. */}
-        <TurnsContext.Provider value={turnsContext}>
-          <Key each={items()} by={(item) => item.key}>
+        <TurnsContext value={turnsContext}>
+          <For each={items()} keyed={(item) => item.key}>
             {(item) => {
               /** The row this item starts at — which turn it belongs to, and
                *  whether it is that turn's head, where the one line goes. */
@@ -529,7 +572,6 @@ const ConductorTranscript: Component<{
               });
               const works = createMemo(
                 () => turns().get(first().id)?.works ?? NO_WORKS,
-                NO_WORKS,
                 { equals: sameWorks },
               );
               /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
@@ -546,11 +588,25 @@ const ConductorTranscript: Component<{
                   inScope(first().id) &&
                   (!turn().folds || opened(turn()) || kept()),
               );
+              /** THE ARMS OF THIS ITEM, each gated on what it SAYS. The
+               *  folds run again over the whole conversation on every chunk
+               *  and mint a fresh item — and a fresh list inside it — around
+               *  the same rows, so an ungated `<Match>` would re-run its
+               *  whole arm per chunk, for every row on screen. */
+              const fold = createMemo(() => foldRowsOf(item()), {
+                equals: sameItems,
+              });
+              const failures = createMemo(() => failuresOf(item()), {
+                equals: sameFailures,
+              });
+              const entry = createMemo(() => entryOf(item()), {
+                equals: sameFields,
+              });
               return (
                 <>
                   {/* THE HEADING OVER THE RUN OF UNASKED REPLIES — only in
-                      the whole conversation: a chat pointed at one work is
-                      not a run of anything. */}
+                    the whole conversation: a chat pointed at one work is
+                    not a run of anything. */}
                   <Show
                     when={
                       chatScope() === null &&
@@ -583,18 +639,18 @@ const ConductorTranscript: Component<{
                     />
                   </Show>
                   {/* HIDDEN, NEVER UNMOUNTED. `display: contents` leaves the
-                      item exactly where it was in the column — its own flex
-                      child, with the column's gaps — so a line that opens and
-                      closes is a class changing, not a `Markdown` subtree,
-                      an open `<details>` and a half-filled ask being built
-                      again. */}
-                  <div classList={{ contents: drawn(), hidden: !drawn() }}>
+                    item exactly where it was in the column — its own flex
+                    child, with the column's gaps — so a line that opens and
+                    closes is a class changing, not a `Markdown` subtree,
+                    an open `<details>` and a half-filled ask being built
+                    again. */}
+                  <div class={{ contents: drawn(), hidden: !drawn() }}>
                     <TurnHead rows={rowsOf(item())} />
                     <Switch>
-                      <Match when={foldRowsOf(item())}>
+                      <Match when={fold()}>
                         {(rows) => <TranscriptFold rows={rows()} />}
                       </Match>
-                      <Match when={failuresOf(item())}>
+                      <Match when={failures()}>
                         {(run) => (
                           <TranscriptFailures
                             tool={run().tool}
@@ -603,11 +659,11 @@ const ConductorTranscript: Component<{
                           />
                         )}
                       </Match>
-                      <Match when={entryOf(item())}>
-                        {(entry) => (
+                      <Match when={entry()}>
+                        {(one) => (
                           <TranscriptRow
-                            row={entry().row}
-                            repeat={entry().repeat}
+                            row={one().row}
+                            repeat={one().repeat}
                             onRedrawn={noteRedrawn}
                           />
                         )}
@@ -617,8 +673,8 @@ const ConductorTranscript: Component<{
                 </>
               );
             }}
-          </Key>
-        </TurnsContext.Provider>
+          </For>
+        </TurnsContext>
       </div>
       {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
           affordance for "you are not following, here is the way back" already
@@ -627,9 +683,9 @@ const ConductorTranscript: Component<{
           does for an arriving row, so there is no second path to the end that
           could disagree with the first. */}
       <ScrollToBottom
-        visible={!transcriptPinned()}
+        visible={!transcriptPinned(shownDocument())}
         active={unseen()}
-        onClick={pinTranscript}
+        onClick={() => pinTranscript(shownDocument())}
       />
     </div>
   );
@@ -643,6 +699,18 @@ const failuresOf = (item: TranscriptItem) =>
   item.kind === "failures" ? item : undefined;
 const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
+/** Two readings of one failure run, by what its line says and which rows it
+ *  holds — the run itself is rebuilt by the fold on every chunk. */
+const sameFailures = (
+  a: Extract<TranscriptItem, { kind: "failures" }> | undefined,
+  b: Extract<TranscriptItem, { kind: "failures" }> | undefined,
+): boolean =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.tool === b.tool &&
+    a.reason === b.reason &&
+    sameItems(a.rows, b.rows));
 /** The rows an item draws, in order — what its turn's head is read from. */
 const rowsOf = (item: TranscriptItem): ReadonlyArray<ConductorRow> =>
   item.kind === "entry" ? [item.entry.row] : item.rows;
@@ -667,9 +735,9 @@ function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
         <span class="ml-1 hidden group-open:inline">⌄</span>
       </summary>
       <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-edge pl-2.5">
-        <Key each={props.rows} by={(row) => row.id}>
+        <For each={props.rows} keyed={(row) => row.id}>
           {(row) => <TranscriptRow row={row()} repeat={1} />}
-        </Key>
+        </For>
       </div>
     </details>
   );
@@ -697,9 +765,9 @@ function TranscriptFailures(props: {
         failed {props.rows.length} times: {props.reason}
       </summary>
       <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-danger/40 pl-2.5">
-        <Key each={props.rows} by={(row) => row.id}>
+        <For each={props.rows} keyed={(row) => row.id}>
           {(row) => <TranscriptRow row={row()} repeat={1} />}
-        </Key>
+        </For>
       </div>
     </details>
   );
@@ -712,10 +780,10 @@ function TranscriptRow(props: {
   repeat: number;
   onRedrawn?: () => void;
 }) {
-  const turns = useTurns();
+  const turns = useContext(TurnsContext);
   /** The works this row's turn is about — the same list, by value, until the
    *  turn names another. */
-  const works = createMemo(() => turns.turnOf(props.row.id).works, NO_WORKS, {
+  const works = createMemo(() => turns.turnOf(props.row.id).works, {
     equals: sameWorks,
   });
   return (
@@ -736,10 +804,10 @@ function TranscriptRow(props: {
         // everything around them. A TURN KOLU WOKE carries that gap on its
         // fold line instead (`FoldLine`), which is above the wake row and is
         // there whether the turn is open or closed.
-        class="min-w-0"
-        classList={{
-          "self-end max-w-[86%] mt-4": props.row.kind === "user",
-        }}
+        class={[
+          "min-w-0",
+          { "self-end max-w-[86%] mt-4": props.row.kind === "user" },
+        ]}
       >
         <Switch>
           <Match when={props.row.kind === "user" && props.row}>
@@ -766,7 +834,7 @@ function TranscriptRow(props: {
                     <li
                       data-testid="conductor-plan-step"
                       data-status={step.status}
-                      classList={{ "text-fg": step.status === "in_progress" }}
+                      class={{ "text-fg": step.status === "in_progress" }}
                     >
                       {step.status === "completed"
                         ? "● "

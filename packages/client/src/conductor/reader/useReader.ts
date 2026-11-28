@@ -20,7 +20,7 @@
  *  copy reads (the works collection, the member's worktree, the comments
  *  store), so the two are the same reader in two windows, not a copy. */
 
-import { type Accessor, batch, createSignal } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { hashSegments } from "../../hashPath";
 import { toast } from "solid-sonner";
 
@@ -56,10 +56,8 @@ export function openReader(next: ReaderTarget): void {
  *  that was filling the screen must not leave the conversation at zero width
  *  behind it. */
 export function closeReader(): void {
-  batch(() => {
-    setTarget(null);
-    setFilled(false);
-  });
+  setTarget(null);
+  setFilled(false);
 }
 
 /** Fill the screen with the reader, or give the conversation its third back. */

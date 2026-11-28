@@ -20,7 +20,8 @@
  *  whenever the outer section is open), and Tailwind only extracts such variants
  *  from literal class strings, so it cannot be parameterized. */
 
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { Show } from "solid-js";
 import { SUMMARY_RESET } from "./disclosureChrome";
 import { ChevronRightIcon } from "./Icons";

@@ -17,7 +17,7 @@
 export {
   DragDropProvider,
   type DropEvent,
-  requireDragDropScope,
+  useDragDropScope,
 } from "./DragDropProvider";
 export {
   createDraggable,

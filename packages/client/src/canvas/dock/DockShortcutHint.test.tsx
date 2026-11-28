@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { describe, expect, it } from "vitest";
 import { DockShortcutHint } from "./DockShortcutHint";
 
@@ -16,8 +16,12 @@ describe("DockShortcutHint", () => {
     try {
       expect(host.textContent).toBe("");
       setHeld(true);
+      // Solid 2 stages the write: the DOM a real consumer sees is the one after
+      // the flush that write schedules.
+      flush();
       expect(host.textContent).toBe("2");
       setHeld(false);
+      flush();
       expect(host.textContent).toBe("");
     } finally {
       dispose();

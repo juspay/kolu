@@ -6,10 +6,10 @@
  * source can be anything (a server stream wrapped in createSubscription,
  * a derivation from a list-of-records subscription, a static array). Per-key
  * subscriptions are managed via `mapArray` so SolidJS handles the lifecycle:
- * when a key leaves the set, its reactive owner is disposed, the per-key
- * subscription's `onCleanup` fires, the AbortController aborts, and the
- * server stream tears down. No manual Map / version signals / abort plumbing
- * required at the call site.
+ * when a key leaves the set, its reactive owner is disposed, the cleanup the
+ * per-key subscription's own effect returned interrupts its fiber, and the stream's
+ * finalizers tear the server subscription down. No manual Map / version signals /
+ * abort plumbing required at the call site.
  *
  * `valueSource` is a typed member ref (the collection's per-key `get`) plus a
  * `keyToInput` adapter — the input shape per key varies by member (some take
@@ -22,13 +22,12 @@ import {
   type Accessor,
   createMemo,
   createSignal,
+  createStore,
   getOwner,
   mapArray,
   onCleanup,
   runWithOwner,
-  untrack,
 } from "solid-js";
-import { createStore, produce, unwrap } from "solid-js/store";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { CollectionDelta, CollectionDeltasMsg } from "../define";
 import { containThrow } from "../containThrow";
@@ -37,10 +36,12 @@ import {
   createStreamLifecycle,
   createSubscription,
   framesEqual,
+  noLifetimeRefusal,
   type Subscription,
   type SubscriptionOptions,
   type SubscriptionState,
 } from "./createSubscription";
+import { writeEntryValue } from "./writeValue";
 
 export interface UseCollectionOptions<K, T, I> {
   /** Reactive accessor for the live key set. The caller owns the subscription
@@ -98,49 +99,85 @@ export function useCollection<Name extends string, K, T, I>(
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
 
-  // mapArray creates a reactive owner per key. When a key leaves, its
-  // owner is disposed → the per-key sub's onCleanup → AbortController abort
-  // → server stream closes. No manual teardown.
-  const perKey = mapArray(keys, (key) => {
-    const sub = createSubscription(
-      unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
-        // The `client.health()` per-key spelling (`<key>[<id>]`), reused rather
-        // than re-spelled, so the liveness registry and the health fact name one
-        // subscription one way (kolu#2101 J2).
-        label: `${collDescriptor.name}[${String(key)}]`,
-      }),
-      // The member's DECLARED array identity, off the descriptor — this path
-      // merges an entry's value through the same seam a cell's goes through, so
-      // it honours the declaration the same way. (The batched `deltas` path
-      // replaces leaves whole and has no merge to govern; see
-      // `CollectionSpec.arrayKey`.)
-      { onError: options.onError, arrayKey: collDescriptor.arrayKey },
-    );
-    // Enrol this per-key sub into the client health registry (when wired). Runs
-    // in the per-key owner, so the registry's `onCleanup` drop fires on the same
-    // disposal that tears the subscription down when this key leaves the set.
-    options.enroll?.(key, sub);
-    return { key, sub };
-  });
-
-  // Keep mapArray lazy until the first lookup, and give each requested key its
-  // own equality gate. Membership changes cannot wake unrelated key readers.
+  // Keep the per-key subscriptions out of existence until the first lookup, and
+  // give each requested key its own equality gate: membership changes cannot
+  // wake unrelated key readers.
+  //
+  // `mapArray` is BUILT on that first lookup rather than here, because a Solid 2
+  // computed is EAGER — `setupComputedNode` recomputes at creation unless it is
+  // declared lazy (`@solidjs/signals` 2.0.4 `dist/dev-shared.js`), and `mapArray`
+  // declares an ordinary one. Built at construction it would walk the key set and
+  // open one upstream subscription per key before any consumer named one, which
+  // is exactly the laziness this receptacle promises (a whole-collection view a
+  // component takes but never reads costs nothing). The view's owner is captured
+  // so the deferred build still lands HERE, not on whichever reactive scope
+  // happens to look up first.
+  //
+  // That capture is also this view's whole lifetime: every per-key subscription
+  // is opened under it and dies with it, and this hook exposes no `signal`, so
+  // an ownerless call is refused at birth — in the consumer's own spelling, not
+  // the shared seam's, which names a primitive this caller never called and
+  // offers a `signal` it has no way to pass. Refusing here rather than at the
+  // first `byKey` also keeps the deferral honest — a view nobody looks up still
+  // has no lifetime.
   const owner = getOwner();
+  if (!owner)
+    throw noLifetimeRefusal({
+      name: "`.collections.X.use()` (useCollection)",
+      acceptsSignal: false,
+    });
   const lookups = new Map<K, Accessor<Subscription<T> | undefined>>();
   let index: Accessor<Map<K, Subscription<T>>> | undefined;
   function byKey(key: K): Subscription<T> | undefined {
     let read = lookups.get(key);
     if (!read) {
       read = runWithOwner(owner, () => {
-        if (!index)
-          index = createMemo(() => {
-            const table = new Map<K, Subscription<T>>();
-            for (const entry of perKey())
-              if (!table.has(entry.key)) table.set(entry.key, entry.sub);
-            return table;
+        if (!index) {
+          // mapArray creates a reactive owner per key, and each per-key
+          // subscription opens its fiber in THAT owner's effect phase. When a key
+          // leaves, the owner is disposed → the effect's returned cleanup
+          // interrupts the fiber → the stream's finalizers close the server
+          // subscription. No manual teardown.
+          const perKey = mapArray(keys, (key) => {
+            const sub = createSubscription(
+              unenrolledStreamCall(
+                options.valueSource,
+                options.keyToInput(key),
+                {
+                  // The `client.health()` per-key spelling (`<key>[<id>]`), reused
+                  // rather than re-spelled, so the liveness registry and the health
+                  // fact name one subscription one way (kolu#2101 J2).
+                  label: `${collDescriptor.name}[${String(key)}]`,
+                },
+              ),
+              // The member's DECLARED array identity, off the descriptor — this
+              // path merges an entry's value through the same seam a cell's goes
+              // through, so it honours the declaration the same way. (The batched
+              // `deltas` path merges each named entry too, under the same
+              // declaration; see `CollectionSpec.arrayKey`.)
+              { onError: options.onError, arrayKey: collDescriptor.arrayKey },
+            );
+            // Enrol this per-key sub into the client health registry (when
+            // wired). Runs in the per-key owner, so the registry's `onCleanup`
+            // drop fires on the same disposal that tears the subscription down
+            // when this key leaves the set.
+            options.enroll?.(key, sub);
+            return { key, sub };
           });
+          index = createMemo(
+            () => {
+              const table = new Map<K, Subscription<T>>();
+              for (const entry of perKey())
+                if (!table.has(entry.key)) table.set(entry.key, entry.sub);
+              return table;
+            },
+            { name: `${collDescriptor.name}.index` },
+          );
+        }
         const table = index;
-        return createMemo(() => table().get(key));
+        return createMemo(() => table().get(key), {
+          name: `${collDescriptor.name}[${String(key)}]`,
+        });
       });
       if (!read)
         throw new Error("Collection lookup owner failed to initialize");
@@ -326,7 +363,7 @@ function sameOrder<K>(a: readonly K[], b: readonly K[]): boolean {
 }
 
 export function useCollectionDeltas<Name extends string, K, T>(
-  _coll: Collection<Name, K, T>,
+  coll: Collection<Name, K, T>,
   options: {
     /** The collection's `deltas` stream (snapshot-then-deltas), already fenced.
      *  Lazy — tearing down the last consumer of a shared dedup slot interrupts the
@@ -340,16 +377,37 @@ export function useCollectionDeltas<Name extends string, K, T>(
     enroll?: (state: SubscriptionState) => void;
   },
 ): UseCollectionDeltasResult<K, T> {
+  // This view's whole lifetime is the caller's owner: the batched fiber is opened
+  // under it and dies with it, and this hook exposes no `signal`, so an ownerless
+  // call has no lifetime at all and is refused at birth — before a store, a fold
+  // registry or an effect exists. Worded in the consumer's own spelling, not the
+  // shared seam's, which names a primitive this caller never called and offers a
+  // `signal` it has no way to pass.
+  if (!getOwner())
+    throw noLifetimeRefusal({
+      name: "`.collections.X.use()` (useCollectionDeltas)",
+      acceptsSignal: false,
+    });
   // THE store, owned here rather than reached through `createSubscription`'s generic
   // reduce: a frame NAMES the keys it touches, and the whole point of this path is to
   // write exactly those. Routing through the reduce path meant a fresh accumulator per
   // frame (a whole-dict copy) which `reconcile` then walked in full to rediscover the
   // keys the frame had already named — two O(N) passes per O(|frame|) update.
   const [dict, setDict] = createStore<Record<string, T>>(emptyDict<T>());
-  // The UNTRACKED view of the same dictionary (`createStore` wraps this exact object).
-  // Every read inside the frame loop goes through it: the loop is deciding what to
-  // write, not rendering, so tracking there would be noise at best.
-  const held = unwrap(dict);
+  // The PLAIN mirror of what the store holds, maintained key-for-key beside it by
+  // the two apply functions below — the dictionary twin of `heldOrder`, and for
+  // the same two reasons. A store's backing is COPY-ON-WRITE (a draft write clones
+  // the container it writes into, `@solidjs/signals` 2.0.4 `dist/dev.js`
+  // `cloneRaw`), so a `snapshot(dict)` taken once goes stale at the first write and
+  // one taken per frame copies the whole dictionary — O(N) per O(|frame|) update,
+  // which is the cost this path exists to avoid. Every read inside the frame loop
+  // goes through this instead: the loop is deciding what to write, not rendering.
+  const held: Record<string, T> = emptyDict<T>();
+  // The arrival-order key list. A plain signal: the frame loop is the only writer,
+  // and `createStreamLifecycle` opens the fiber from the EFFECT PHASE, so no frame
+  // — not even one a fiber has ready before its first async boundary — is ever
+  // applied inside the scope that created this view. Nothing here writes reactive
+  // state in an owned scope, so no `ownedWrite` is needed on this or on the store.
   const [order, setOrder] = createSignal<K[]>([]);
 
   const folds = new Set<FoldSlot<K, T>>();
@@ -360,7 +418,28 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  {@link assertKeysInjective} costs O(1) rather than a walk over every key. */
   let size = 0;
 
-  const currentOrder = (): K[] => untrack(order);
+  /** The CURRENT key list, held beside the signal rather than read back out of it:
+   *  a signal write lands on the next flush, and a fiber can deliver several frames
+   *  inside one synchronous turn, so reading `order()` back would rebuild the second
+   *  frame's list from the one the first frame replaced. This is the list; the
+   *  signal is its reactive MIRROR, and {@link keys} is the pair's one reader. */
+  let heldOrder: K[] = [];
+  const writeOrder = (next: K[]): void => {
+    heldOrder = next;
+    setOrder(next);
+  };
+  /** The key set, as every consumer and every fold reads it: SUBSCRIBE to the
+   *  mirror, ANSWER from the authority — the rule for every plain-authority +
+   *  reactive-mirror pair (`scrollLock`'s lock, `connectSurfaces`'s connection
+   *  state). Both are moved by `writeOrder` alone and the signal is handed the
+   *  very array `heldOrder` holds, so the two can differ only in WHEN: between a
+   *  frame and its flush the signal still reads the previous list, and a reader
+   *  inside that window — a fold `step`, which the frame loop calls there —
+   *  would otherwise be told the set from before the frame it is being handed. */
+  const keys: Accessor<K[]> = () => {
+    order();
+    return heldOrder;
+  };
 
   /** Apply a FULL-SET frame. O(N), which is inherent — the frame carries N entries.
    *
@@ -368,10 +447,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  turns a transport drop into a fresh snapshot rather than an error, so a
    *  reconnect re-serializes the same content into fresh objects. An entry whose
    *  value is unchanged must therefore NOT re-notify its readers — a link flap is
-   *  deliberately a visual no-op. An entry that DID change is REPLACED whole (never
-   *  merged into the object standing there), because that object is the same one a
-   *  fold may be holding: from the store's point of view a frame handed onward is
-   *  frozen. */
+   *  deliberately a visual no-op. An entry that DID change is MERGED into the
+   *  entry standing there ({@link writeEntryValue}), so only the leaves that
+   *  actually moved wake their readers; the object a fold may be holding is not
+   *  written through either way, because a merge ADOPTS the incoming frame rather
+   *  than mutating what it replaces. */
   function applySnapshot(entries: ReadonlyArray<readonly [K, T]>): void {
     const present = new Set<string>();
     const nextOrder: K[] = [];
@@ -381,22 +461,30 @@ export function useCollectionDeltas<Name extends string, K, T>(
       nextOrder.push(k);
     }
     assertKeysInjective(present.size, nextOrder.length);
-    setDict(
-      produce((d) => {
-        for (const sk of Object.keys(d)) if (!present.has(sk)) delete d[sk];
-        for (const [k, v] of entries) {
-          const sk = String(k);
-          // Membership through the draft; the VALUE through the raw dictionary — a
-          // read through the draft would mint a mutation proxy for every object it
-          // walks, and the comparison walks the whole value.
-          if (!(sk in d) || !framesEqual(held[sk], v)) d[sk] = v;
+    setDict((d) => {
+      for (const sk of Object.keys(held)) {
+        if (!present.has(sk)) {
+          delete d[sk];
+          delete held[sk];
         }
-      }),
-    );
+      }
+      for (const [k, v] of entries) {
+        const sk = String(k);
+        // Membership and the value to diff against BOTH come from the mirror, so
+        // neither question walks the draft: a read through it would mint a
+        // mutation proxy for every object it touches, and the comparison walks
+        // the whole value. Only an entry that survives the diff is then read
+        // through the draft, by the merge that writes it.
+        if (!(sk in held) || !framesEqual(held[sk], v)) {
+          writeEntryValue(d, sk, held[sk], v, coll.arrayKey);
+          held[sk] = v;
+        }
+      }
+    });
     size = present.size;
     // A reconnect that names the same set keeps the previous array BY REFERENCE, so
     // `keys()` stays quiet through a link flap — the "order by reference" rule.
-    if (!sameOrder(currentOrder(), nextOrder)) setOrder(nextOrder);
+    if (!sameOrder(heldOrder, nextOrder)) writeOrder(nextOrder);
   }
 
   /** Apply ONE coalesced delta frame: one named-key store write per upsert, one
@@ -410,7 +498,8 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  already answered — so a deep compare here would re-ask a question already
    *  answered and pay per named key for it. The snapshot arm has no such answer to
    *  lean on: a reconnect re-serializes the WHOLE set whether or not anything
-   *  moved. */
+   *  moved. Unconditional is about the KEY, not about its leaves: the write is the
+   *  merge below, which notifies the leaves the two frames disagree on. */
   function applyDelta(delta: CollectionDelta<K, T>): void {
     // Keys NEW to the collection as of THIS FRAME'S START, computed against the
     // PRE-write dictionary. That "pre-write" is load-bearing, not incidental: two
@@ -434,25 +523,32 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // `1` and `"1"` would pass, which is the one case the guard is named for.
     let net = 0;
     const removed: K[] = [];
-    setDict(
-      produce((d) => {
-        // A LEAF REPLACEMENT per named key, not a merge into the object already
-        // there: the store must never mutate a frame object it previously adopted,
-        // since a fold may be holding that same object (§ the aliasing contract).
-        for (const [k, v] of delta.upserts) {
-          const sk = String(k);
-          if (!(sk in d)) net++;
-          d[sk] = v;
-        }
-        for (const k of delta.removes) {
-          const sk = String(k);
-          if (!(sk in d)) continue; // absent, or already removed by this same frame
-          delete d[sk];
-          net--;
-          removed.push(k);
-        }
-      }),
-    );
+    setDict((d) => {
+      // A MERGE per named key ({@link writeEntryValue}), not a wholesale
+      // replacement of the entry: the store tracks leaves, so replacing the
+      // container would wake every reader under that key for the one field a
+      // delta moved — and a record whose title ticks would re-run the readers of
+      // its git facts. The frame object a fold may be holding stays frozen under
+      // the merge: `reconcile` adopts the incoming frame by pointer swap and
+      // never writes through what stood there (§ the aliasing contract, argued in
+      // `./writeValue.ts`). Membership and the merge's previous value are asked
+      // of the mirror, which is the same key set — and the same backing objects —
+      // the draft holds, and costs no trap.
+      for (const [k, v] of delta.upserts) {
+        const sk = String(k);
+        if (!(sk in held)) net++;
+        writeEntryValue(d, sk, held[sk], v, coll.arrayKey);
+        held[sk] = v;
+      }
+      for (const k of delta.removes) {
+        const sk = String(k);
+        if (!(sk in held)) continue; // absent, or already removed by this same frame
+        delete d[sk];
+        delete held[sk];
+        net--;
+        removed.push(k);
+      }
+    });
     size += net;
     // Key set UNCHANGED (a pure value-update tick) → nothing to write; the order
     // signal keeps its array BY REFERENCE and `keys()` stays quiet.
@@ -462,13 +558,13 @@ export function useCollectionDeltas<Name extends string, K, T>(
     let nextOrder: K[];
     if (removed.length > 0) {
       const gone = new Set<K>(removed);
-      nextOrder = currentOrder().filter((k) => !gone.has(k));
+      nextOrder = heldOrder.filter((k) => !gone.has(k));
     } else {
-      nextOrder = currentOrder().slice();
+      nextOrder = heldOrder.slice();
     }
     for (const k of added) nextOrder.push(k);
     assertKeysInjective(size, nextOrder.length);
-    setOrder(nextOrder);
+    writeOrder(nextOrder);
   }
 
   /** The full-set frame EVERY fold is seeded with — the wire's snapshot arm and a
@@ -487,7 +583,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
    *  Costs N pairs on a path that is already O(N) in the frame it just applied, and
    *  only when a fold is registered at all. */
   function syntheticSnapshot(): [K, T][] {
-    return currentOrder().map((k) => {
+    return heldOrder.map((k) => {
       const value = held[String(k)];
       if (value === undefined) {
         // The key list and the dictionary are written together on every frame and
@@ -502,6 +598,35 @@ export function useCollectionDeltas<Name extends string, K, T>(
     });
   }
 
+  /** Run `notify` inside a DRAFT WINDOW on the dictionary store — the frame
+   *  loop's seam for handing consumer code the frame it just applied.
+   *
+   *  A store serves a context-free reader the COMMITTED backing until the flush
+   *  ("it mutates at exactly one moment — the flush's commit",
+   *  `@solidjs/signals` 2.0.4 `dist/dev.js` :3744), which is why a fold `step`
+   *  reading `byKey` straight after {@link applyDelta} would see the previous
+   *  frame. Inside a setter the same read is served the STAGING instead
+   *  (`readSource` :5001: `inDraft` ⇒ the pending backing; `inDraft` :4938 is
+   *  per store FAMILY, so the public proxy answers from the staging exactly as
+   *  the draft does, and hands back the very proxy it serves afterwards).
+   *
+   *  The window WRITES nothing: opening it is its whole job. `held`, `heldOrder`
+   *  and `size` are already this frame's by the time it opens, so every way a
+   *  fold can ask — the frame argument, `byKey`, `keys()`,
+   *  {@link syntheticSnapshot} — answers with the same frame. A frame with no
+   *  registered fold opens no window: the setter call is the cost, and there is
+   *  nothing to tell.
+   *
+   *  It is a `setDict` call, so it carries that call's owned-scope refusal; the
+   *  frame loop runs on the subscription's fiber, never in an owned scope (which
+   *  is why registration-time seeding — in the CALLER's scope — opens no window
+   *  and needs none: nothing is staged there). */
+  function inFrameDraft(notify: () => void): void {
+    setDict(() => {
+      notify();
+    });
+  }
+
   // The fiber, the three signals and the teardown path are the shared seam; the ONE
   // thing this hook contributes is what a frame DOES. Its error is collection-wide
   // and TERMINAL (retry-fence exhaustion, or a declared failure) — the store and
@@ -510,10 +635,16 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const state = createStreamLifecycle<CollectionDeltasMsg<K, T>>(
     options.source,
     {
-      // Assert keys → apply to the store → notify the folds. The lifecycle runs this
-      // inside ONE batch and clears `pending` after it, so no reader ever observes a
-      // half-applied frame, and folds run AFTER the store write — a `step` that reads
-      // `byKey` (discouraged, but expressible) sees state consistent with its frame.
+      // Assert keys → apply to the store → notify the folds, the last of them
+      // inside the frame's own store transaction. No reader ever observes a
+      // half-applied frame: the write is ONE staged transaction that lands
+      // whole on the flush, and `pending` clears after it.
+      //
+      // The folds are notified through {@link inFrameDraft}, so a `step` that
+      // reads `byKey` sees the frame it is applying rather than the one before
+      // it — the same frame `keys()` answers with and the same one a SEEDED
+      // fold is handed through {@link syntheticSnapshot}. One frame, one
+      // answer, whichever way a fold asks for it.
       onFrame: (msg) => {
         if (msg.kind === "snapshot") {
           applySnapshot(msg.entries);
@@ -531,11 +662,18 @@ export function useCollectionDeltas<Name extends string, K, T>(
           const registered = [...folds];
           if (registered.length > 0) {
             const entries = syntheticSnapshot();
-            for (const slot of registered) slot.seed(entries);
+            inFrameDraft(() => {
+              for (const slot of registered) slot.seed(entries);
+            });
           }
         } else {
           applyDelta(msg);
-          for (const slot of [...folds]) slot.step(msg);
+          const registered = [...folds];
+          if (registered.length > 0) {
+            inFrameDraft(() => {
+              for (const slot of registered) slot.step(msg);
+            });
+          }
         }
       },
       onComplete: options.onComplete,
@@ -552,37 +690,54 @@ export function useCollectionDeltas<Name extends string, K, T>(
         "useCollectionDeltas: fold() must be called under a reactive owner — its registration is dropped by that owner's onCleanup, and an ownerless fold would accumulate for the life of the shared collection slot",
       );
     }
-    // ONE holder for the accumulator, and the accessor IS it. `undefined` reads as
-    // "there is no valid accumulator" and means nothing else, so a second internal
-    // seeded/unseeded flag beside this signal would be a duplicate that could
-    // disagree with what the consumer sees.
+    // ONE holder for the accumulator: `acc` below IS it, and the accessor reads it
+    // through a pulse signal. `undefined` reads as "there is no valid
+    // accumulator" and means nothing else, so a second seeded/unseeded flag beside
+    // it would be a duplicate that could disagree with what the consumer sees.
     //
-    // `equals: false`: the framework cannot know whether `A` is a value or an
-    // accumulator the consumer mutates and returns, so it must never decide that a
-    // frame changed nothing. A spurious wake is harmless; a swallowed update is the bug.
-    const [value, setValue] = createSignal<A | undefined>(undefined, {
+    // HELD in a plain variable rather than in the signal for two reasons: a signal
+    // write lands on the next flush, so a `step` reading its own base back out of a
+    // signal would fold the second frame of a synchronous turn onto the base the
+    // first frame replaced; and registration seeds from the CALLING scope, where a
+    // signal write would be a write inside an owned scope.
+    //
+    // The pulse carries no value — `equals: false` is the whole of it: the
+    // framework cannot know whether `A` is a value or an accumulator the consumer
+    // mutates and returns, so it must never decide that a frame changed nothing. A
+    // spurious wake is harmless; a swallowed update is the bug.
+    let acc: { value: A } | undefined;
+    const [pulse, firePulse] = createSignal<undefined>(undefined, {
       equals: false,
     });
+    const value: Accessor<A | undefined> = () => {
+      pulse();
+      return acc?.value;
+    };
     // A throwing `init`/`step` is contained PER FOLD and reported loudly — it must
     // never kill the stream, the store, or another fold. The accumulator is
     // INVALIDATED: applying later deltas onto a base that failed to build is how a
     // fold goes silently wrong, so the accessor goes back to `undefined` — where it
     // started, and where the next snapshot re-seeds it from.
-    const guard = (what: string, run: () => A): void => {
+    const rebuild = (what: string, compute: () => A): void => {
       let next: { value: A } | undefined;
       containThrow(
         `a collection fold's \`${what}\``,
         () => {
-          next = { value: run() };
+          next = { value: compute() };
         },
         "the stream, the store and every other fold keep flowing; this fold's accumulator is invalidated until the next snapshot re-seeds it",
       );
-      setValue(() => next?.value);
+      acc = next;
+    };
+    /** Rebuild AND notify — the frame loop's entry point. */
+    const guard = (what: string, compute: () => A): void => {
+      rebuild(what, compute);
+      firePulse(undefined);
     };
     const slot: FoldSlot<K, T> = {
       seed: (entries) => guard("init", () => foldOptions.init(entries)),
       step: (delta) => {
-        const base = untrack(value);
+        const base = acc?.value;
         if (base === undefined) return;
         guard("step", () => foldOptions.step(base, delta));
       },
@@ -591,7 +746,9 @@ export function useCollectionDeltas<Name extends string, K, T>(
     onCleanup(() => {
       folds.delete(slot);
     });
-    if (seeded) slot.seed(syntheticSnapshot());
+    // Seeding AT REGISTRATION rebuilds without notifying: no consumer can be
+    // reading this fold yet, and the caller's scope is an owned one.
+    if (seeded) rebuild("init", () => foldOptions.init(syntheticSnapshot()));
     return value;
   };
 
@@ -606,11 +763,14 @@ export function useCollectionDeltas<Name extends string, K, T>(
     const sk = String(key);
     if (!(sk in dict)) return undefined;
     // A per-key accessor over the shared store — reading `dict[sk]` in a tracking
-    // scope tracks only that leaf. `error`/`pending`/`complete` are the single
-    // stream's, shared across keys.
+    // scope tracks only that leaf. Called from inside the frame's draft window
+    // ({@link inFrameDraft}, i.e. from a fold's `init`/`step`), the same read is
+    // served the frame being applied instead of the last flushed one, and the
+    // proxy it hands back is the one every other reader gets after the flush.
+    // `error`/`pending`/`complete` are the single stream's, shared across keys.
     const read = (() => dict[sk]) as Subscription<T>;
     return Object.assign(read, state);
   }
 
-  return { keys: order, byKey, fold, stream: state };
+  return { keys, byKey, fold, stream: state };
 }

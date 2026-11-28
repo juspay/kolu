@@ -1,6 +1,6 @@
 import { surfaceApp } from "@kolu/surface-app/vite";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 // `surfaceApp()` resolves the commit (SURFACE_APP_COMMIT env → git → "dev") and
 // injects it onto the shell as `window.__SURFACE_APP_COMMIT__` (read via

@@ -16,11 +16,10 @@
  *  tooltip (Corvu), mounted only while open, so its lines are read only
  *  while someone looks at them. */
 
-import Tooltip from "@corvu/tooltip";
+import Tooltip from "@corvu-next/tooltip";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { lifetime, type Work, type WorkId } from "kolu-work";
-import { Key } from "@solid-primitives/keyed";
-import { type Component, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { elapsedSince } from "../time/duration";
 import { useShownClock } from "../ui/shown";
 import MemberPip from "./MemberPip";
@@ -79,10 +78,19 @@ const TerminalLine: Component<{ work: Work; one: MemberLine; now: number }> = (
 };
 
 /** WHAT THE HOVER CARD SAYS — its own component so that nothing in it is
- *  read until it opens. */
-const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
+ *  read until it opens. Exported so what it subscribes to can be judged
+ *  without a hover, which no test environment has. */
+export const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
   const now = useShownClock();
-  const { members, at: line } = createWorkFacts(
+  /** The card's own reading of the work, and its SNAPSHOT: every line below
+   *  is a fold over the whole record (its PR's links, its subtitle, how long
+   *  it has run, what each terminal runs, its stages), so each reads the one
+   *  snapshot rather than a node per leaf of the store. */
+  const {
+    record,
+    members,
+    at: line,
+  } = createWorkFacts(
     () => props.id,
     () => props.work,
   );
@@ -93,15 +101,15 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
       </span>
       <span class="block truncate font-mono text-[0.62rem] text-fg-3">
         <PrText
-          work={props.work}
+          work={record()}
           text={[
-            ...workSubtitle(props.work, workHost(props.work)),
-            dualPhrase(lifetime(props.work, new Date(now()).toISOString())),
+            ...workSubtitle(record(), workHost(record())),
+            dualPhrase(lifetime(record(), new Date(now()).toISOString())),
           ].join(" · ")}
         />
       </span>
       <WorkStanding
-        work={props.work}
+        work={record()}
         line={line()}
         now={now()}
         testId="work-chip-standing"
@@ -110,15 +118,13 @@ const WorkChipCard: Component<{ id: WorkId; work: Work }> = (props) => {
           lines are minted afresh whenever any member's record moves. */}
       <Show when={members().length > 0}>
         <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
-          <Key each={members()} by="terminal">
-            {(one) => (
-              <TerminalLine work={props.work} one={one()} now={now()} />
-            )}
-          </Key>
+          <For each={members()} keyed={(one) => one.terminal}>
+            {(one) => <TerminalLine work={record()} one={one()} now={now()} />}
+          </For>
         </ul>
       </Show>
       <StageMap
-        stages={stagesOf(props.work, new Date(now()).toISOString())}
+        stages={stagesOf(record(), new Date(now()).toISOString())}
         size="mini"
         testId="chip-stage-map"
       />

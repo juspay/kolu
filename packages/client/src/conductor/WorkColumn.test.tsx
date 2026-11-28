@@ -10,8 +10,8 @@
  * the manual.
  */
 
-import type { Accessor } from "solid-js";
-import { render } from "solid-js/web";
+import { type Accessor, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endWork,
@@ -30,10 +30,28 @@ const mirror = vi.hoisted(() => ({
   works: (() => []) as Accessor<ReadonlyArray<WorkRow>>,
   needs: (() => []) as Accessor<ReadonlyArray<NeedsYou>>,
 }));
-vi.mock("./useWorks", () => ({
-  useWorks: () => mirror.works,
-  useNeedsYou: () => mirror.needs,
-}));
+// `await import` and not a static one: a mock factory is hoisted above this
+// file's imports, so the folds it builds on have to be reached inside it.
+vi.mock("./useWorks", async () => {
+  // The board's two halves, cut from the SAME rows by the real folds — the
+  // column still draws exactly what these works say it should. The watches
+  // are the third reading the split publishes, cut the same way.
+  const { finished, inProgress } = await import("kolu-work");
+  return {
+    useWorks: () => mirror.works,
+    useNeedsYou: () => mirror.needs,
+    useWorkSplit: () => ({
+      live: () => inProgress(mirror.works()),
+      done: () => finished(mirror.works()),
+      watching: () =>
+        new Set(
+          inProgress(mirror.works())
+            .filter(([, one]) => one.key.kind === "watch")
+            .map(([id]) => id),
+        ),
+    }),
+  };
+});
 vi.mock("./WorkCard", () => ({
   default: (props: { id: WorkId }) => (
     <div data-testid="work-card-stub" data-work={props.id} />
@@ -80,9 +98,9 @@ function mount(works: ReadonlyArray<WorkRow>): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <WorkColumn />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -132,6 +150,7 @@ describe("the works column with nothing in progress", () => {
     const words = (second?.textContent ?? "").trim().replace(/^“|”$/g, "");
 
     second?.click();
+    flush();
 
     // The works panel cannot write the box (the composer owns it); it
     // publishes this request, and the composer's own test proves it writes
@@ -147,6 +166,7 @@ describe("the works column with nothing in progress", () => {
     el.querySelector<HTMLButtonElement>(
       '[data-testid="work-welcome-help"]',
     )?.click();
+    flush();
 
     expect(helpSheet.open()).toBe(true);
   });

@@ -2,7 +2,7 @@ import { Deferred, Effect, Fiber } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // `importSessionAction` imports `toast` from `solid-sonner`, which pulls the
-// SSR `solid-js/web` build under the node runner. Mock it and capture the three
+// SSR web build under the node runner. Mock it and capture the three
 // variants we assert on. `vi.hoisted` makes the spies available inside the
 // hoisted `vi.mock` factory.
 const { loading, success, error } = vi.hoisted(() => ({

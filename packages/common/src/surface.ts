@@ -1285,6 +1285,15 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     workPrs: {
       keySchema: Schema.String,
       schema: PrResultSchema,
+      // A CHECK IS ITS NAME — the only array inside a PR reading is its
+      // per-check breakdown, and the forge's name for a check is what
+      // identifies it (`CheckRunSchema.name`, required and non-nullable). So
+      // the client's store merges those rows BY it: a frame that moved the
+      // PR's title, its review decision or one check's outcome keeps every
+      // other check's row rather than replacing the list, and the Work
+      // section's `<For>` — keyed by the same name — keeps the rows a reader
+      // is looking at.
+      arrayKey: "name",
       verbs: ["keys", "get"],
       client: { onError: { kind: "toast", label: "Works" } },
     },

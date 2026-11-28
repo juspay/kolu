@@ -30,7 +30,15 @@
  *  landing, a link appearing or the reader moving — so the fold must be
  *  re-applied, and the lists it must watch may be new ones), and the open
  *  state of the lists `applyProseListFold` touches (somebody pressed "and N
- *  more"). */
+ *  more").
+ *
+ *  TWO, and the row RECORD is not a third: the transcript hands a fresh row
+ *  object down for every chunk, with the same id. An effect that tracked the
+ *  record would fold once in the flush the text changed — over DOM the
+ *  rewrite is about to throw away — and again when `onRendered` reports the
+ *  DOM that replaced it: the same pass twice per chunk, the first of them on
+ *  prose no reader ever sees. So the id is read through `rowId` below, which
+ *  stops at the string. */
 
 import { type InlineCodeAction, Markdown } from "@kolu/solid-markdown";
 import type { Work, WorkId } from "kolu-work";
@@ -45,9 +53,9 @@ import {
 } from "solid-js";
 import { OptionMenu } from "../ui/OptionMenu";
 import { type FileHolders, fileTarget } from "./namedFiles";
-import { applyProseListFold } from "./proseListFold";
+import { applyProseListFold, proseListFoldOpen } from "./proseListFold";
 import { openReader, readerTarget } from "./reader/useReader";
-import { useWorkMap } from "./useWorks";
+import { useWorkAt } from "./useWorks";
 import WorkChip from "./WorkChip";
 import WorkChipFace from "./WorkChipFace";
 
@@ -80,7 +88,6 @@ const ConductorProse: Component<{
   onRedrawn?: () => void;
 }> = (props) => {
   let host!: HTMLDivElement;
-  const works = useWorkMap();
 
   /** The works a press offered to choose between, and the link it was
    *  pressed on — which the menu is anchored to. */
@@ -94,11 +101,13 @@ const ConductorProse: Component<{
   const [missingPath, setMissingPath] = createSignal<string | null>(null);
 
   /** The works named, with their records as they stand now. Every id came
-   *  out of the holders index or the turn, both read off this same map in
-   *  this same update, so an id it does not hold is a defect, said loudly. */
+   *  out of the holders index or the turn, both read off the same mirror in
+   *  this same update, so an id it does not hold is a defect, said loudly.
+   *  Each is read BY ITS KEY, so this face holds no dependency on the works
+   *  a link does not name. */
   const named = (ids: NonEmpty<WorkId>): NonEmpty<Named> => {
     const one = (id: WorkId): Named => {
-      const work = works().get(id);
+      const work = useWorkAt(id);
       if (work === undefined)
         throw new Error(`a file link named work ${id}, which is not held`);
       return { id, work };
@@ -176,10 +185,21 @@ const ConductorProse: Component<{
 
   const [rewrites, setRewrites] = createSignal(0);
 
-  createEffect(() => {
-    rewrites();
-    applyProseListFold(host, props.rowId);
-  });
+  /** THE ROW'S ID, BY VALUE — a memo so that the record carrying it, replaced
+   *  on every chunk, is not a dependency of the fold effect below. See the
+   *  head of this file. */
+  const rowId = createMemo(() => props.rowId);
+
+  createEffect(
+    () => ({
+      rewrites: rewrites(),
+      rowId: rowId(),
+      open: proseListFoldOpen(rowId()),
+    }),
+    ({ rowId, open }) => {
+      applyProseListFold(host, rowId, open);
+    },
+  );
 
   // `min-w-0`: this sits inside the transcript's flex column, where a child
   // floors at its content width unless released — one unbroken line in the

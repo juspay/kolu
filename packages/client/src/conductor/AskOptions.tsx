@@ -19,6 +19,7 @@
 
 import { Option } from "effect";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { sameEach, sameFields } from "./sameItems";
 
 /** One option as the list draws it. */
 export interface AskOption {
@@ -67,6 +68,12 @@ function matching(
   );
 }
 
+/** What one list draws, and how many of its options that leaves out. */
+export interface ShownOptions {
+  readonly shown: ReadonlyArray<AskOption>;
+  readonly hidden: number;
+}
+
 /** WHAT A LIST DRAWS, and how many of its options that leaves out.
  *
  *  - A short list is drawn whole.
@@ -86,7 +93,7 @@ export function optionsShown(list: {
   readonly picked: (value: string) => boolean;
   readonly search: string;
   readonly unfolded: boolean;
-}): { readonly shown: ReadonlyArray<AskOption>; readonly hidden: number } {
+}): ShownOptions {
   if (list.options.length <= OPTION_SEARCH_FROM)
     return { shown: list.options, hidden: 0 };
   if (list.search.trim() !== "")
@@ -99,8 +106,19 @@ export function optionsShown(list: {
   return { shown, hidden: list.options.length - shown.length };
 }
 
-/** One option chip. The SELECTED state is layered on through `classList`, so
- *  the shape of a chip is written once and only the two colours branch. */
+/** TWO READINGS OF THE LIST THAT DRAW THE SAME CHIPS — each option by what
+ *  it says rather than by reference, because a question's options are minted
+ *  afresh every time the question is read ({@link askOption}), and the same
+ *  number left out. What the gate this gives {@link optionsShown}'s memo
+ *  keeps is the chips themselves: a pick, or a work that moved, redraws
+ *  nothing while the list on screen is the list that was there. */
+const sameShown = sameEach<AskOption>(sameFields);
+const sameView = (a: ShownOptions, b: ShownOptions): boolean =>
+  a.hidden === b.hidden && sameShown(a.shown, b.shown);
+
+/** One option chip. The SELECTED state is layered on through the `class`
+ *  object, so the shape of a chip is written once and only the two colours
+ *  branch. */
 const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 
 const BOX_CLASS =
@@ -124,15 +142,20 @@ const AskOptions: Component<{
 }> = (props) => {
   const [text, setText] = createSignal("");
   const [unfolded, setUnfolded] = createSignal(false);
-  /** Read by the list and by the two lines under it. */
-  const view = createMemo(() =>
-    optionsShown({
-      options: props.options,
-      usedBefore: props.usedBefore,
-      picked: props.picked,
-      search: text(),
-      unfolded: unfolded(),
-    }),
+  /** Read by the list and by the two lines under it — GATED on what it
+   *  draws: a question read again hands over options minted afresh around
+   *  the same values, and a pick re-runs the fold (the rest state draws what
+   *  is picked now) without changing which chips are on screen. */
+  const view = createMemo(
+    () =>
+      optionsShown({
+        options: props.options,
+        usedBefore: props.usedBefore,
+        picked: props.picked,
+        search: text(),
+        unfolded: unfolded(),
+      }),
+    { equals: sameView },
   );
   const long = () => props.options.length > OPTION_SEARCH_FROM;
   return (
@@ -150,26 +173,31 @@ const AskOptions: Component<{
       </Show>
       <Show when={view().shown.length > 0}>
         <div class="mt-1.5 flex flex-wrap gap-1.5">
-          <For each={view().shown}>
+          {/* KEYED ON THE OPTION'S VALUE, which is its identity: the chips
+              survive a list handed over again, so a press lands on the
+              button it was aimed at and focus stays where it was. */}
+          <For each={view().shown} keyed={(one) => one.value}>
             {(option) => {
-              const on = () => props.picked(option.value);
+              const on = () => props.picked(option().value);
               return (
                 <button
                   type="button"
                   data-testid="conductor-ask-option"
                   data-field={props.field}
-                  data-value={option.value}
+                  data-value={option().value}
                   data-active={on() ? "" : undefined}
-                  class={OPTION_CLASS}
-                  classList={{
-                    "border-accent bg-accent/15": on(),
-                    "border-edge-bright bg-surface-2": !on(),
-                  }}
-                  onClick={() => props.onPick(option.value)}
+                  class={[
+                    OPTION_CLASS,
+                    {
+                      "border-accent bg-accent/15": on(),
+                      "border-edge-bright bg-surface-2": !on(),
+                    },
+                  ]}
+                  onClick={() => props.onPick(option().value)}
                 >
-                  {option.value}
-                  <Show when={option.note !== ""}>
-                    <span class="ml-1.5 text-fg-3">{option.note}</span>
+                  {option().value}
+                  <Show when={option().note !== ""}>
+                    <span class="ml-1.5 text-fg-3">{option().note}</span>
                   </Show>
                 </button>
               );

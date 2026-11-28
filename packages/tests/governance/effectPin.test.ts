@@ -127,7 +127,7 @@ test("the vendored set is an entry's whole dependency closure, walked off the re
 
 test("a manifest's pins are read from every dependency section", () => {
   const pins = manifestPins("packages/x/package.json", {
-    dependencies: { effect: V, "solid-js": "^1.9.0" },
+    dependencies: { effect: V, "solid-js": "^2.0.3" },
     devDependencies: { "@effect/vitest": "catalog:" },
     peerDependencies: { "@effect/platform-node": "catalog:" },
   });

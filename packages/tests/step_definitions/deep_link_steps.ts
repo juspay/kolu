@@ -43,7 +43,7 @@ When(
   },
 );
 
-/** Cold boot — set the hash, then reload so the boot parse (onMount) fires
+/** Cold boot — set the hash, then reload so the boot parse (at settle) fires
  *  against it, re-attaching to the still-live terminals as it settles. */
 When(
   "I open the deep link {string} on a cold boot",
@@ -172,6 +172,19 @@ Then(
     const expected = expandDeepLink(this, template);
     const actual = await this.page.evaluate(() => window.location.hash);
     assert.strictEqual(actual, expected);
+  },
+);
+
+/** A toast has timed out and left the screen, so a later toast with the same
+ *  text can only be a new one. */
+Then(
+  "the toast {string} should go away",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator("[data-sonner-toaster] li")
+      .filter({ hasText: text })
+      .first()
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 

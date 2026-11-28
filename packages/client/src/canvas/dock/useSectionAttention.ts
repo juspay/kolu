@@ -22,7 +22,12 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
-import { scopeAttention } from "@kolu/padi-client/attention";
+import {
+  scopeAttention,
+  type TerminalAttention,
+} from "@kolu/padi-client/attention";
+import { sameItems } from "../../conductor/sameItems";
+import { foldEach } from "@kolu/surface/solid";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
@@ -50,19 +55,66 @@ export function sectionAttentionIds(group: DockGroup): TerminalId[] {
   return ids;
 }
 
+/** One row's three attention leaves, read in that row's own scope. */
+type SectionRow = {
+  id: TerminalId;
+  unread: boolean;
+  attention: TerminalAttention;
+};
+
 export function useSectionAttention(
   group: Accessor<DockGroup>,
 ): Accessor<SectionAttention> {
   const store = useTerminalStore();
   const facts = useAttentionFacts();
-  return createMemo(() => {
-    // The dock renders the ACTIVE host's terminals, so that is the frame every
-    // row's facts come off — the shared key memo, so this fold and every pip
-    // beneath it read one derivation of it.
-    const encHost = encActiveHost();
-    const ids = sectionAttentionIds(group());
-    return scopeAttention(ids, store.isUnread, (id) =>
-      facts.attentionOf(encHost, id),
-    );
+  // The ids this header owns. Held still by membership rather than by
+  // reference: `buildDockTree` mints fresh row objects on every tick, so a
+  // flattening that published identity would re-key every row memo below for
+  // an unchanged section.
+  const ids = createMemo(() => sectionAttentionIds(group()), {
+    name: "sectionAttention.ids",
+    equals: sameItems,
   });
+  // ONE ROW MEMO PER TERMINAL. Folded on one scope, this read three store
+  // leaves per row — the unread ledger, the attention class and the live flag
+  // — which put the summary past Solid's 200-source `WIDE_SCOPE_DEPS` judge at
+  // about 66 rows, an ordinary repo section on a busy host. A row now holds
+  // its own three and the summary reads the joined list alone.
+  //
+  // The dock renders the ACTIVE host's terminals, so that is the frame every
+  // row's facts come off — the shared key memo, so this fold and every pip
+  // beneath it read one derivation of it.
+  const rows = foldEach(
+    "sectionAttention.row",
+    ids,
+    (id): SectionRow => ({
+      id,
+      unread: store.isUnread(id),
+      attention: facts.attentionOf(encActiveHost(), id),
+    }),
+    (a, b) =>
+      a.id === b.id &&
+      a.unread === b.unread &&
+      a.attention.klass === b.attention.klass &&
+      a.attention.live === b.attention.live,
+  );
+  return createMemo(
+    () => {
+      const read = new Map(rows().map((row) => [row.id, row]));
+      // Total by construction: the fold reads one row per id it was handed and
+      // drops none, so a missing one is a broken fold, not an absent terminal.
+      const rowOf = (id: TerminalId): SectionRow => {
+        const row = read.get(id);
+        if (row === undefined)
+          throw new Error(`sectionAttention: no folded row for ${id}`);
+        return row;
+      };
+      return scopeAttention(
+        rows().map((row) => row.id),
+        (id) => rowOf(id).unread,
+        (id) => rowOf(id).attention,
+      );
+    },
+    { name: "sectionAttention" },
+  );
 }

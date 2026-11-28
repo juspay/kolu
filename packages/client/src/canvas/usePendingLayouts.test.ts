@@ -1,0 +1,262 @@
+/** AN EQUAL ECHO SETTLES IN ONE PASS.
+ *
+ * A pending layout is a local gesture held until the server echoes it back.
+ * The echo used to be RELEASED BY A WRITE: an effect read the pending store,
+ * saw the saved layout catch up, and deleted the entry — a write into state the
+ * same pass had just read, which republished every layout consumer (the
+ * canvas's `layoutOf`, the minimap's bounds, the switch-in centering resolver)
+ * a second time for a value that had not changed.
+ *
+ * Each entry is judged against the values this client COMMITTED (the authored
+ * trail), so the echo releases it by arriving: `resolveLayout` stops
+ * preferring the override the moment the saved value equals it, in the flush
+ * that delivers it, with nobody writing anything. A saved value this client
+ * committed earlier (the base, or a gesture a later one superseded) is that
+ * earlier write catching up and leaves the newest gesture standing; a FOREIGN
+ * saved value wins at once. Preview frames never go on the wire, so they never
+ * join the trail — and the trail is FORGOTTEN once the override's own echo
+ * lands, so a later value equal to an older gesture of ours cannot resurrect it.
+ */
+
+import type { TerminalId } from "kolu-common/surface";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
+import { beforeEach, expect, it } from "vitest";
+import type { TileLayout } from "./TileLayout";
+import { usePendingLayouts } from "./usePendingLayouts";
+
+const ID = "tile-1" as TerminalId;
+const SAVED: TileLayout = { x: 0, y: 0, w: 300, h: 200 };
+const DRAGGED: TileLayout = { x: 120, y: 80, w: 300, h: 200 };
+
+/** The store is a singleton — start each test from a clean slate, outside any
+ *  owner (the wipe is a write). */
+beforeEach(() => usePendingLayouts().clear());
+
+/** The canvas's two consumers of the module, as the canvas wires them: a
+ *  layout read, and the dead-tile hygiene pass. */
+function mountCanvasSide(saved: () => TileLayout | undefined) {
+  const pending = usePendingLayouts();
+  const published: (TileLayout | undefined)[] = [];
+  createEffect(
+    () => pending.resolveLayout(ID, saved()),
+    (layout) => {
+      published.push(layout);
+    },
+  );
+  createEffect(
+    () => pending.deadIds(new Set([ID])),
+    (dead) => {
+      pending.dropIds(dead);
+    },
+  );
+  return { pending, published };
+}
+
+it("releases an override in the flush its echo lands, without a second pass", () => {
+  // Mount inside a root, then drive from OUTSIDE it: every write here stands
+  // for a user gesture or a server push, neither of which runs under an owner.
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  canvas.pending.setOne(ID, DRAGGED, canvas.saved());
+  flush();
+  expect(canvas.published.at(-1)).toEqual(DRAGGED); // the gesture stands
+  const beforeEcho = canvas.published.length;
+
+  canvas.setSaved(DRAGGED); // the server's echo
+  flush();
+
+  expect(canvas.published.length).toBe(beforeEcho + 1); // ONE pass, not two
+  expect(canvas.published.at(-1)).toEqual(DRAGGED);
+  // Released by the echo alone — no cleanup write is owed.
+  expect(canvas.pending.hasOverride(ID, DRAGGED)).toBe(false);
+  canvas.dispose();
+});
+
+it("holds the override until its own echo arrives", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  canvas.pending.setOne(ID, DRAGGED, canvas.saved());
+  flush();
+  // A metadata republish that is NOT this gesture's echo (same layout, fresh
+  // object) leaves the gesture standing.
+  canvas.setSaved({ ...SAVED });
+  flush();
+
+  expect(canvas.published.at(-1)).toEqual(DRAGGED);
+  expect(canvas.pending.hasOverride(ID, canvas.saved())).toBe(true);
+  canvas.dispose();
+});
+
+it("keeps the newest gesture when a superseded one echoes", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  // Two gestures minted against the same base — e.g. arrange, then a drag
+  // before the arrange has echoed.
+  const L1 = DRAGGED;
+  const L2: TileLayout = { x: 400, y: 260, w: 300, h: 200 };
+  canvas.pending.setOne(ID, L1, canvas.saved());
+  canvas.pending.setOne(ID, L2, canvas.saved());
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L2);
+
+  // L1's echo lands: this client's own earlier write catching up, so the
+  // tile must NOT jump back to it.
+  canvas.setSaved(L1);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L2);
+  expect(canvas.pending.hasOverride(ID, L1)).toBe(true);
+
+  // L2's own echo releases it.
+  canvas.setSaved(L2);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L2);
+  expect(canvas.pending.hasOverride(ID, L2)).toBe(false);
+  canvas.dispose();
+});
+
+/** CHARACTERIZATION, not regression: this passes without the release rules
+ *  too. It pins the INTENTIONAL change from master, where a standing gesture
+ *  held until this client's own echo landed and a rejected or never-echoing
+ *  write pinned the tile forever. The server is authoritative: a foreign value
+ *  wins at once. */
+it("lets a foreign layout win over a standing gesture", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  canvas.pending.setOne(ID, DRAGGED, canvas.saved());
+  flush();
+  // Nobody here authored this: another client moved the tile.
+  const FOREIGN: TileLayout = { x: -90, y: 40, w: 300, h: 200 };
+  canvas.setSaved(FOREIGN);
+  flush();
+
+  expect(canvas.published.at(-1)).toEqual(FOREIGN);
+  expect(canvas.pending.hasOverride(ID, FOREIGN)).toBe(false);
+  canvas.dispose();
+});
+
+it("forgets the trail once the override's own echo lands", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  // L1 minted on the base L0, then released by its own echo.
+  const L0 = SAVED;
+  const L1 = DRAGGED;
+  canvas.pending.setOne(ID, L1, L0);
+  flush();
+  canvas.setSaved(L1);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L1);
+
+  // Somebody else puts the tile back where it started. That equals the base
+  // this client once authored — but the override is RELEASED, so there is
+  // nothing left to catch up with: L0 must show.
+  canvas.setSaved({ ...L0 });
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L0);
+  expect(canvas.pending.hasOverride(ID, L0)).toBe(false);
+  canvas.dispose();
+});
+
+it("stays released when the tile's layout is withdrawn", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  // L1 minted on the base L0, then released by its own echo.
+  const L0 = SAVED;
+  const L1 = DRAGGED;
+  canvas.pending.setOne(ID, L1, L0);
+  flush();
+  canvas.setSaved(L1);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(L1);
+
+  // The layout is WITHDRAWN (a record republished without one). The released
+  // override must not come back: the tile is layout-less again, which is what
+  // lets the canvas re-place it at the current camera and persist that.
+  canvas.setSaved(undefined);
+  flush();
+  expect(canvas.published.at(-1)).toBeUndefined();
+  expect(canvas.pending.hasOverride(ID, undefined)).toBe(false);
+  canvas.dispose();
+});
+
+/** A GESTURE IN PROGRESS OUTRANKS A FOREIGN VALUE; A COMMITTED ONE DOES NOT.
+ *  Master held every gesture until its own echo. The foreign-wins rule is the
+ *  intentional change — for a value this client has SENT, which a rejected
+ *  write would otherwise pin forever. A preview frame has been sent nowhere,
+ *  so nothing can echo it and nothing outranks the pointer. */
+it("keeps a previewing gesture over a foreign layout, until it commits", () => {
+  const canvas = createRoot((dispose) => {
+    const [saved, setSaved] = createSignal<TileLayout | undefined>(SAVED);
+    return { ...mountCanvasSide(saved), saved, setSaved, dispose };
+  });
+  flush();
+
+  const FOREIGN: TileLayout = { x: -90, y: 40, w: 300, h: 200 };
+  canvas.pending.previewOne(ID, DRAGGED, SAVED);
+  flush();
+  canvas.setSaved(FOREIGN); // another client moves the same tile mid-drag
+  flush();
+  expect(canvas.published.at(-1)).toEqual(DRAGGED);
+
+  // The next frame still follows the pointer.
+  const MOVED: TileLayout = { x: 200, y: 150, w: 300, h: 200 };
+  canvas.pending.previewOne(ID, MOVED, SAVED);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(MOVED);
+
+  // The commit puts the value on the wire, and the foreign rule applies to it
+  // at once: the standing saved value is one nobody here authored, so the
+  // server's value wins and the override is released.
+  canvas.pending.setOne(ID, MOVED, FOREIGN);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(FOREIGN);
+  expect(canvas.pending.hasOverride(ID, FOREIGN)).toBe(false);
+  // And a further foreign value keeps winning.
+  const OTHER: TileLayout = { x: 7, y: 7, w: 300, h: 200 };
+  canvas.setSaved(OTHER);
+  flush();
+  expect(canvas.published.at(-1)).toEqual(OTHER);
+  canvas.dispose();
+});
+
+/** The create-time size slot is armed for ONE create, and the arm happens
+ *  before the create's id exists, so the slot names no tile: the FIRST tile
+ *  to ask takes it — in practice the first new tile of the placement pass, in
+ *  `props.tileIds` order — and a second new tile in the same pass takes the
+ *  canvas default. The claim is stamped into the record, so the claiming tile
+ *  keeps the size across re-derivations of the memo. */
+it("gives the armed create size to the first tile that asks", () => {
+  const pending = usePendingLayouts();
+  const first = "tile-created" as TerminalId;
+  const other = "tile-other" as TerminalId;
+  pending.setNextDefaultSize({ w: 640, h: 480 });
+
+  expect(pending.claimNextDefaultSize(first)).toEqual({ w: 640, h: 480 });
+  expect(pending.claimNextDefaultSize(other)).toBeNull();
+  // Idempotent across re-runs of the derivation.
+  expect(pending.claimNextDefaultSize(first)).toEqual({ w: 640, h: 480 });
+  expect(pending.claimNextDefaultSize(other)).toBeNull();
+});

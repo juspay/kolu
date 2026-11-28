@@ -22,15 +22,33 @@ import { type Component, createMemo, Show } from "solid-js";
 import RepoMonogram from "../ui/RepoMonogram";
 import PrText from "./PrText";
 import type { WorkPr } from "./workPr";
-import { workHost, workSubtitleParts } from "./workReadings";
+import { sameFields, sameItems } from "./sameItems";
+import {
+  workHost,
+  type WorkSubtitleParts,
+  workSubtitleParts,
+} from "./workReadings";
+
+/** Two readings of the subtitle: the same place, and the same words after
+ *  it. Both halves are rebuilt by the fold on every move of the work. */
+const sameParts = (a: WorkSubtitleParts, b: WorkSubtitleParts): boolean =>
+  sameFields(a.where, b.where) && sameItems(a.rest, b.rest);
 
 const WorkSubtitle: Component<{
+  /** The work's own record as ONE read (`createWorkRecord`): the words below
+   *  are a fold over the whole of it — its setup and its PR — so a face that
+   *  handed this the store's proxy would put a node per leaf of every event
+   *  on the memo below. */
   work: Work;
   /** The work's own PR, live (`useWorkPr`). */
   pr: Option.Option<WorkPr>;
 }> = (props) => {
-  const parts = createMemo(() =>
-    workSubtitleParts(props.work, workHost(props.work)),
+  /** Gated on what the line says: the fold mints a fresh `{ where, rest }`
+   *  for a work whose repository, host, mode and PR did not move, and the
+   *  `<Show>` on the branch below inherits it. */
+  const parts = createMemo(
+    () => workSubtitleParts(props.work, workHost(props.work)),
+    { name: "workSubtitle.parts", equals: sameParts },
   );
   const branch = () => {
     const where = parts().where;

@@ -39,18 +39,18 @@ export function createDragClickGuard(
     }
   };
 
-  createEffect((wasDragging: boolean) => {
-    const isDragging = dragging();
-    if (wasDragging && !isDragging) {
+  createEffect(
+    () => dragging(),
+    (isDragging, wasDragging = false) => {
+      if (!wasDragging || isDragging) return;
       disarm();
       armed = true;
       frame = requestAnimationFrame(() => {
         frame = undefined;
         armed = false;
       });
-    }
-    return isDragging;
-  }, false);
+    },
+  );
 
   onCleanup(disarm);
 

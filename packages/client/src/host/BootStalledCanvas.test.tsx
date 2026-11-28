@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /** #1763 + #1908 D2 — the boot-stalled escape surface renders NON-BLANK for both recovery
- *  shapes. Renders `BootStalledCanvas` through `solid-js/web`'s `render` (the
+ *  shapes. Renders `BootStalledCanvas` through `@solidjs/web`'s `render` (the
  *  `dialogLiveness.test.tsx` idiom) and asserts, per shape, the copy, the recovery verb, and —
  *  for a remote host — the Switch-to-local escape hatch, all appear. `../wire` is mocked so the
  *  surface stack / socket never boots in the test.
@@ -14,8 +14,8 @@
  */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bootStalledCopy,
@@ -176,6 +176,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       () => <BootStalledCanvas recovery={rec()} />,
       document.body,
     );
+    flush();
     const btn = document.querySelector<HTMLButtonElement>(
       '[data-testid="boot-stalled-reconnect"]',
     );
@@ -191,6 +192,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       logAbsence: undefined,
       quiet: undefined,
     });
+    flush();
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);
@@ -204,6 +206,7 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
       logAbsence: undefined,
       quiet: undefined,
     });
+    flush();
     expect(
       document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).toBe(btn);

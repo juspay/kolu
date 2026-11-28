@@ -22,7 +22,13 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createEffect, createMemo, createRoot } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { describe, expect, it } from "vitest";
 import { isTransportError, shouldRetryStreamError } from "../client";
 import { defineSurface, defineSurfaceWithPolicy } from "../define";
@@ -227,9 +233,12 @@ describe("surfaceClient health registry — totality", () => {
       // enrols) them — mirroring a component reading `byKey(id)`. An unobserved
       // per-key sub is never created, so it has nothing to be unhealthy about;
       // the registry tracks what's actually on screen.
-      createEffect(() => {
-        for (const id of items.keys()) items.byKey(id);
-      });
+      createEffect(
+        () => {
+          for (const id of items.keys()) items.byKey(id);
+        },
+        () => {},
+      );
       await settle();
 
       const names = app
@@ -306,16 +315,22 @@ describe("surfaceClient health registry — totality", () => {
     // a toggling `live` can be driven together (the public `surfaceClient` collapses
     // dispatch+live into one `LiveSignalHandle` — the end-to-end fold over a real
     // watchdog-backed handle is pinned in `createLiveSignal`/`transportLive` tests).
+    //
+    // The leg is a SIGNAL, as the watchdog's own `live` is: the fact is folded in
+    // the registry's memos now (so no reading scope is wide), and a memo re-folds
+    // for a reactive source — which a plain `let` the test flips behind Solid's
+    // back is not.
     const dispatch = fakeDispatch({
       "surface/conn/get": () => once({ state: "x" }),
     });
     await createRoot(async (dispose) => {
-      let alive = true;
-      const app = buildSurfaceClient(surface, dispatch, () => alive);
+      const [alive, setAlive] = createSignal(true);
+      const app = buildSurfaceClient(surface, dispatch, alive);
       app.cells.conn.use();
       await settle();
       expect(app.health().live).toBe(true);
-      alive = false;
+      setAlive(false);
+      flush();
       expect(app.health().live).toBe(false);
       dispose();
     });
@@ -432,16 +447,19 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
     const f = feed<{ state: string }>();
     const dispatch = fakeDispatch({ "surface/connection/get": f.stream });
     await createRoot(async (dispose) => {
-      let transport = true;
+      const [transport, setTransport] = createSignal(true);
       // Internal builder: drive a stub mirror cell (feed) AND a toggling transport
       // leg together — the public `surfaceClient` collapses the pair into a handle.
-      const app = buildSurfaceClient(mirrored, dispatch, () => transport);
+      // The leg is a SIGNAL, as the watchdog's own is: the registry folds the fact
+      // in memos, which re-fold for a reactive source and not for a plain `let`.
+      const app = buildSurfaceClient(mirrored, dispatch, transport);
       f.push({ state: "connected" });
       await settle();
       expect(app.health().live).toBe(true); // transport ∧ mirror both hold
       // Transport dies even though the mirror is still "connected" — a half-open
       // ws over a connected mirror must read NOT live.
-      transport = false;
+      setTransport(false);
+      flush();
       expect(app.health().live).toBe(false);
       app.dispose();
       dispose();
@@ -673,27 +691,35 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
 
   it("releases the siblings it already built when a later one refuses", async () => {
     const torn: string[] = [];
+    let opened = 0;
     const f = feed<{ state: string }>();
     const dispatch = fakeDispatch({
-      // The FIRST sibling's eager readiness sub, with a finalizer that records the
-      // teardown. Its scoped tag carries the sibling key `surfaceClients` splices in.
-      "surface/first/connection/get": () =>
-        Stream.ensuring(
+      // The FIRST sibling's eager readiness sub. The handler counts the wire
+      // opens; the finalizer records the teardown. Its scoped tag carries the
+      // sibling key `surfaceClients` splices in.
+      "surface/first/connection/get": () => {
+        opened++;
+        return Stream.ensuring(
           f.stream(),
           Effect.sync(() => {
             torn.push("first");
           }),
-        ),
+        );
+      },
     });
     // The bundle throws — the second sibling's declared policy has nowhere to go.
     expect(() =>
       surfaceClients(dispatch, { first: mirrored, second: policied }),
     ).toThrow(/no `onClientError` interpreter was threaded/);
-    // …and the first sibling's subscription, opened before that throw, was closed
-    // on the way out. Without the unwind inside `surfaceClients` this stays empty
-    // and the stream runs for the life of the page.
+    // …and the first sibling's subscription is not left running. A subscription's
+    // fiber opens in the EFFECT PHASE of the owner that built it, so the sibling
+    // built before the throw has not reached the wire yet: the unwind inside
+    // `surfaceClients` disposes that owner and the open never happens. Without
+    // the unwind that owner survives the throw, its effect runs on the next
+    // flush, and the stream runs for the life of the page — which reads as
+    // `opened: 1` with nothing torn, never as this quiet zero.
     await settle();
-    expect(torn).toEqual(["first"]);
+    expect({ opened, torn }).toEqual({ opened: 0, torn: [] });
   });
 
   it("MOVES the roster in place: survivors keep their client, arrivals join, departures are retracted", async () => {
@@ -869,7 +895,10 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
         return bundle.health();
       });
       // A tracking observer, so the memo is live rather than lazily re-read.
-      createEffect(() => folded());
+      createEffect(
+        () => folded(),
+        () => {},
+      );
       await settle();
       const before = runs;
       expect(folded().subs.map((s) => s.name)).toEqual(["first/queue"]);

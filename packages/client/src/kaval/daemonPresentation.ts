@@ -427,6 +427,81 @@ export function toKavalPresence(
     .exhaustive();
 }
 
+/** Two kaval lifetime policies, by their leaves — module-private, the one nested
+ *  comparison {@link sameKavalPresence} needs. `forever` carries nothing; `idleTimeout`
+ *  carries its window and `boundToPid` its pid, so the arms that differ in a number are
+ *  not folded together. A survivor predating the wire field is `undefined`, equal only to
+ *  another absent policy. */
+const sameLifetime = (
+  a: DaemonLifetimeView | undefined,
+  b: DaemonLifetimeView | undefined,
+): boolean => {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "forever":
+      return true;
+    case "idleTimeout":
+      return (
+        a.ms === (b as Extract<DaemonLifetimeView, { kind: "idleTimeout" }>).ms
+      );
+    case "boundToPid":
+      return (
+        a.pid === (b as Extract<DaemonLifetimeView, { kind: "boundToPid" }>).pid
+      );
+  }
+};
+
+/** WHEN TWO KAVAL PRESENCES SAY THE SAME THING.
+ *
+ *  {@link toKavalPresence} is a COARSENING fold: it maps a whole `DaemonStatus` onto a
+ *  small sum and mints a referentially-new object per call. Its upstream churns far
+ *  faster than its answer does — `localDaemonStatus` republishes a fresh
+ *  `{...status, startedAt: local}` on every daemon-status tick — so a redeploy/recycle
+ *  window hands a memo four new-but-equivalent presences in a row. Without a gate every
+ *  subscriber (the palette's Restart-kaval verb, the host strip's chain, the host chip)
+ *  re-runs for a presence that did not move, and Solid's attribution engine raises
+ *  `UNSTABLE_MEMO_OUTPUT` after four such re-runs.
+ *
+ *  The comparison is `kind` plus each arm's OWN facts, down to their LEAVES — the same
+ *  shape as {@link sameCanvasMode}, the sibling gate on the canvas fold:
+ *   - `connected` carries two scalars (`contractVersion`, `startedAt`, plus the optional
+ *     `socketPath`) and two small objects (`identity`, `lifetime`). The objects are
+ *     compared by their leaves, not by reference: both ride a re-parsed wire frame, so a
+ *     re-serve that says the same thing mints new containers and a reference check would
+ *     never see two presences as equal;
+ *   - `warming` and `down` carry only their state word;
+ *   - the payload-free arms (`unknown`, `incompatible`) are equal whenever their `kind`
+ *     is — `incompatible`'s versions ride the two skew surfaces, not the presence.
+ *
+ *  A new arm on {@link KavalPresence} is a compile error here, never a silently swallowed
+ *  frame. */
+export function sameKavalPresence(a: KavalPresence, b: KavalPresence): boolean {
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "connected": {
+      const other = b as Extract<KavalPresence, { kind: "connected" }>;
+      return (
+        a.contractVersion === other.contractVersion &&
+        a.startedAt === other.startedAt &&
+        a.socketPath === other.socketPath &&
+        a.identity.staleKey === other.identity.staleKey &&
+        a.identity.navigableCommit === other.identity.navigableCommit &&
+        sameLifetime(a.lifetime, other.lifetime)
+      );
+    }
+    case "warming":
+      return (
+        a.state === (b as Extract<KavalPresence, { kind: "warming" }>).state
+      );
+    case "down":
+      return a.state === (b as Extract<KavalPresence, { kind: "down" }>).state;
+    case "unknown":
+    case "incompatible":
+      return true;
+  }
+}
+
 /** The presentation of a kaval {@link KavalPresence} — its dot tone, its status word, AND
  *  the label's text tone, as ONE value from ONE `match`. "The presentation of a presence"
  *  is a single concept: a new presence arm updates all three facets here at once, never in

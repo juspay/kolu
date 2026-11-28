@@ -38,16 +38,11 @@
  *  gate must be one reading of one index. */
 
 import type { Membership } from "kolu-work";
-import {
-  type Component,
-  createEffect,
-  createMemo,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, createMemo, Show } from "solid-js";
 import { dismissLockCard, lockCardShown } from "./personInput";
+import { sameFields } from "./sameItems";
 import { useConductor } from "./useConductor";
-import { useMembership } from "./useWorks";
+import { useMembershipAt } from "./useWorks";
 import { lockCardWords, type Lock, lockWords } from "./workReadings";
 
 const BUTTON_CLASS =
@@ -59,18 +54,23 @@ const WorkLock: Component<{
   terminal: string;
   pill?: boolean;
 }> = (props) => {
-  const membership = useMembership();
+  const membership = useMembershipAt(() => props.terminal);
   const conductor = useConductor();
   /** The membership ONLY while something drives this terminal, with its
    *  driver NARROWED to the two that are a lock — the `nobody` driver (no
    *  lock) and the absent membership (no work) are one case here, and it
-   *  draws nothing. */
+   *  draws nothing.
+   *
+   *  Gated, because the narrowing re-spreads: the frame, its words and the
+   *  card are drawn from the fields, so a reading that says what the last
+   *  one said is not a reason to run them again. */
   const driven = createMemo(
     (): (Membership & { readonly driver: Lock }) | undefined => {
-      const at = membership().get(props.terminal);
+      const at = membership();
       if (at === undefined || at.driver === "nobody") return undefined;
       return { ...at, driver: at.driver };
     },
+    { equals: sameFields },
   );
   const carded = () => driven() !== undefined && lockCardShown(props.terminal);
 
@@ -85,30 +85,33 @@ const WorkLock: Component<{
    *  The press-elsewhere is captured too, but passed on untouched: a click
    *  in a driven terminal still focuses it for reading, which is the whole
    *  promise — it only also puts the card away. */
-  createEffect(() => {
-    if (!carded()) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      dismissLockCard();
-    };
-    const onDown = (e: Event) => {
-      const target = e.target;
-      if (
-        target instanceof Element &&
-        target.closest("[data-lock-card]") !== null
-      )
-        return;
-      dismissLockCard();
-    };
-    document.addEventListener("keydown", onKey, true);
-    document.addEventListener("pointerdown", onDown, true);
-    onCleanup(() => {
-      document.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("pointerdown", onDown, true);
-    });
-  });
+  createEffect(
+    () => carded(),
+    (up) => {
+      if (!up) return;
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        dismissLockCard();
+      };
+      const onDown = (e: Event) => {
+        const target = e.target;
+        if (
+          target instanceof Element &&
+          target.closest("[data-lock-card]") !== null
+        )
+          return;
+        dismissLockCard();
+      };
+      document.addEventListener("keydown", onKey, true);
+      document.addEventListener("pointerdown", onDown, true);
+      return () => {
+        document.removeEventListener("keydown", onKey, true);
+        document.removeEventListener("pointerdown", onDown, true);
+      };
+    },
+  );
 
   return (
     <Show when={driven()}>

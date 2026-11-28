@@ -35,6 +35,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { groundedActiveHost, padiMap } from "../wire";
+import { createBootPick } from "./createBootPick";
 import { createCamera, type HostCamera } from "./createCamera";
 import { createHostPrefs, type HostPrefs } from "./createHostPrefs";
 import { createHostWire, type HostWire } from "./createHostWire";
@@ -64,13 +65,34 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
     (host: HostKey): HostScope => {
       // The focus fold reads parentId from this host's retained collection. Build
       // the wire first so `createViewState` gets a pure, host-fixed lookup rather
-      // than reaching through the active-host facade or a seeding UI store.
+      // than reaching through the active-host facade or a seeding UI store — and
+      // so the BOOT PICK, a memo over that same retained census, is the answer
+      // the focus fact falls back to instead of a value an effect seeds into it.
       const wire = createHostWire(host);
+      // …and the restore LATCH before the pick, because the pick is `null` for
+      // the whole window a restore-from-card is in flight (`restoreInFlight`):
+      // mid-restore the census is half re-spawned, and a pick taken from it —
+      // answered once, and then the tile the camera and focus follow — would be
+      // the wrong one for the rest of the session.
+      const restore = createSessionRestore();
       return {
-        view: createViewState(host, wire.placementOf),
+        view: createViewState(
+          host,
+          wire.placementOf,
+          createBootPick(wire, restore.restoreInFlight),
+          wire.tileIds,
+          wire.terminalKeys,
+          // ONE authority fact for one list, read off this host's own wire.
+          // The removal reconcile suppresses its eviction writes while the
+          // list is not a census (`useActiveReconcile`, through
+          // `listIsAuthoritative`); the focus derivation's auto-switch gates
+          // on the same fact, so a supervised recycle's drain cannot clamp
+          // the selection to an explicit `null` behind the reconcile's back.
+          wire.listIsCensus,
+        ),
         prefs: createHostPrefs(host),
         camera: createCamera(),
-        restore: createSessionRestore(),
+        restore,
         // SR11: `createHostWire` no longer needs `ctx.isActive` — the retained subs'
         // active-toasts / background-logs split now lives in `interpretClientError`'s
         // `scopedSub` arm (grounded enc-compare), so the wire owner opens them bare.

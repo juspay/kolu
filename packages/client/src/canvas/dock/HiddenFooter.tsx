@@ -24,7 +24,7 @@
  *  a filter is hiding rows), the same way the window's old "show all"
  *  only appeared when it would relax something. */
 
-import { batch, type Component, createMemo, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { setActivityWindow } from "../../terminal/activityWindowFilter";
 import { setShowSleeping } from "../../terminal/showSleeping";
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
@@ -97,13 +97,12 @@ export const HiddenFooter: Component<{
   // every terminal, since leaving the window at `24h` would keep parked
   // rows hidden.
   const showReset = createMemo(() => props.hiddenCount > 0);
-  // Both writes feed the one `useDockOrder` memo, so batch them into a
-  // single dock-tree recompute instead of two.
-  const resetAll = () =>
-    batch(() => {
-      setActivityWindow("all");
-      setShowSleeping(true);
-    });
+  // Both writes feed the one `useDockOrder` memo; consecutive writes share the
+  // same microtask flush, so the dock tree recomputes once.
+  const resetAll = () => {
+    setActivityWindow("all");
+    setShowSleeping(true);
+  };
   // `props.rail` flips when the dock toggles rail ↔ cards while this
   // footer instance stays mounted (the parent never remounts it). A
   // bare `if (props.rail)` would read the prop once at create time and
@@ -187,18 +186,20 @@ const CardsLayout: Component<{
     <div
       data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
       data-layout="cards"
-      classList={{
+      class={[
         // Common: bordered top edge, neutral text, left-aligned content.
-        "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left": true,
-        // Touch (mobile drawer): larger vertical padding, slightly bigger
-        // type so the strip clears 44px tap target.
-        "px-3 py-3 text-[0.75rem]": props.compact === true,
-        // Pointer (desktop): right padding tracks the dock cards' row
-        // gutter so "show all" sits in the same column as the time
-        // labels above it.
-        [`pl-3 ${DOCK_CARDS_GUTTER_CLASS} py-2 text-[0.65rem]`]:
-          props.compact !== true,
-      }}
+        "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left",
+        {
+          // Touch (mobile drawer): larger vertical padding, slightly bigger
+          // type so the strip clears 44px tap target.
+          "px-3 py-3 text-[0.75rem]": props.compact === true,
+          // Pointer (desktop): right padding tracks the dock cards' row
+          // gutter so "show all" sits in the same column as the time
+          // labels above it.
+          [`pl-3 ${DOCK_CARDS_GUTTER_CLASS} py-2 text-[0.65rem]`]:
+            props.compact !== true,
+        },
+      ]}
     >
       {/* The framing label — turns two lone controls into an obvious
        *  "these are the dock's filters" group. */}

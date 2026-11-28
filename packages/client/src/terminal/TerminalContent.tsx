@@ -4,14 +4,15 @@
  *  Used by CanvasTile (desktop) and MobileTileView (mobile). Owns
  *  sub-panel state internally — callers provide only the shell. */
 
-import Resizable from "@corvu/resizable";
+import Resizable from "@corvu-next/resizable";
 import { sleepingArm } from "@kolu/padi-client/surface";
 import type { ITheme } from "@xterm/xterm";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, type JSX, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { runAction } from "../runAction";
-import { controlledSizes, realSizes } from "../ui/corvuResizable";
+import { controlledSizes, twoPanelSplit } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
 import SubPanelTabBar from "./SubPanelTabBar";
@@ -175,7 +176,7 @@ const TerminalContent: Component<{
     // programmatic transition (expand from collapsed), which would otherwise
     // persist a collapse as a zero-height divider. The collapse ITSELF is
     // still latched, below: that is one report, not a stream of them.
-    const s = realSizes(sizes);
+    const s = twoPanelSplit(sizes);
     if (s && s[1] > 0.02) {
       subPanel.setPanelSize(props.terminalId, s[1]);
     }
@@ -286,12 +287,14 @@ const TerminalContent: Component<{
       <Show when={hasSubs()}>
         <Resizable.Handle
           data-testid="resize-handle"
-          class="shrink-0 transition-all"
-          classList={{
-            "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
-              isExpanded(),
-            "h-0": !isExpanded(),
-          }}
+          class={[
+            "shrink-0 transition-all",
+            {
+              "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
+                isExpanded(),
+              "h-0": !isExpanded(),
+            },
+          ]}
           style={{ "z-index": Z_HANDLE_INNER }}
           aria-label="Resize terminal split"
           onHandleDragStart={markResizeIntent}
@@ -331,7 +334,7 @@ const TerminalContent: Component<{
         data-pane="sub"
         data-pane-focus={paneFocus("sub")}
       >
-        <div classList={{ hidden: !isExpanded() }} inert={!isExpanded()}>
+        <div class={{ hidden: !isExpanded() }} inert={!isExpanded()}>
           <SubPanelTabBar
             subIds={subTerminalIds()}
             activeSubTab={activeSubTab()}

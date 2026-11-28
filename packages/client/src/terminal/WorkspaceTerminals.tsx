@@ -20,9 +20,9 @@
  *  it stays attached but states no size. Each shell answers from the same
  *  `Shown` accessor it is drawn in (`ui/shown.ts`). */
 import type { TerminalId } from "kolu-common/surface";
-import { type JSX, For, Show, onCleanup, untrack } from "solid-js";
-import { createStore, produce } from "solid-js/store";
-import { Portal } from "solid-js/web";
+import { createStore, For, Show, untrack } from "solid-js";
+import { Portal, type JSX } from "@solidjs/web";
+import { refWithRelease } from "../ui/refWithRelease";
 
 /** What the shell that places a body says about it — one record, so two
  *  facts of one type can never be passed in each other's place. */
@@ -59,34 +59,39 @@ export function WorkspaceTerminals(props: {
   const [destinations, setDestinations] = createStore<
     Record<string, Destination | undefined>
   >({});
-  const outlet = (id: TerminalId, placement: ShellPlacement) => (
-    <div
-      class="flex flex-col h-full w-full min-h-0"
-      ref={(el) => {
+  /** A shell's placement slot for one body. The destination is released by
+   *  the scope that asked for the outlet (the shell's own render owner, which
+   *  is exactly as long as the slot lives). */
+  const outlet = (id: TerminalId, placement: ShellPlacement) => {
+    const slotRef = refWithRelease<HTMLDivElement>(
+      (el) => {
         const destination: Destination = {
           el,
           seen: placement.seen,
           viewShown: placement.viewShown,
           boxDecided: placement.boxDecided ?? (() => true),
         };
-        setDestinations(
-          produce((all) => {
-            const held = all[id];
-            if (held) Object.assign(held, destination);
-            else all[id] = destination;
-          }),
-        );
-        onCleanup(() => {
-          if (destinations[id]?.el === el)
-            setDestinations(
-              produce((all) => {
-                delete all[id];
-              }),
-            );
+        setDestinations((all) => {
+          const held = all[id];
+          if (held) Object.assign(held, destination);
+          else all[id] = destination;
         });
-      }}
-    />
-  );
+      },
+      (el) => {
+        // The destination is deleted only while it is still THIS slot's. A
+        // shell swap registers the arriving slot first, and that write is in
+        // the store before this read — so the release sees the new element
+        // and leaves the body where it was just placed (pinned by
+        // "keeps the body when the new shell's slot is placed before the old
+        // is released").
+        if (destinations[id]?.el === el)
+          setDestinations((all) => {
+            delete all[id];
+          });
+      },
+    );
+    return <div class="flex flex-col h-full w-full min-h-0" ref={slotRef} />;
+  };
   /** The body's live view of its CURRENT shell's answers. Read through the
    *  store (not captured), so a shell swap re-points them in place. A body with
    *  no destination is a body nobody is placing: not seen, not in front, and
@@ -102,14 +107,12 @@ export function WorkspaceTerminals(props: {
       <For each={props.ids}>
         {(id) => (
           // Non-keyed: a shell swap replaces the destination element within one
-          // update, so the condition stays truthy and the same body moves.
+          // update, so the condition stays truthy and the same body moves. The
+          // portal inserts the body straight into the outlet (Solid 2's
+          // `Portal` adds no wrapper element), so the outlet's own flex column
+          // is the box the body fills.
           <Show when={destinations[id]?.el}>
-            <Portal
-              mount={destinations[id]?.el}
-              ref={(el) => {
-                el.className = "flex flex-col h-full w-full min-h-0";
-              }}
-            >
+            <Portal mount={destinations[id]?.el}>
               {props.renderBody(id, placementOf(id))}
             </Portal>
           </Show>

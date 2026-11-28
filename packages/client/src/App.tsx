@@ -12,7 +12,7 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
-import Resizable from "@corvu/resizable";
+import Resizable from "@corvu-next/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { attachPageZoomGuard } from "@kolu/solid-browser";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
@@ -60,6 +60,7 @@ import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
+import { sameCanvasMode } from "./kaval/sameCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import ConductorPane from "./conductor/ConductorPane";
@@ -94,7 +95,7 @@ import { useTileStore } from "./tile/useTileStore";
 import {
   controlledSizes,
   RESIZE_HANDLE_CLASS,
-  realSizes,
+  twoPanelSplit,
 } from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
@@ -143,7 +144,6 @@ const App: Component = () => {
     activeThemeName,
     activeTheme,
     getTerminalTheme,
-    isPreviewingTheme,
     handleSetTheme,
   } = useThemeManager();
 
@@ -159,9 +159,10 @@ const App: Component = () => {
 
   // `openInCodeTab` (in `right-panel/openInCodeTab.ts`) dispatches both
   // desktop uncollapse and mobile drawer-open imperatively from the
-  // producer call. There is no `on(pendingOpen, ...)` subscriber here —
-  // the deferred-effect shape lost re-fires under the production Solid
-  // build (see `openInCodeTab.ts`'s header for the canary scenario).
+  // producer call. NOTHING here subscribes to `pendingOpen`: an effect
+  // watching it dropped re-opens of the same request (see `openInCodeTab.ts`'s
+  // header for the canary scenario), so the open is enacted where it is asked
+  // for, not observed from a shell-level effect.
 
   // Dock row order for Cmd+1..9 (active host). The switcher indexes the
   // fleet separately via useFleetTerminalIndex in createCommands.
@@ -328,25 +329,34 @@ const App: Component = () => {
   // The one canvas-surface decision — which surface wins, in what order. The
   // precedence (and the #1034 / F3 correctness it carries) lives in
   // `useCanvasMode`; App just renders the chosen arm's layout.
-  const mode = createMemo<CanvasMode>(() =>
-    canvasMode({
-      isLoading: session.isLoading,
-      // Keyed off the TILE count: a sleeping-only workspace (PR 2) stays on the
-      // canvas instead of falling back to the empty state. Today === terminal
-      // count.
-      terminalCount: () => tileStore.tileCount(),
-      // How many listed terminals' records haven't composed yet — lets the pure
-      // resolver hold `connecting` over `empty` while a reload's live terminals are
-      // still in flight, so the restore card can't flash before they appear.
-      recordsAwaited: () => store.recordPhases().awaited,
-    }),
+  //
+  // GATED on `sameCanvasMode`: the resolve reads the 1 s monotonic tick
+  // unconditionally (boot-deadline accrual), so a steady canvas re-evaluates every
+  // second and mints an equal-but-new arm. Without the gate that frame is published
+  // to every reader under the canvas once a second, which is also what Solid's
+  // attribution engine raises `UNSTABLE_MEMO_OUTPUT` on.
+  const mode = createMemo<CanvasMode>(
+    () =>
+      canvasMode({
+        isLoading: session.isLoading,
+        // Keyed off the TILE count: a sleeping-only workspace (PR 2) stays on the
+        // canvas instead of falling back to the empty state. Today === terminal
+        // count.
+        terminalCount: () => tileStore.tileCount(),
+        // How many listed terminals' records haven't composed yet — lets the pure
+        // resolver hold `connecting` over `empty` while a reload's live terminals are
+        // still in flight, so the restore card can't flash before they appear.
+        recordsAwaited: () => store.recordPhases().awaited,
+      }),
+    { equals: sameCanvasMode },
   );
   // Payload readers for thrash-sensitive canvas arms. Plain functions, not
   // memos — they don't add to the shell's reactive-primitive budget.
-  // Key every Match on `mode().kind === "…"` (stable boolean): `mode()` is a
-  // fresh object every getMonotonicNow tick (boot-deadline accrual), so an
-  // object-valued `when` remounts the arm ~1 Hz and wipes local state (elapsed
-  // baseline on ConnectCanvas #1962; focus/action identity on BootStalledCanvas).
+  // Key every Match on `mode().kind === "…"` (stable boolean): a payload-bearing
+  // arm whose payload is re-minted still publishes a fresh object (the gate
+  // compares payloads by identity), so an object-valued `when` would remount the
+  // arm and wipe local state (elapsed baseline on ConnectCanvas #1962;
+  // focus/action identity on BootStalledCanvas).
   // Fail loud (not `!`) if the arm is active without its payload — unrepresentable.
   const requireKind = <K extends CanvasMode["kind"], T>(
     kind: K,
@@ -417,7 +427,6 @@ const App: Component = () => {
         open={commandPalette.open()}
         onOpenChange={commandPalette.onOpenChange}
         initialPath={commandPalette.initialPath()}
-        transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp />
       {/* The ONE host-details panel: every opener (a host tab's pip, its
@@ -513,8 +522,9 @@ const App: Component = () => {
             `useCanvasMode`; only the per-surface layout stays here.
 
             `<Switch>`, NOT a ts-pattern `match(mode())`, is load-bearing: the
-            `mode` memo returns a FRESH `CanvasMode` object every recompute (any
-            daemon-status / terminal-count tick), so a `{match(mode())…}` JSX
+            `mode` memo publishes a FRESH `CanvasMode` object whenever the decision
+            or a payload moves (the `sameCanvasMode` gate only holds frames that are
+            equal arm AND identical payload), so a `{match(mode())…}` JSX
             expression re-runs and RE-CREATES the matched subtree on every such
             tick — remounting `TerminalCanvas`/`TerminalContent`, which makes
             Corvu re-fire `onCollapse` and silently collapses a just-opened
@@ -633,19 +643,19 @@ const App: Component = () => {
                        *  front?" — the same accessor the canvas is given
                        *  below, so a tile under the Conductor states no size
                        *  on any layout. */}
-                      <Shown.Provider value={canvasShown}>
+                      <Shown value={canvasShown}>
                         <CompactTileView
                           compact={layoutMode() === "compact"}
                           orderedIds={orderedIds()}
                           renderBody={outlet}
                           bottomBar={<MobileKeyBar />}
                         />
-                      </Shown.Provider>
+                      </Shown>
                     </RightPanelDrawer>
                   </Match>
                   <Match when={isDesktop()}>
                     {/*
-                   Desktop host: horizontal `@corvu/resizable` split between
+                   Desktop host: horizontal `@corvu-next/resizable` split between
                    the canvas and the right panel. `sizes=[1, 0]` collapses
                    the panel to zero width while keeping it mounted — this
                    preserves `CodeTab`'s selectedPath signal and Pierre's
@@ -662,8 +672,8 @@ const App: Component = () => {
                    pixel value or a host-published CSS custom property.
                   
                    `startIntersection={false}` on the handle opts out of
-                   Corvu's module-level handle-pairing registry (see
-                   `@corvu/resizable/dist/index.js:201-222`). Without the
+                   Corvu's module-level handle-pairing registry, which pairs
+                   handles of differing orientation whose rects touch. Without the
                    opt-out, this outer horizontal handle pairs with
                    `CodeTab`'s inner vertical handle (their rects touch at
                    the corner) and clicks near the corner land on the
@@ -678,7 +688,7 @@ const App: Component = () => {
                         // the collapsed `sizes[1] = 0` case so `preferences.size`
                         // never persists as zero (which would re-expand into an
                         // ungrabbable zero-width panel).
-                        const s = realSizes(sizes);
+                        const s = twoPanelSplit(sizes);
                         if (s) rightPanel.setPanelSize(s[1]);
                       }}
                       class="flex-1 min-h-0 overflow-hidden"
@@ -700,11 +710,12 @@ const App: Component = () => {
                          *  Provided at each shell's consumer — this one and
                          *  the touch shell above; a third one (the dock, the
                          *  inspector) moves it up to the Switch. */}
-                        <Shown.Provider value={canvasShown}>
+                        <Shown value={canvasShown}>
                           <TerminalCanvas
                             tileIds={tileStore.tileIds()}
                             getLayout={tileStore.getLayout}
                             onLayoutChange={tileStore.setLayout}
+                            planLayoutChange={tileStore.planSetLayout}
                             onAutoArrange={arrange.handleCanvasAutoArrange}
                             onSelect={tileStore.setActiveSilently}
                             onClose={(id) => closeTerminal(id)}
@@ -726,7 +737,7 @@ const App: Component = () => {
                             renderTileBar={(id) => <TileTip id={id} />}
                             renderTileBody={outlet}
                           />
-                        </Shown.Provider>
+                        </Shown>
                       </Resizable.Panel>
                       <Show when={!rightPanel.collapsed()}>
                         <Resizable.Handle
@@ -749,10 +760,10 @@ const App: Component = () => {
                       </Show>
                       <Resizable.Panel
                         as="div"
-                        class="min-w-0 min-h-0 overflow-hidden"
-                        classList={{
-                          "border-l border-edge": !rightPanel.collapsed(),
-                        }}
+                        class={[
+                          "min-w-0 min-h-0 overflow-hidden",
+                          { "border-l border-edge": !rightPanel.collapsed() },
+                        ]}
                         minSize={0.1}
                       >
                         <RightPanel
@@ -827,11 +838,11 @@ const App: Component = () => {
               "content-visibility": conductorMode() ? "visible" : "hidden",
             }}
             inert={!conductorMode()}
-            aria-hidden={!conductorMode()}
+            aria-hidden={!conductorMode() ? "true" : "false"}
           >
-            <Shown.Provider value={conductorMode}>
+            <Shown value={conductorMode}>
               <ConductorPane class="absolute inset-0" />
-            </Shown.Provider>
+            </Shown>
           </div>
         </Show>
       </div>

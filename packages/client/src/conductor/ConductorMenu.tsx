@@ -29,7 +29,7 @@ import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { type Component, For, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { runAction, type UiAction } from "../runAction";
 import InlineConfirmButton from "../ui/InlineConfirmButton";

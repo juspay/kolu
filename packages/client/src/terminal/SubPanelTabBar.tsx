@@ -58,10 +58,10 @@ const SubPanelTabBar: Component<{
             <div class="group relative">
               <button
                 type="button"
-                class="flex items-center gap-1 px-3 pr-6 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]"
-                classList={{
-                  "bg-surface-2 text-fg font-medium": isActive(),
-                }}
+                class={[
+                  "flex items-center gap-1 px-3 pr-6 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]",
+                  { "bg-surface-2 text-fg font-medium": isActive() },
+                ]}
                 data-active={isActive() ? "" : undefined}
                 data-dormant={dormant() ? "" : undefined}
                 title={dormant() ? "Sleeping — Wake to resume" : undefined}

@@ -19,7 +19,7 @@
 
 import { Effect } from "effect";
 import type { KoluForward } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const writeTextToClipboard = vi.fn((_text: string) => Effect.void);

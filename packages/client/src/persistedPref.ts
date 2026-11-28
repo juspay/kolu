@@ -20,6 +20,7 @@
  *  is unchanged from the hand-rolled sites, so values already in
  *  `localStorage` keep loading. */
 
+import type { NoFn } from "@kolu/surface/solid";
 import {
   makePersisted,
   type PersistenceSyncAPI,
@@ -37,8 +38,11 @@ export interface PersistedPrefOptions<T> {
   /** `localStorage` key. */
   name: string;
   /** Value used before anything is stored, and whenever the stored value
-   *  fails `parse`. */
-  fallback: T;
+   *  fails `parse`. Never a FUNCTION: Solid 2 reads a function handed to
+   *  `createSignal` as a derivation rather than a value, so a pref holding one
+   *  would silently become a derived signal. A pref is data. {@link NoFn} is
+   *  that constraint, defined once in `@kolu/surface/solid`. */
+  fallback: NoFn<T>;
   /** Validate a raw stored string into `T`. **Throw** when the stored value
    *  is unexpected — {@link readWithFallback} catches, substitutes `fallback`,
    *  and calls `onInvalid`. Returning is the *only* signal for "valid";
@@ -99,21 +103,22 @@ function defaultSerialize<T>(value: T): string {
 /** The {@link PersistedPrefOptions.sync} for a `localStorage` value every page
  *  of this ORIGIN shares: the browser's `storage` event, handed on without
  *  the writer's address. `makePersisted` drops a sync event whose `url` is not
- *  this page's own address — `@solid-primitives/storage` 4.3.4,
- *  `dist/persisted.js:46`:
- *  `(!isServer && (data.url || globalThis.location.href) !== globalThis.location.href) ||`
- *  — and `storageSync` hands the event on as it is, so a page opened from a
- *  kolu link, which keeps the link (`#/…`) in its address bar, never heard
- *  the other pages, nor they it. `localStorage` is one store per origin, and
- *  the address a page shows does not change what it reads.
+ *  this page's own address (`@solid-primitives/storage`'s sync handler
+ *  compares `data.url` with `location.href`), and `storageSync` hands the
+ *  event on as it is, so a page opened from a kolu link, which keeps the link
+ *  (`#/…`) in its address bar, never heard the other pages, nor they it.
+ *  `localStorage` is one store per origin, and the address a page shows does
+ *  not change what it reads.
  *
  *  WHY THIS STEPS AROUND THE LIBRARY instead of fixing it there: no released
- *  version removes that check. 4.3.5 and 4.4.0 carry the same line at `:46`;
- *  5.0.0 (and 5.0.0-next.8) carry it at `:88`, and 5.0.0 needs solid-js 2.
- *  Kept here by decision until a release drops it. */
+ *  version removes that check (every release through 5.0.1 carries it). Kept
+ *  here by decision until a release drops it.
+ *
+ *  The subscribe half returns its unsubscribe, which `makePersisted` calls from
+ *  the disposer it hands back (see {@link persistedPref}). */
 export const originStorageSync: PersistenceSyncAPI = [
-  (subscriber) =>
-    window.addEventListener("storage", (event) => {
+  (subscriber) => {
+    const onStorage = (event: StorageEvent) => {
       // `key` is null only for `localStorage.clear()`, which names no value.
       if (event.key === null) return;
       subscriber({
@@ -121,28 +126,62 @@ export const originStorageSync: PersistenceSyncAPI = [
         newValue: event.newValue,
         timeStamp: event.timeStamp,
       });
-    }),
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  },
   // The browser announces a write to the other pages itself.
   () => {},
 ];
 
+/** What a persisted pref hands back: `createSignal`'s `[Accessor, Setter]`, and
+ *  `loaded` — the value the stored string parsed to at construction (the
+ *  fallback when nothing valid was stored). The accessor reads the fallback
+ *  until `makePersisted`'s hydration write lands on the next flush, so a caller
+ *  that needs the stored value DURING construction takes `loaded`. */
+export type PersistedPref<T> = [value: Accessor<T>, set: Setter<T>, loaded: T];
+
 /** Build a persisted signal whose stored value is validated on every read.
- *  Returns the same `[Accessor, Setter]` tuple as `createSignal`. */
+ *  Returns a {@link PersistedPref}.
+ *
+ *  `makePersisted` also returns the raw stored string it read at creation and a
+ *  disposer, which stops the sync subscription and any pending hydration read.
+ *  Under a reactive owner the disposer runs with that owner; a pref built at
+ *  module scope has no owner and lives as long as the page, so there is
+ *  nothing to dispose. */
 export function persistedPref<T>(
   opts: PersistedPrefOptions<T>,
-): [Accessor<T>, Setter<T>] {
+): PersistedPref<T> {
   const serialize = opts.serialize ?? defaultSerialize;
-  // `makePersisted` returns a 3-tuple `[get, set, init]`; expose just the
-  // `[get, set]` signal pair so call sites read exactly like `createSignal`.
-  const [value, setValue] = makePersisted(createSignal<T>(opts.fallback), {
-    name: opts.name,
-    storage: opts.storage,
-    serialize,
-    deserialize: (raw: string): T =>
-      readWithFallback(raw, opts.parse, opts.fallback, opts.onInvalid),
-    sync: opts.sync,
-  });
-  return [value, setValue];
+  // What the stored string parsed to at construction, captured from the ONE
+  // `deserialize` call `makePersisted` makes while it hydrates — not a second
+  // read of the storage, which would run `parse` (and `onInvalid`) again over
+  // the same raw string. Later calls are other pages' sync events and must
+  // not overwrite it. The signal itself answers the fallback until the
+  // hydration write lands on the next flush, so a caller that needs the
+  // loaded value DURING construction takes it from here.
+  let loaded: T | undefined;
+  const [value, setValue, , dispose] = makePersisted(
+    createSignal<T>(opts.fallback, { name: opts.name }),
+    {
+      name: opts.name,
+      storage: opts.storage,
+      serialize,
+      deserialize: (raw: string): T => {
+        const parsed = readWithFallback(
+          raw,
+          opts.parse,
+          opts.fallback,
+          opts.onInvalid,
+        );
+        loaded ??= parsed;
+        return parsed;
+      },
+      sync: opts.sync,
+    },
+  );
+  if (getOwner()) onCleanup(dispose);
+  return [value, setValue, loaded ?? opts.fallback];
 }
 
 /** The strict-boolean `parse` every boolean pref shares. The default `serialize`
@@ -255,7 +294,7 @@ export function boolPref(opts: {
   name: string;
   fallback: boolean;
   onInvalid?: (err: unknown, raw: string) => void;
-}): [Accessor<boolean>, Setter<boolean>] {
+}): PersistedPref<boolean> {
   return persistedPref<boolean>({
     name: opts.name,
     fallback: opts.fallback,
@@ -299,9 +338,7 @@ export interface PerHostPrefOptions<T>
  *  old hand-rolled `createHostPrefs` cleanup had the identical coupling); closing it
  *  fully needs eviction at the `hosts.remove` membership seam, independent of owner
  *  lifecycle — tracked as follow-up, not solved here. */
-export function perHostPref<T>(
-  opts: PerHostPrefOptions<T>,
-): [Accessor<T>, Setter<T>] {
+export function perHostPref<T>(opts: PerHostPrefOptions<T>): PersistedPref<T> {
   // Enforce the "must be called under a reactive owner" precondition rather than
   // merely documenting it: `onCleanup` outside an owner silently no-ops, which would
   // drop the evict-on-host-exit guarantee this helper exists to centralize — a silent
@@ -346,7 +383,7 @@ export function perHostBoolPref(opts: {
   host: HostKey;
   base: string;
   fallback: boolean;
-}): [Accessor<boolean>, Setter<boolean>] {
+}): PersistedPref<boolean> {
   return perHostPref<boolean>({
     host: opts.host,
     base: opts.base,

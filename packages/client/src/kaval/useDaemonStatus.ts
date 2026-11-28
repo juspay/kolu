@@ -21,7 +21,6 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
-  rosterIsEstablished,
 } from "@kolu/padi-client/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -31,7 +30,7 @@ import type {
   EntryFailedCause,
   PadiEntryFailure,
 } from "kolu-common/surfacesWithPadi";
-import { createEffect, createMemo, createRoot } from "solid-js";
+import { createEffect, createMemo, createRoot, untrack } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
@@ -44,6 +43,7 @@ import {
   type KavalPresence,
   liveDownState,
   liveWarming,
+  sameKavalPresence,
   toKavalPresence,
 } from "./daemonPresentation";
 import {
@@ -66,19 +66,19 @@ export {
   serverDot,
 } from "./daemonPresentation";
 
-// ONE shared, app-lifetime memo of the liveness boolean. `app.health()` is a plain
-// accessor (not a memo) that re-folds the WHOLE registry — walking every enrolled
-// sub, allocating a fresh `SubHealth[]` — on each read, and reading `.live` tracks
-// every sub's `pending()`/`error()`. The ~dozen status-paint sites that floor on
-// this fact would otherwise each re-fold per render AND re-render on every enrolled
-// subscription's churn (a terminal create re-subscribing, a gitStatus blip), not
-// just on a real liveness flip. Folding once behind a `===`-diffed memo collapses
-// both: consumers track only the boolean and re-paint only when `live` actually
-// changes. The `createSharedRoot` idiom is the same app-lifetime singleton
-// `getClockNow` / the stale-ticker use (dev/skills/kolu-client/SKILL.md "memos for multi-consumer
-// derivations").
+// ONE shared, app-lifetime memo of the liveness boolean — a single `===`-diffed
+// `boolean` for the ~dozen status-paint sites that floor on this fact.
+// `app.health()` is a plain accessor over the client registry's own fold, so
+// reading it is cheap and narrow (`live` is folded in a memo of its own, over
+// the transport leg and any readiness legs, and never over an enrolled
+// subscription's `pending()`/`error()`). What this memo adds is the DIFF: it
+// hands its consumers the boolean rather than the `{ live, subs }` record, so a
+// paint site re-runs only when `live` actually flips, and each site tracks one
+// source instead of re-reading the fact per render. The `createSharedRoot`
+// idiom is the same app-lifetime singleton `getClockNow` / the stale-ticker use
+// (dev/skills/kolu-client/SKILL.md "memos for multi-consumer derivations").
 const sharedDaemonTransportLive = createSharedRoot(() =>
-  createMemo(() => app.health().live),
+  createMemo(() => app.health().live, { name: "daemonTransportLive" }),
 );
 
 /** The watchdog-backed liveness of the ws transport that delivers `daemonStatus`
@@ -239,8 +239,10 @@ export function reprojectDaemonStatus(
  *  callable accessor, so this IS `localDaemonStatus` — no pass-through wrapper. Module-
  *  lifetime root like `sharedDaemonTransportLive` above. */
 export const localDaemonStatus = createRoot(() =>
-  createMemo((): DaemonStatus | undefined =>
-    reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),
+  createMemo(
+    (): DaemonStatus | undefined =>
+      reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),
+    { name: "localDaemonStatus" },
   ),
 );
 
@@ -315,11 +317,16 @@ export function daemonStatusPending(): boolean {
  *  is the {@link offerRestartVerb} fold — the affordance is a total function of whichever
  *  presence each surface holds — not one memoized value; for the active host the two presences
  *  coincide (same fold, same inputs), so the Restart verb can't disagree between them.
+ *  GATED on {@link sameKavalPresence}: the fold COARSENS a churning upstream
+ *  (`localDaemonStatus` republishes a fresh object on every daemon-status tick) onto a
+ *  small sum, so without the gate a recycle window republishes four equivalent presences
+ *  and wakes every subscriber for a decision that did not move.
  *  A reactive accessor; read it inside a tracking scope. */
 export const activeKavalPresence = createRoot(() =>
   createMemo(
     (): KavalPresence =>
       toKavalPresence(localDaemonStatus(), daemonChannelLive()),
+    { name: "activeKavalPresence", equals: sameKavalPresence },
   ),
 );
 
@@ -432,15 +439,17 @@ export function daemonConnected(): boolean {
  *  host says it has; an id the census names and the list has not delivered is a
  *  list still arriving, not a terminal that died.
  *
+ *  THE STANDING-AND-LIST READING ITSELF lives on the host's own wire
+ *  (`HostWire.listIsCensus`), beside the two members it folds, because the
+ *  focus derivation inside that host's scope gates its auto-switch on the
+ *  same fact and must not re-spell it. This accessor is that answer for the
+ *  ACTIVE host, conjoined with the link-liveness leg above.
+ *
  *  A reactive accessor; read it inside a tracking scope. */
 export function listIsAuthoritative(): boolean {
   const scope = activeScope();
   if (scope === undefined || !daemonConnected()) return false;
-  const standing = scope.wire.roster.value();
-  if (standing === undefined || !rosterIsEstablished(standing)) return false;
-  const listed = scope.wire.terminalKeys();
-  if (listed === undefined) return false;
-  return standing.ids.every((id) => listed.includes(id));
+  return scope.wire.listIsCensus();
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is
@@ -528,56 +537,83 @@ createRoot(() => {
   const [linkRestoredAnnouncedAt, setLinkRestoredAnnouncedAt] = perHostMarks(
     "kolu.kaval.linkRestoredAnnouncedAt",
   );
-  createEffect(() => {
-    // The glue (`announceReattach`) commits the proven adoptedAt as the new high-water mark
-    // BEFORE toasting, so a re-run on the same snapshot is silent — both halves are unit-tested
-    // in `reattachAnnounce.test.ts`. Scoped to the ACTIVE host's OWN mark (per-host clocks are
-    // per-host facts — see the record above), captured once per run so the read and the commit
-    // target the same host across a mid-effect switch.
-    // The record is keyed by the host's CANONICAL string (`encodeHostKey`) — a `HostKey`
-    // object can't itself be a `Record` key.
-    const host = encodeHostKey(activeHost());
-    /** Commit a proven stamp as THIS host's new high-water mark on one rail —
-     *  the write all three rails share, so the read and the commit target the
-     *  same host and the same shape. */
-    const markFor =
-      (setMarks: typeof setReattachAnnouncedAt) =>
-      (mark: number): void => {
-        setMarks((prev) => ({ ...prev, [host]: mark }));
+  createEffect(
+    () => {
+      // Scoped to the ACTIVE host's OWN mark (per-host clocks are per-host facts —
+      // see the record above), captured once per run so the read and the commit
+      // target the same host across a mid-run switch.
+      // The record is keyed by the host's CANONICAL string (`encodeHostKey`) — a
+      // `HostKey` object can't itself be a `Record` key.
+      const host = encodeHostKey(activeHost());
+      const status = localDaemonStatus();
+      return {
+        host,
+        // The stamps the three rails read, taken as PLAIN VALUES here: the
+        // announce calls run in the effect phase, where reads are untracked.
+        status: status && {
+          state: status.state,
+          adopted: status.adopted,
+          adoptedAt: status.adoptedAt,
+          autoRecoveredAt: status.autoRecoveredAt,
+          linkRestoredAt: status.linkRestoredAt,
+        },
+        // The marks are this effect's OWN bookkeeping — the only writer is the
+        // effect half below, which commits a proven stamp before it toasts — so
+        // they are read once per run, untracked. Tracked, each commit re-ran
+        // this effect on its own write (it would settle twice for one toast,
+        // EFFECT_WRITES_OWN_SOURCE); a mark is never a REASON to re-announce,
+        // only a gate on the status read above, which is the trigger.
+        reattachMark: untrack(reattachAnnouncedAt)[host] ?? 0,
+        autoRecoveryMark: untrack(autoRecoveryAnnouncedAt)[host] ?? 0,
+        linkRestoredMark: untrack(linkRestoredAnnouncedAt)[host] ?? 0,
       };
-    announceReattach(
-      localDaemonStatus(),
-      reattachAnnouncedAt()[host] ?? 0,
-      markFor(setReattachAnnouncedAt),
-      (count) =>
-        toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
-    );
-    // #2101 N1's one toast: padi restarted an unresponsive kaval by itself and a
-    // probe proved the replacement serves. Same rail, same dedupe law, its OWN
-    // per-host mark — an adoption and a recovery are independent facts, and one
-    // shared mark would let either suppress the other.
-    announceAutoRecovery(
-      localDaemonStatus(),
-      autoRecoveryAnnouncedAt()[host] ?? 0,
-      markFor(setAutoRecoveryAnnouncedAt),
-      () =>
-        toast.warning(
-          "kaval was unresponsive — kolu restarted it; your session is ready to restore",
-        ),
-    );
-    // #2184's one toast, and a SUCCESS rather than a warning: the connection
-    // dropped, kolu re-made it, and nothing was lost — no process was restarted
-    // and nothing needs restoring, so the recovery line above would be false in
-    // every clause. Its own per-host mark, for the reason the one above has its
-    // own.
-    announceLinkRestored(
-      localDaemonStatus(),
-      linkRestoredAnnouncedAt()[host] ?? 0,
-      markFor(setLinkRestoredAnnouncedAt),
-      () =>
-        toast.success(
-          "lost the connection to kaval — kolu reconnected; your terminals kept running",
-        ),
-    );
-  });
+    },
+    ({ host, status, reattachMark, autoRecoveryMark, linkRestoredMark }) => {
+      /** Commit a proven stamp as THIS host's new high-water mark on one rail —
+       *  the write all three rails share, so the read and the commit target the
+       *  same host and the same shape. */
+      const markFor =
+        (setMarks: typeof setReattachAnnouncedAt) =>
+        (mark: number): void => {
+          setMarks((prev) => ({ ...prev, [host]: mark }));
+        };
+      // The glue (`announceReattach`) commits the proven adoptedAt as the new
+      // high-water mark BEFORE toasting, so a re-run on the same snapshot is
+      // silent — both halves are unit-tested in `reattachAnnounce.test.ts`.
+      announceReattach(
+        status,
+        reattachMark,
+        markFor(setReattachAnnouncedAt),
+        (count) =>
+          toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
+      );
+      // #2101 N1's one toast: padi restarted an unresponsive kaval by itself and a
+      // probe proved the replacement serves. Same rail, same dedupe law, its OWN
+      // per-host mark — an adoption and a recovery are independent facts, and one
+      // shared mark would let either suppress the other.
+      announceAutoRecovery(
+        status,
+        autoRecoveryMark,
+        markFor(setAutoRecoveryAnnouncedAt),
+        () =>
+          toast.warning(
+            "kaval was unresponsive — kolu restarted it; your session is ready to restore",
+          ),
+      );
+      // #2184's one toast, and a SUCCESS rather than a warning: the connection
+      // dropped, kolu re-made it, and nothing was lost — no process was restarted
+      // and nothing needs restoring, so the recovery line above would be false in
+      // every clause. Its own per-host mark, for the reason the one above has its
+      // own.
+      announceLinkRestored(
+        status,
+        linkRestoredMark,
+        markFor(setLinkRestoredAnnouncedAt),
+        () =>
+          toast.success(
+            "lost the connection to kaval — kolu reconnected; your terminals kept running",
+          ),
+      );
+    },
+  );
 });

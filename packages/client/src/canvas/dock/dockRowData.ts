@@ -3,22 +3,35 @@
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { annotationLine } from "../../intent/text";
 import {
   pairDisplayRow,
+  sameDisplayRow,
   type TerminalDisplayInfo,
 } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 
 /** Build the combined row value once per consumer, returning `null` until both
- * the display projection and metadata record are available. */
+ * the display projection and metadata record are available.
+ *
+ * The id arrives as an ACCESSOR: every caller holds it as a prop, and a prop
+ * read in a component body is an untracked read of reactive state. Reading it
+ * inside the memo is the honest shape as well — a needs-you entry keeps its
+ * identity while the TILE it hangs under changes (a blocked split can be
+ * re-homed), so the pairing follows the id instead of snapshotting it. */
 export function createDockRowData(
-  id: TerminalId,
+  id: Accessor<TerminalId>,
 ): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
   const store = useTerminalStore();
-  return createMemo(() =>
-    pairDisplayRow(store.getDisplayInfo(id), store.getMetadata(id)),
+  return createMemo(
+    () => pairDisplayRow(store.getDisplayInfo(id()), store.getMetadata(id())),
+    // The pair is a fresh wrapper around two identity-stable projection
+    // records, and the memo tracks the id as well as the store — so a re-rank
+    // that rewrites the row's item signal re-runs it with the same two halves.
+    // The gate keeps that re-run from waking the row's attribute effect, its
+    // pip and its recency cell.
+    { name: "dockRowData", equals: sameDisplayRow },
   );
 }
 

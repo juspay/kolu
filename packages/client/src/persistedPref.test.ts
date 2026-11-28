@@ -1,7 +1,7 @@
 import type { HostKey } from "kolu-common/hostKey";
-import { createRoot } from "solid-js";
+import { createRoot, flush } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { perHostPref, readWithFallback } from "./persistedPref";
+import { perHostPref, persistedPref, readWithFallback } from "./persistedPref";
 
 /** `readWithFallback` is the validation/fallback core every `persistedPref`
  *  call site runs on read. These tests pin the two latent bugs the migration
@@ -86,17 +86,19 @@ describe("perHostPref", () => {
     // A decoy real-localStorage key of the SAME composed name: the old cleanup deleted
     // THIS instead of the fake's key, so the assertion below is falsifiable.
     localStorage.setItem("kolu-x:local", "GLOBAL-DECOY");
-    const dispose = createRoot((d) => {
-      const [, setV] = perHostPref<boolean>({
+    // The write happens OUTSIDE the creating scope: a setter call in a
+    // `createRoot` body is a write in an owned scope, which Solid 2 rejects.
+    const [dispose, setV] = createRoot((d) => {
+      const [, set] = perHostPref<boolean>({
         host: LOCAL,
         base: "kolu-x",
         fallback: false,
         parse: (r) => r === "true",
         storage: fake,
       });
-      setV(true);
-      return d;
+      return [d, set] as const;
     });
+    setV(true);
     expect(fake.getItem("kolu-x:local")).toBe("true");
     dispose();
     // Evicted from the fake it wrote to…
@@ -114,5 +116,34 @@ describe("perHostPref", () => {
         parse: (r) => r === "true",
       }),
     ).toThrow(/reactive owner/);
+  });
+});
+
+/** The #1137 case: a pref CONSTRUCTED under a reactive owner, over storage that
+ *  already holds a value. `makePersisted` hydrates by writing the stored value
+ *  back into the signal, and that write runs while the constructing owner is
+ *  still current — which Solid 2 rejects as `REACTIVE_WRITE_IN_OWNED_SCOPE`
+ *  unless the library detaches it. `@solid-primitives/storage` 5.0.1 wraps the
+ *  hydration write in `runWithOwner(null, …)`; 5.0.0 did not, and this throws
+ *  there. Every per-host pref is built under an owner, so this is the shape the
+ *  app runs, and the reason the version floor exists. */
+describe("persistedPref under an owner", () => {
+  it("hydrates from stored data when constructed inside createRoot", () => {
+    const fake = fakeStorage();
+    fake.setItem("kolu-hydrate", "true");
+    const [dispose, value, loaded] = createRoot((d) => {
+      const [read, , loadedValue] = persistedPref<boolean>({
+        name: "kolu-hydrate",
+        fallback: false,
+        parse: (raw) => raw === "true",
+        storage: fake,
+      });
+      return [d, read, loadedValue] as const;
+    });
+    // The hydration write lands on the flush after construction.
+    flush();
+    expect(value()).toBe(true);
+    expect(loaded).toBe(true);
+    dispose();
   });
 });

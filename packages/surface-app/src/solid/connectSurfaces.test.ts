@@ -33,7 +33,13 @@ import {
   defineSurfaceWithPolicy,
 } from "@kolu/surface/define";
 import { Effect, Schema } from "effect";
-import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
@@ -173,6 +179,8 @@ describe("connectSurfaces — one wire, multi-surface, heartbeat by construction
       expect(conn.readout().status).toBe("live");
 
       setError(new Error("Internal server error"));
+      // Solid 2 defers a write: the fold reads the stopped sub once it flushes.
+      flush();
       expect(conn.readout()).toEqual({
         status: "degraded",
         stopped: ["b/conn"],
@@ -346,6 +354,7 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
       const [error, setError] = createSignal<Error | undefined>(undefined);
       conn.core.enroll("floor", { pending: () => false, error });
       setError(new Error("Internal server error"));
+      flush();
       expect(conn.readout()).toEqual({
         status: "degraded",
         stopped: ["floor/floor"],
@@ -425,11 +434,13 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
       await conn.dispose();
       dispose();
     });
-    vi.unstubAllGlobals();
     // …and with no browser `location` at all (a Node caller, a test, an SSR pass)
     // it throws BEFORE allocating anything, rather than dialling a fabricated
     // address that would retry forever against nothing. The thunk is deferred to
-    // connect time, so importing the module never touches `location`.
+    // connect time, so importing the module never touches `location`. This file
+    // runs in the DOM project, so that caller is spelled by stubbing happy-dom's
+    // `location` away rather than by unstubbing back to it.
+    vi.stubGlobal("location", undefined);
     const none = dialRecorder();
     await expect(
       connectSurfaces({
@@ -442,6 +453,7 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
       /connectSurfaces: no `url` was given and there is no browser `location`/,
     );
     expect(none.dialled).toEqual([]);
+    vi.unstubAllGlobals();
   });
   it("refuses a root whose word is already a sibling key", async () => {
     // The health fold is keyed by that word, so two clients under one name would
@@ -1203,11 +1215,20 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       // name to lose.
       createRoot(() => conn.clients.a.cells.conn.use());
       let runs = 0;
-      const folded = createMemo(() => {
-        runs += 1;
-        return conn.health();
+      // Under a ROOT of their own: the outer root's owner is gone after the
+      // `await` above, and a memo/effect created with no owner is never disposed
+      // (NO_OWNER_EFFECT) — it would outlive this connection.
+      const { folded, dropFold } = createRoot((dropFold) => {
+        const folded = createMemo(() => {
+          runs += 1;
+          return conn.health();
+        });
+        createEffect(
+          () => folded(),
+          () => {},
+        );
+        return { folded, dropFold };
       });
-      createEffect(() => folded());
       await settle();
       const before = runs;
       expect(folded().subs.map((s) => s.name)).toContain("a/conn");
@@ -1225,6 +1246,7 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       expect(names).toContain("b/queue");
       expect(names).not.toContain("a/conn");
 
+      dropFold();
       await conn.dispose();
       dispose();
     });
@@ -1396,7 +1418,12 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       });
       const seen: number[] = [];
       createRoot((stop) => {
-        createEffect(() => seen.push(conn.connectionEpoch()));
+        createEffect(
+          () => conn.connectionEpoch(),
+          (epoch) => {
+            seen.push(epoch);
+          },
+        );
         return stop;
       });
       // Nothing established before the first open.
@@ -1433,8 +1460,8 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       expect(conn.readout().status).toBe("live");
       expect(conn.connectionEpoch()).toBe(3);
 
-      // Monotonic, and every step was OBSERVED by a tracking scope — a
-      // `createResource` keyed on it re-fetches on each.
+      // Monotonic, and every step was OBSERVED by a tracking scope — an async
+      // memo keyed on it re-fetches on each.
       expect(seen).toEqual([0, 1, 2, 3]);
 
       await conn.dispose();

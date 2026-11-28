@@ -14,7 +14,7 @@
  */
 
 import type { KoluForward } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../forwards/useForwards", () => ({

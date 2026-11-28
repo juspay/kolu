@@ -345,9 +345,12 @@ describe("a map's NESTED SIBLINGS — end to end through the entry's own session
       // way every other map test reads it.
       const urgency = e.cells.urgency.use();
       let kind = "";
-      createEffect(() => {
-        kind = e.state().kind;
-      });
+      createEffect(
+        () => e.state().kind,
+        (v) => {
+          kind = v;
+        },
+      );
       await settle();
       expect(urgency.value()?.awaiting).toBe(0);
       expect(kind).toBe("connected");

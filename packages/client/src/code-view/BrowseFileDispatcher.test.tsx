@@ -3,8 +3,8 @@
  *  document — or, for content that is not text at all (a NUL in it, git's
  *  own test), the no-preview line rather than a screen of garbage. */
 
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 
@@ -31,10 +31,14 @@ afterEach(() => {
 const show = (path: string, content: string): HTMLElement => {
   const host = document.createElement("div");
   document.body.append(host);
+  // Built once, here: written inline the comment view would be rebuilt on
+  // every read of the provider's `value` prop (a call expression compiles to
+  // a getter).
+  const comments = createCommentView();
   dispose = render(
     () => (
       // The viewer is drawn inside the view that holds its comment state.
-      <CommentView.Provider value={createCommentView()}>
+      <CommentView value={comments}>
         <BrowseFileDispatcher
           at={null}
           comments={null}
@@ -45,7 +49,7 @@ const show = (path: string, content: string): HTMLElement => {
           repoVault={{ paths: [], pending: false }}
           theme="dark"
         />
-      </CommentView.Provider>
+      </CommentView>
     ),
     host,
   );
@@ -90,11 +94,13 @@ describe("a drawn document, as its comment queue comes and goes", () => {
     const [queue, setQueue] = createSignal<CommentQueue | null>(null);
     const host = document.createElement("div");
     document.body.append(host);
+    // One comment view, handed over as it is — see `show`.
+    const comments = createCommentView();
     dispose = render(
       () => (
         // Commenting asks whether its pane is shown, as every pane does.
-        <Shown.Provider value={() => true}>
-          <CommentView.Provider value={createCommentView()}>
+        <Shown value={() => true}>
+          <CommentView value={comments}>
             <BrowseFileDispatcher
               at={null}
               comments={queue()}
@@ -108,8 +114,8 @@ describe("a drawn document, as its comment queue comes and goes", () => {
               repoVault={{ paths: [], pending: false }}
               theme="dark"
             />
-          </CommentView.Provider>
-        </Shown.Provider>
+          </CommentView>
+        </Shown>
       ),
       host,
     );
@@ -124,10 +130,19 @@ describe("a drawn document, as its comment queue comes and goes", () => {
     expect(drawn).toBeDefined();
     expect(documents()).toHaveLength(1);
 
-    expect(() => setQueue({ kind: "terminal", id: "t-1" })).not.toThrow();
+    // The write is flushed before the page is read: the wrapper around the
+    // document is rebuilt on the flush, and what is pinned is that the one
+    // drawn document survives it.
+    expect(() => {
+      setQueue({ kind: "terminal", id: "t-1" });
+      flush();
+    }).not.toThrow();
     expect(documents()).toEqual([drawn]);
 
-    expect(() => setQueue(null)).not.toThrow();
+    expect(() => {
+      setQueue(null);
+      flush();
+    }).not.toThrow();
     expect(documents()).toEqual([drawn]);
   });
 });

@@ -82,6 +82,7 @@ import {
   surfaceClients,
   surfaceReadout,
 } from "@kolu/surface/solid";
+import { reportLeakedTeardown } from "@kolu/surface/teardown";
 import type { Rpc, RpcGroup } from "effect/rpc";
 import { type Accessor, createSignal } from "solid-js";
 import {
@@ -89,9 +90,8 @@ import {
   type SurfaceSocket,
   type SurfaceSocketOptions,
 } from "../connect";
-import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
-import { reportLeakedTeardown } from "@kolu/surface/teardown";
 import { trackConnectAllocations } from "../connectAllocations";
+import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
 
 /** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
  *  answers to in the health fold and the readout.
@@ -378,7 +378,7 @@ export interface SurfacesConnection<
   transport: LiveSignalHandle;
   /** How many usable CONNECTIONS this connection's wire has established — 0
    *  before the first, monotonic for the connection's whole life, and a Solid
-   *  accessor so a `createMemo` / `createResource` can key on it directly.
+   *  accessor so a memo — an async one included — can key on it directly.
    *
    *  It is the one thing a roster move does NOT hide, and it exists because
    *  following the roster in place hid everything else. A subscription heals
@@ -929,6 +929,12 @@ export async function connectSurfaces(
     // enrolled sub's first frame, so a second walk rides an already-N-shaped
     // startup.
     //
+    // What it costs the readout memo in SOURCES is two per client and the
+    // bundle's membership signal, whatever the enrolment count: each client's
+    // `health()` reads its registry's own chunked fold rather than every
+    // subscription (`@kolu/surface/solid`'s `./health`). So this accessor is
+    // bounded by the ROSTER, which a surface declares, and not by the page.
+    //
     // Building the entries instead also keeps the PREFIXING law in one place:
     // `mergeSurfaceHealth` prefixes each half's subs by the word it is given, so
     // the root arrives under the caller's `core.name` and each sibling under its
@@ -979,16 +985,37 @@ export async function connectSurfaces(
     // only `redial` refuses, because only `redial` would allocate over the
     // refusal.
     //
-    // REACTIVE, because the two folded faces below are gated on it and a Solid
-    // memo bound to a plain `let` would never re-run when it moved. Reading it
-    // through the accessor also costs nothing in honesty: TypeScript narrows a
-    // `let` from the last assignment it can SEE, so a direct read after an
-    // `await` would be typed `"redialing"` and the `"gone"` branch — the one a
-    // `dispose()` landing in that window produces — would read as dead code. A
-    // signal read returns the declared union, which is the honest type of a
-    // state another path can move while this one is suspended.
+    // The AUTHORITY is a plain variable, because every guard below reads it
+    // SYNCHRONOUSLY: Solid 2 holds a signal write until the queue flushes, so
+    // `setState("redialing")` followed by a read would still answer `"live"` and
+    // the concurrent-redial refusal — and the `"gone"` checks a `dispose()`
+    // landing mid-dial exists for — would be blind in exactly the window they
+    // guard. The signal beside it is a MIRROR for the two folded faces below:
+    // they are read inside memos, which a plain `let` would never re-run. ONE
+    // writer moves both, so they cannot diverge, and nothing else writes either.
+    //
+    // Reading the authority through a function also costs nothing in honesty:
+    // TypeScript narrows a `let` from the last assignment it can SEE, so a
+    // direct read after an `await` would be typed `"redialing"` and the `"gone"`
+    // branch would look like dead code. A call returns the declared union, which
+    // is the honest type of a state another path can move while this one is
+    // suspended.
     type ConnectionState = "live" | "redialing" | "gone";
-    const [stateNow, setState] = createSignal<ConnectionState>("live");
+    let state: ConnectionState = "live";
+    const [stateReactive, setStateReactive] =
+      createSignal<ConnectionState>("live");
+    const stateNow = (): ConnectionState => state;
+    const setState = (next: ConnectionState): void => {
+      state = next;
+      setStateReactive(next);
+    };
+    /** Is this connection given up? Subscribes to the MIRROR (so a memo reading
+     *  either folded face re-runs when the state moves) and answers from the
+     *  AUTHORITY (so the answer is never one flush behind a `dispose()`). */
+    const goneNow = (): boolean => {
+      stateReactive();
+      return state === "gone";
+    };
     /** Come back to `live` — but ONLY if this redial still holds the transition.
      *
      *  Both of `redial`'s exits need it and neither may skip it. A `dispose()` can
@@ -1122,9 +1149,8 @@ export async function connectSurfaces(
       // A REDIALLED connection is not disposed and does not read this: its wire is
       // open, its subscriptions are re-establishing on the new generation, and
       // `reconnecting`/`live` — whatever the real wire says — is the truth.
-      readout: () =>
-        stateNow() === "gone" ? retiredReadout : readout.readout(),
-      health: () => (stateNow() === "gone" ? goneHealth : health()),
+      readout: () => (goneNow() ? retiredReadout : readout.readout()),
+      health: () => (goneNow() ? goneHealth : health()),
       redial: async (next: Record<string, Surface<SurfaceSpec>>) => {
         if (stateNow() !== "live") {
           throw new Error(

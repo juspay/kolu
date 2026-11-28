@@ -26,19 +26,23 @@
  *  trees today and a shared one tomorrow. A component that had to know WHICH
  *  retained host it was in would be a component that cannot be moved. */
 
-import { type Accessor, createContext, createMemo, useContext } from "solid-js";
+import {
+  type Accessor,
+  createContext,
+  createMemo,
+  untrack,
+  useContext,
+} from "solid-js";
 import { getClockNow } from "../time/clock";
 
 export const Shown = createContext<Accessor<boolean>>();
 
 /** Whether the retained view this is drawn in is the one being looked at.
- *  Throws where no provider stands: a view that reads this outside a retained
- *  host is a bug to be told about, not a view to guess visible. */
+ *  `Shown` has no default, so where no provider stands `useContext` throws
+ *  (`ContextNotFoundError`): a view that reads this outside a retained host is
+ *  a bug to be told about, not a view to guess visible. */
 export function useShown(): Accessor<boolean> {
-  const shown = useContext(Shown);
-  if (!shown)
-    throw new Error("A view that asks shown() must be drawn inside Shown");
-  return shown;
+  return useContext(Shown);
 }
 
 /** The app's one 1 s clock (`time/clock.ts`), STOPPED while the view is
@@ -50,9 +54,15 @@ export function useShown(): Accessor<boolean> {
  *  never reads `now()`, so this memo holds no subscription to the tick at all
  *  and the whole hidden subtree is silent for it. The frozen value is the last
  *  one that was on screen, which is what the first frame after coming back
- *  draws for the instant before the memo re-reads the clock. */
+ *  draws for the instant before the memo re-reads the clock. A view born
+ *  hidden has no such value, so it seeds one with a single untracked read of
+ *  the clock — untracked because taking a subscription there is exactly the
+ *  silence this memo exists to buy. */
 export function useShownClock(): Accessor<number> {
   const shown = useShown();
   const now = getClockNow();
-  return createMemo((previous: number) => (shown() ? now() : previous), now());
+  return createMemo(
+    (previous?: number) => (shown() ? now() : (previous ?? untrack(now))),
+    { name: "shownClock" },
+  );
 }

@@ -99,9 +99,9 @@ export function useTerminals() {
   // store's OWN 3-valued edge (absent ≠ root), shared by both hooks so their
   // walks answer exactly what the canvas and the Dock see, and `activeHostKey`
   // the ONE host-scope key both host-scope their snapshot on.
-  const allTerminalIds = createMemo(
-    () => store.listSub()?.map((t) => t.id) ?? [],
-  );
+  const allTerminalIds = createMemo(() => store.listSub() ?? [], {
+    name: "allTerminalIds",
+  });
   const parentOf = store.parentEdge;
   const activeHostKey = () => encodeHostKey(activeHost());
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
@@ -119,7 +119,7 @@ export function useTerminals() {
     // Host-scope the reconcile: a switch replaces the whole list, and the baseline
     // must reset rather than evict the departed host's tiles (no wrong-host writes).
     activeHostKey,
-    evictDeparted: crud.evictDeparted,
+    planEvictDeparted: crud.planEvictDeparted,
     // Only react to a departure when the terminal list is AUTHORITATIVE (a
     // complete census) — during a supervised recycle/restart the drain empties the
     // list and restore undoes it, so a departure isn't a user close and the client
@@ -140,11 +140,11 @@ export function useTerminals() {
   // seeds each panel in the SAME batch; an adopt run that sampled the just-flipped
   // `seeded` for a sub first entering the snapshot on that flush would false-adopt
   // it (re-opening a restored-collapsed panel, persisting the wrong state). Adopt
-  // runs first for TWO independent reasons: it is created first (creation order),
-  // AND its effect is memo-backed (`on(snapshot)`) while hydration is a plain
-  // effect — SolidJS schedules a memo-backed effect ahead of a plain one. So it
-  // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
-  // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
+  // runs first because it is created first: at equal depth Solid queues effects
+  // in creation order, and adopt's compute derives from the snapshot memo while
+  // hydration reads its sources directly. So it samples the pre-flip `decided`,
+  // baselines the sub, and skips; hydration then owns the seed. (Verified
+  // against the installed runtime in useAdoptNewSplit.test.)
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   useAdoptNewSplit({
@@ -153,12 +153,12 @@ export function useTerminals() {
     activeHostKey,
     restorePhase: () => activeScope()?.restore.phase ?? "pending",
     ports: {
-      expandPanel: subPanel.expandPanel,
+      planExpandPanel: subPanel.planExpandPanel,
       activeSubTab: (parentId) => subPanel.paneChrome(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
-      // The funnel knows the split's own parent, which is the source it has.
-      seedSplitTab: (subId, parentId) =>
-        rightPanel.seedSplitTab(parentId)(subId),
+      // The funnel knows the split's own parent, which is the source it has;
+      // the right panel's own curried shape is the plan/act split.
+      seedSplitTab: rightPanel.seedSplitTab,
     },
   });
 

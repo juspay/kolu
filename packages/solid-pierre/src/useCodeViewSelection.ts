@@ -15,7 +15,10 @@ export const useCodeViewSelection = (
   id: Accessor<string>,
   range: Accessor<SelectedLineRange | null>,
 ): Accessor<CodeViewLineSelection | null> =>
-  createMemo(() => {
-    const r = range();
-    return r ? { id: id(), range: r } : null;
-  });
+  createMemo(
+    () => {
+      const r = range();
+      return r ? { id: id(), range: r } : null;
+    },
+    { name: "codeViewSelection" },
+  );

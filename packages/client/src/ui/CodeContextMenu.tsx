@@ -13,11 +13,11 @@ import {
   type Component,
   createEffect,
   createSignal,
+  flush,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
-import { Dynamic, Portal } from "solid-js/web";
+import { dynamic, Portal } from "@solidjs/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { runAction } from "../runAction";
@@ -67,6 +67,14 @@ export const CodeContextMenu: Component<{
 
   props.ref({
     open: (event: MouseEvent) => {
+      // The host writes the selection the items describe from the very
+      // `contextmenu` handler that calls this — and a signal write is
+      // staged until the next flush, so a bare `getItems()` would sample
+      // the selection as it stood BEFORE the right-click (on the first
+      // one, no selection at all, hence no menu). Land the staged writes
+      // first; this is an imperative boundary, where observing one's own
+      // writes synchronously is what `flush` is for.
+      flush();
       const next = props.getItems();
       if (next.length === 0) return; // nothing to offer; let browser default through
       event.preventDefault();
@@ -95,14 +103,14 @@ export const CodeContextMenu: Component<{
     close();
   };
 
-  createEffect(() => {
-    if (!open()) return;
+  createEffect(open, (isOpen) => {
+    if (!isOpen) return;
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKeydown);
-    onCleanup(() => {
+    return () => {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKeydown);
-    });
+    };
   });
 
   const handleItem = (item: CodeContextMenuItem) => {
@@ -141,20 +149,20 @@ export const CodeContextMenu: Component<{
           style={{ left: `${pos().x}px`, top: `${pos().y}px`, ...chrome.style }}
         >
           <For each={items()}>
-            {(item) => (
-              <button
-                type="button"
-                role="menuitem"
-                class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-2"
-                onClick={() => handleItem(item)}
-              >
-                <Dynamic
-                  component={item.icon}
-                  class="w-3.5 h-3.5 shrink-0 opacity-70"
-                />
-                <span>{item.label}</span>
-              </button>
-            )}
+            {(item) => {
+              const Icon = dynamic(() => item.icon);
+              return (
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-2"
+                  onClick={() => handleItem(item)}
+                >
+                  <Icon class="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            }}
           </For>
         </div>
       </Portal>

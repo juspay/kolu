@@ -181,9 +181,12 @@ const TileTitleActions: Component<{
                 // The agent indicator is an Inspector entry point — the agent's
                 // metadata lives on the Inspector tab. Select it explicitly
                 // before revealing, otherwise a fresh terminal (whose Code tab
-                // is the default surface) would open on Code instead.
-                rightPanel.showInspector();
-                rightPanel.reveal();
+                // is the default surface) would open on Code instead. Both
+                // calls NAME this tile: `setActiveSilently` above is staged, so
+                // a panel verb that read the focus itself would still act on
+                // the tile the click left.
+                rightPanel.showInspector(props.id);
+                rightPanel.reveal(props.id);
               })
             }
             title="Open inspector"
@@ -235,8 +238,10 @@ const TileTitleActions: Component<{
           <button
             type="button"
             data-testid="tile-split-toggle"
-            class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
-            classList={{ "bg-black/20": splitExpanded() }}
+            class={[
+              `${TILE_BUTTON_CLASS} gap-1 px-1.5`,
+              { "bg-black/20": splitExpanded() },
+            ]}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
@@ -330,11 +335,13 @@ const TileTitleActions: Component<{
             type="button"
             data-testid="tile-restart"
             data-armed={restartArmed() ? "" : undefined}
-            class={`${TILE_BUTTON_CLASS} w-7`}
-            classList={{
-              "bg-warning/15": restartArmed(),
-              "opacity-50 cursor-wait": restartBusy(),
-            }}
+            class={[
+              `${TILE_BUTTON_CLASS} w-7`,
+              {
+                "bg-warning/15": restartArmed(),
+                "opacity-50 cursor-wait": restartBusy(),
+              },
+            ]}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             disabled={restartBusy()}
             onPointerDown={(e) => e.stopPropagation()}

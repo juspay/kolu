@@ -54,7 +54,18 @@ export const useConductorFacts = createSharedRoot<Accessor<ConductorState>>(
  *  `undefined` while the server has not reported yet. The one reader that
  *  must tell those apart is the bell: the default's empty lists are not a
  *  reading, and taking them for one would make the real first frame look like
- *  questions that just arrived. */
+ *  questions that just arrived.
+ *
+ *  COPIES, never the cell's own arrays. The cell's value lives in a Solid
+ *  STORE (`createSubscription`), so `cell.openAsks` is a store proxy, and the
+ *  bell walks both lists in an effect's IMPERATIVE phase
+ *  (`useAttention.ts`'s effect hands this reading to
+ *  `createConductorBell.observe`), where a proxy read is untracked by
+ *  construction — `STRICT_READ_UNTRACKED`, a reading that cannot re-ask. The
+ *  spread here IS the tracking read, taken in the caller's compute: it
+ *  subscribes to the length and to every id, so a frame that changes what is
+ *  being asked re-runs that effect however the merge delivered it, and what
+ *  leaves this function is plain data the effect phase may walk. */
 export function conductorAsks():
   | {
       readonly ownAsks: readonly string[];
@@ -64,7 +75,7 @@ export function conductorAsks():
   const cell = useConductorCell()();
   return cell === undefined
     ? undefined
-    : { ownAsks: cell.openAsks, workAsks: cell.workAsks };
+    : { ownAsks: [...cell.openAsks], workAsks: [...cell.workAsks] };
 }
 
 /** THE ONE COUNT OF WHAT IS WAITING ON YOU, derived once for every place that
@@ -93,8 +104,9 @@ export const useConductorBadge = createSharedRoot(() => {
   const memory = useMemoryNeed();
   return {
     /** How many things are waiting on the human. */
-    waiting: createMemo(() =>
-      waitingCount(needs(), facts().openAsks, memory()),
+    waiting: createMemo(
+      () => waitingCount(needs(), facts().openAsks, memory()),
+      { name: "conductorBadge.waiting" },
     ),
   };
 });

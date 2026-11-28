@@ -1,0 +1,28 @@
+{
+  "name": "@kolu/solid-test-setup",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": [
+    "./src/setup.ts"
+  ],
+  "exports": {
+    "./setup": "./src/setup.ts",
+    "./vitest": "./src/vitest.ts",
+    "./attribution": "./src/attribution.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "devDependencies": {
+    "solid-js": "^2.0.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.4",
+    "vitest": "*"
+  }
+}

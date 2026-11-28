@@ -124,8 +124,8 @@ let
       else throw ''
         kolu/nix/consumer.nix: '${name}' is a PINNED member — gitignored in kolu and
         absent from the source archive you fetched, so this entry point cannot copy it
-        out of `src`. Graft it from `${member.pin.name}` at ${member.pin.revision}
-        (subdirectory `${member.pin.subdir}`) and pass it in:
+        out of `src`. ${if member.pin.built or false then "Build" else "Graft"} it from `${member.pin.name}` at ${member.pin.revision}
+        (subdirectory `${member.pin.subdir}`${if member.pin.built or false then " of that pin's build — kolu builds it in nix/packages/${member.pin.name}.nix" else ""}) and pass it in:
 
           pinnedSources."${name}" = {
             src = yourGraftedSrc;

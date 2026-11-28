@@ -34,7 +34,7 @@ export function freshChromeTab(mode: LayoutMode): ChromeTab {
 
 const FRESH = freshChromeTab(layoutMode());
 
-const [chromeTab, setChromeTab] = persistedPref<ChromeTab>({
+const [chromeTab, setChromeTab, loadedTab] = persistedPref<ChromeTab>({
   name: "kolu-active-chrome-tab",
   fallback: FRESH,
   parse: (raw) => {
@@ -61,11 +61,12 @@ export const conductorMode = (): boolean => chromeTab() === "conductor";
  *
  *  Latched where the selection is WRITTEN, not derived from an effect that
  *  watches it: there is exactly one writer of the tab (this module), so the
- *  latch cannot fall behind the fact it is about. The initial read covers a
- *  reload that lands back on the conversation. */
-const [everSelected, setEverSelected] = createSignal(
-  chromeTab() === "conductor",
-);
+ *  latch cannot fall behind the fact it is about. The initial value is the
+ *  pref's `loaded` — what the stored string parsed to while the pref was
+ *  built — and NOT `chromeTab()`, which still answers the fallback until the
+ *  hydration write lands on the next flush: reading the accessor here left a
+ *  reload that came back in the conversation with no pane to show. */
+const [everSelected, setEverSelected] = createSignal(loadedTab === "conductor");
 export const conductorEverSelected = everSelected;
 
 export function enterConductorMode(): void {

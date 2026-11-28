@@ -9,7 +9,7 @@
 
 import { Option } from "effect";
 import type { Work, WorkId, WorkRow } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StandingLine } from "./workReadings";
 
@@ -17,24 +17,50 @@ const NOW = Date.parse("2026-01-01T00:10:00Z");
 
 const world = vi.hoisted(() => ({
   facts: new Map<string, { members: number; at: unknown }>(),
+  /** The record moved: what makes the face read its work's standing again. */
+  moved: () => {},
 }));
 
-vi.mock("./workFacts", () => ({
-  createWorkFacts: (id: () => string) => {
-    const one = () => world.facts.get(id());
-    return {
-      members: () =>
-        Array.from({ length: one()?.members ?? 0 }, (_, i) => ({
-          terminal: `local/${i}`,
-          split: { host: "local", id: `t${i}` },
-          standing: undefined,
-        })),
-      pr: () => Option.none(),
-      checks: () => Option.none(),
-      at: () => one()?.at,
-    };
-  },
-}));
+vi.mock("./workFacts", async () => {
+  // The factory is hoisted above this file's imports, so the primitive it
+  // needs is reached from inside it.
+  const solid = await import("solid-js");
+  const [moves, setMoves] = solid.createSignal(0);
+  world.moved = () => setMoves((n) => n + 1);
+  // A LINE THAT DID NOT MOVE KEEPS ITS OBJECT, as the real fold's does, so
+  // the marks under it are not what this file measures.
+  const lines = new Map<string, ReadonlyArray<unknown>>();
+  return {
+    createWorkFacts: (id: () => string) => {
+      const one = () => world.facts.get(id());
+      return {
+        members: () => {
+          const count = one()?.members ?? 0;
+          const key = `${id()}:${count}`;
+          const was = lines.get(key);
+          if (was !== undefined) return was;
+          const next = Array.from({ length: count }, (_, i) => ({
+            terminal: `local/${i}`,
+            split: { host: "local", id: `t${i}` },
+            standing: undefined,
+          }));
+          lines.set(key, next);
+          return next;
+        },
+        pr: () => Option.none(),
+        checks: () => Option.none(),
+        // A FRESH LINE PER READ, which is what the real fold returns: the
+        // gate the rail closes on it is the thing under test, so a mock
+        // handing back one kept object would prove nothing.
+        at: () => {
+          moves();
+          const line = one()?.at as StandingLine | undefined;
+          return line === undefined ? undefined : { ...line };
+        },
+      };
+    },
+  };
+});
 vi.mock("./MemberPip", () => ({
   default: () => <span data-testid="member-pip-stub" />,
 }));
@@ -50,7 +76,7 @@ import {
   toggleFinished,
   unpickWork,
 } from "./workListing";
-import { createSignal } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { standingClock } from "./WorkStanding";
 
 const standing = (who: StandingLine["who"], lead: string): StandingLine => ({
@@ -66,6 +92,28 @@ const row = (id: string, title: string): WorkRow =>
     id as WorkId,
     {
       key: { kind: "watch", host: "local", id: "a" },
+      title,
+      events: [],
+      decisions: [],
+      startedAt: "2026-01-01T00:00:00Z",
+      state: { kind: "open" },
+      worktree: { kind: "unread" },
+    } as Work,
+  ] as WorkRow;
+
+/** The same work on a BRANCH, read again — a fresh record with a fresh key,
+ *  which is what the collection hands the sidebar on every frame. */
+const branchRow = (id: string, title: string): WorkRow =>
+  [
+    id as WorkId,
+    {
+      key: {
+        kind: "branch",
+        host: "local",
+        repo: "/home/me/code/kolu",
+        branch: "csv-export",
+        repoBy: { kind: "git" },
+      },
       title,
       events: [],
       decisions: [],
@@ -176,9 +224,11 @@ describe("the works sidebar", () => {
     ];
     // Another work's record changes: every row is minted afresh.
     setGroups({ moving: [row("a", "CSV export"), row("b", "Docs, again")] });
+    flush();
     expect(entry(el, "a")).toBe(before);
     // Its own record changes.
     setGroups({ moving: [row("a", "CSV export, renamed"), row("b", "Docs")] });
+    flush();
     const after = entry(el, "a");
     expect(after).toBe(before);
     const now = [...after.querySelectorAll('[data-testid="member-pip-stub"]')];
@@ -215,6 +265,32 @@ describe("the works sidebar", () => {
     expect(pinned?.textContent).toContain("Needs you · 1");
   });
 
+  it("keeps an entry's clock and its repository while the record moves five times", () => {
+    world.facts.set("a", {
+      members: 1,
+      at: standing("agent", "Agents at work"),
+    });
+    const el = mount({ moving: [branchRow("a", "CSV export")] });
+    const before = entry(el, "a");
+    const clock = before.querySelector(
+      '[data-testid="works-rail-since"]',
+    )?.textContent;
+    const monogram = before.querySelector('[data-testid="repo-monogram"]');
+    // Five, not four: the diagnostic fires at four equal publishes, so the
+    // run must go past it rather than stop on it.
+    for (let move = 1; move <= 5; move += 1) {
+      setGroups({ moving: [branchRow("a", "CSV export")] });
+      world.moved();
+      flush();
+    }
+    const after = entry(el, "a");
+    expect(after).toBe(before);
+    expect(
+      after.querySelector('[data-testid="works-rail-since"]')?.textContent,
+    ).toBe(clock);
+    expect(after.querySelector('[data-testid="repo-monogram"]')).toBe(monogram);
+  });
+
   it("folds Finished on the overview's switch", () => {
     world.facts.set("f", { members: 0, at: standing("done", "Merged #7") });
     const el = mount({ finished: [row("f", "Old work")] });
@@ -222,6 +298,7 @@ describe("the works sidebar", () => {
     el.querySelector<HTMLElement>(
       '[data-testid="works-rail-finished-toggle"]',
     )?.click();
+    flush();
     expect(isFinishedOpen()).toBe(true);
     expect(el.querySelector('[data-rail-work="f"]')).not.toBeNull();
   });
@@ -234,6 +311,7 @@ describe("the works sidebar", () => {
     const el = mount({ moving: [row("a", "CSV export")] });
     expect(el.querySelector('[data-testid="works-all"]')).toBeNull();
     pickWork("a" as WorkId);
+    flush();
     expect(el.querySelector('[data-testid="works-all"]')).not.toBeNull();
   });
 });

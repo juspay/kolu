@@ -34,7 +34,13 @@
  *  genuinely-new sub that appears WHILE seeded is adopted. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, on } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  onSettled,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
@@ -43,24 +49,28 @@ import { containingTileOf, type ParentEdge } from "./terminalTree";
  *  so the hook is a pure function of (ports, list, phase): unit-testable with
  *  plain spies, wired once in useTerminals. */
 export interface SplitAdoptPorts {
-  /** Expand the parent's sub-panel (idempotent) — run on every adopted split. */
-  expandPanel: (parentId: TerminalId) => void;
+  /** Reader half of "expand the parent's sub-panel" (idempotent) — run on every
+   *  adopted split. Two phases because the adoption is decided in an effect:
+   *  the plan reads the tile's saved split, the actor writes the new one. */
+  planExpandPanel: (parentId: TerminalId) => () => void;
   /** The parent's current active sub-tab (`null` when none is selected). Null-or-
    *  live by invariant — the reconcile clears it when the last split departs. */
   activeSubTab: (parentId: TerminalId) => TerminalId | null;
   /** Select a sub-tab — run only when the parent has no active split (don't steal
-   *  from a split you're already working in). */
+   *  from a split you're already working in). Writes only. */
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId) => void;
   /** Give the new split the panel tab of the terminal it is a child of, so an
    *  externally-created split does not flip the panel from Code to Inspector when
    *  you click into it. A no-op when the split already carries panel state (the
-   *  browser create path seeds synchronously; a creator may have passed one). */
-  seedSplitTab: (subId: TerminalId, parentId: TerminalId) => void;
+   *  browser create path seeds synchronously; a creator may have passed one).
+   *  CURRIED on the parent — the right panel's own shape — so the read of the
+   *  source pane happens in the plan and the seeding write in the actor. */
+  seedSplitTab: (parentId: TerminalId) => (subId: TerminalId) => void;
 }
 
 export function useAdoptNewSplit(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
-  rawList: Accessor<TerminalId[]>;
+  rawList: Accessor<readonly TerminalId[]>;
   /** The store's live parent EDGE: `null` for a top-level tile, `undefined`
    *  when the id is absent from the census. Three-valued on purpose — the walk
    *  below must stop at a departed ancestor instead of climbing through it and
@@ -80,51 +90,116 @@ export function useAdoptNewSplit(deps: {
   // gate (sub membership/parent change or host switch) — one construction with the
   // reconcile sibling, differing only in this map projection.
   const snapshot = createHostScopedParentSnapshot<TerminalId>(
+    "adoptParentSnapshot",
     deps.rawList,
     deps.activeHostKey,
-    (ids) => {
+    deps.parentOf,
+    (edges) => {
       const m = new Map<TerminalId, TerminalId>();
-      for (const id of ids) {
-        const parentId = deps.parentOf(id);
+      for (const { id, parent } of edges) {
         // Both non-sub answers skip: `null` is a top-level tile, `undefined` is
         // an id whose record has not arrived — neither is a split arrival.
-        if (parentId != null) m.set(id, parentId);
+        if (parent != null) m.set(id, parent);
       }
       return m;
     },
   );
 
+  /** One split to adopt, decided in the compute and acted on in the effect.
+   *  Every read the adoption needs — the root tile walk, the tile's active tab,
+   *  the tile's saved split, the source pane's panel record — happens in the
+   *  compute; what travels is the two WRITES, because an effect callback is a
+   *  strict-read window. */
+  interface Adoption {
+    readonly subId: TerminalId;
+    readonly tileId: TerminalId;
+    /** Seed the arrival's panel tab from the pane it is a split of. */
+    readonly seed: (subId: TerminalId) => void;
+    /** Open the root tile's panel. */
+    readonly expand: () => void;
+    readonly takeFocus: boolean;
+  }
+  interface AdoptPass {
+    readonly snap: { host: string; map: Map<TerminalId, TerminalId> };
+    readonly adopt: readonly Adoption[];
+  }
   createEffect(
-    on(snapshot, (curr, prev) => {
+    (prev?: AdoptPass): AdoptPass => {
+      const curr = snapshot();
+      const prevSnap = prev?.snap;
       // First run OR a host SWITCH — advance the baseline and adopt NONE: a fresh
-      // host must not auto-open its existing splits. `prev` is framework-maintained
-      // (SolidJS keeps the memo's prior value), so the switched-to host's subs land
-      // in the baseline next tick for free — no manual accumulator to reset.
-      if (prev === undefined || curr.host !== prev.host) return;
-      // `on` runs this callback untracked, so the SAMPLED phase read (and the
-      // ports' live reads below) add no dependency — the effect wakes only on a
-      // snapshot change, exactly like the reconcile. Not seeded (load/restore/
-      // recycle) → hydration owns the tabs; we skip, but `curr` still becomes next
-      // tick's `prev`, so a sub seen while unseeded is baseline, never a deferred
-      // false arrival.
-      if (deps.restorePhase() !== "seeded") return;
+      // host must not auto-open its existing splits. The baseline is the pass's
+      // own previous value, so the switched-to host's subs land in it next tick
+      // for free — no manual accumulator to reset.
+      if (prevSnap === undefined || curr.host !== prevSnap.host)
+        return { snap: curr, adopt: [] };
+      // Not seeded (load/restore/recycle) → hydration owns the tabs; we skip, but
+      // `curr` still becomes next tick's baseline, so a sub seen while unseeded is
+      // baseline, never a deferred false arrival. SAMPLED (untracked): a phase
+      // flip alone must not adopt anything — only a snapshot change may.
+      if (untrack(deps.restorePhase) !== "seeded")
+        return { snap: curr, adopt: [] };
       // Arrivals are curr − prev: a sub in the live map absent from last tick's.
+      const adopt: Adoption[] = [];
       for (const [subId, parentId] of curr.map) {
-        if (prev.map.has(subId)) continue;
-        // Sub-panel chrome is keyed on the ROOT tile. A nested create
-        // (`parentId` = a middle split) must expand that tile's panel, not a
-        // middle node that has no canvas chrome of its own.
-        const tileId = containingTileOf(parentId, deps.parentOf);
-        deps.ports.seedSplitTab(subId, parentId);
-        deps.ports.expandPanel(tileId);
-        // Don't-steal: select the arrival only when no split is currently active.
-        // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when
-        // a tile's last split departs), so a plain null-check IS the liveness
-        // test — an active tab is always a real split you're working in.
-        if (deps.ports.activeSubTab(tileId) === null) {
-          deps.ports.setActiveSubTab(tileId, subId);
-        }
+        if (prevSnap.map.has(subId)) continue;
+        adopt.push(
+          untrack(() => {
+            // Sub-panel chrome is keyed on the ROOT tile. A nested create
+            // (`parentId` = a middle split) must expand that tile's panel, not a
+            // middle node that has no canvas chrome of its own. The tree walk and
+            // the tab read are SAMPLES of the current state — the snapshot is
+            // what wakes this, exactly as the retired `on(snapshot, …)` form had
+            // it.
+            const tileId = containingTileOf(parentId, deps.parentOf);
+            // Don't-steal: select the arrival only when no split is currently
+            // active. `activeSubTab` is null-or-live by invariant (evictTerminal
+            // clears it when a tile's last split departs), so a plain null-check
+            // IS the liveness test — an active tab is always a real split you're
+            // working in.
+            return {
+              subId,
+              tileId,
+              seed: deps.ports.seedSplitTab(parentId),
+              expand: deps.ports.planExpandPanel(tileId),
+              takeFocus: deps.ports.activeSubTab(tileId) === null,
+            };
+          }),
+        );
       }
-    }),
+      return { snap: curr, adopt };
+    },
+    ({ adopt }) => {
+      if (adopt.length === 0) return;
+      // SETTLED, AS ONE UNIT — the departure mirror's rule
+      // (`useActiveReconcile.ts`) applied to the arrival. These three writes
+      // are the adoption's whole write phase: the panel tab the arrival is
+      // seeded with, the tile's `collapsed`, and the tile's `activeSubTab`.
+      // This arm's compute has just folded the terminal census, so any write
+      // left inline re-runs the readers that fold that same census — the
+      // WebGL tile budget reads a tile's `collapsed` and `activeSubTab`
+      // beside the top-level list (`useTerminalStore.ts`) — inside this
+      // effect's frame, against the list the compute was answering: the
+      // judged `EFFECT_RELAY_TEAR`, `warn` from its third sighting, and a
+      // third split arrival in one session is an ordinary thing to do. An
+      // owner-less `onSettled` lands them in a later pass of the SAME flush,
+      // so the frame is their own and no frame is lost. ONE unit, not one per
+      // write: expanding the panel and selecting the arriving tab are one
+      // answer to one arrival, and a reader that folds both must never see
+      // half of it. Unowned so the one-shot enqueues instead of becoming a
+      // child effect of this arm (which would carry this very frame); the
+      // writes create no children and register no cleanup, which `onSettled`
+      // forbids.
+      runWithOwner(null, () => {
+        onSettled(() => {
+          for (const { subId, tileId, seed, expand, takeFocus } of adopt) {
+            seed(subId);
+            expand();
+            if (takeFocus) deps.ports.setActiveSubTab(tileId, subId);
+          }
+        });
+      });
+    },
+    { name: "adoptNewSplit" },
   );
 }

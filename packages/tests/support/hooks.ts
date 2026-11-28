@@ -15,7 +15,14 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import {
+  After,
+  AfterAll,
+  Before,
+  BeforeAll,
+  BeforeStep,
+  Status,
+} from "@cucumber/cucumber";
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiClientOver } from "@kolu/padi-client/dial";
@@ -38,6 +45,7 @@ import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
 import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
 import { stageFakeGh } from "./fake-gh.ts";
 import { waitForPadiCell } from "./padiCellWait.ts";
+import { watchContextPages } from "./pageWatch.ts";
 import { pollFor } from "./poll.ts";
 import { stageRenamedBash } from "./renamed-bash.ts";
 import {
@@ -55,6 +63,15 @@ import {
 } from "./scenarioSetupRetry.ts";
 import { retireWorldScrollFifo } from "./scrollFifo.ts";
 import { padiBuildEnv, type ServerBuild } from "./serverBuild.ts";
+import {
+  type PageDiagnostic,
+  SOLID_DIAGNOSTIC_BINDING,
+  type SolidDevCheck,
+  solidDevCheckFor,
+  solidDiagnosticVerdict,
+  solidObserveInitScript,
+  stampDiagnostic,
+} from "./solidDevBuild.ts";
 import { type KoluWorld, STEP_GUARD, STEP_TIMEOUT } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -559,6 +576,10 @@ let x11Stem: string | undefined;
 let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
+/** Set once per worker in BeforeAll: the Solid dev-diagnostics console check,
+ *  present exactly when the server under test serves the dev-runtime client
+ *  (`support/solidDevBuild.ts`), absent for a production one. */
+let solidDevCheck: SolidDevCheck | undefined;
 
 // Reuse TCP connections across scenarios to avoid TIME_WAIT socket
 // accumulation on macOS (see #334).
@@ -663,6 +684,11 @@ async function newScenarioPage(
   vp: { width: number; height: number } = X11_VIEWPORT,
   touchViewport: { width: number; height: number } = PHONE_VIEWPORT,
   deviceScaleFactor?: number,
+  /** Everything that must be on the CONTEXT before a document exists —
+   *  bindings, init scripts, the `page` listener. Run before `newPage()`, so
+   *  nothing can navigate unwatched. The app-mode branch has no such moment:
+   *  Chrome opens its window at launch, so there it runs as early as it can. */
+  prepare: (context: BrowserContext) => Promise<void> = async () => {},
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -683,6 +709,7 @@ async function newScenarioPage(
       permissions: ["clipboard-write", "clipboard-read"],
       slowMo: X11_SLOWMO,
     });
+    await prepare(context);
     const page = context.pages()[0] ?? (await context.waitForEvent("page"));
     return { context, page };
   }
@@ -726,6 +753,7 @@ async function newScenarioPage(
         : {}),
     });
     previousContext = context;
+    await prepare(context);
     const page = await context.newPage();
     previousContext = undefined;
     return { context, page };
@@ -1330,6 +1358,10 @@ BeforeAll(async () => {
   } else {
     await startServerChild(koluServer); // waits for a live bound padi internally
   }
+  // Does this server serve the dev-runtime client? Asking it is what turns the
+  // console check on — and on the Solid-diagnostics lane, a server that does
+  // not fails here rather than passing for having nothing to report.
+  solidDevCheck = await solidDevCheckFor(baseUrl);
 
   // Launch browser — always use CI args for consistency and performance.
   // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
@@ -1498,12 +1530,56 @@ Before(
     const vp = rec?.viewport ?? X11_VIEWPORT;
 
     this.browser = browser;
+    this.errors = [];
+    this.solidDiagnostics = [];
+    this.solidDiagnosticFooters = [];
+    this.solidDiagnosticEvents = [];
+    const check = solidDevCheck;
+    // WHAT THE CONSOLE CANNOT SAY, FROM THE CHANNEL ITSELF, INSTALLED BEFORE
+    // THE PAGE EXISTS. On a dev-runtime server the client hands its `OBSERVE`
+    // to the page (`client/src/solidDiagnosticsExpose.ts`, development
+    // runtimes only); this init script subscribes to the diagnostics channel
+    // and reports each event's code, location and owner path through a binding
+    // — the fields a diagnostic whose call site throws never reaches the
+    // console with. On the CONTEXT, so a window the page opens is subscribed
+    // too, and before `newPage()`, so no document can load unwatched. Each
+    // event is stamped with the step the run was on when it arrived.
     const created = await newScenarioPage(
       isMobile,
       chrome,
       vp,
       touchViewport,
       deviceScaleFactor,
+      async (context) => {
+        // Everything any document of this scenario throws, and on a
+        // dev-runtime server every console line that is a Solid dev
+        // diagnostic or warning. ONE subscription for all of them — the
+        // scenario's own page included, since Playwright emits `page` for
+        // `newPage()` too — each line named by where it came from
+        // (see `pageWatch.ts`).
+        watchContextPages({
+          context,
+          scenarioPage: () => this.page,
+          check,
+          reports: {
+            errors: this.errors,
+            diagnostics: this.solidDiagnostics,
+            footers: this.solidDiagnosticFooters,
+          },
+        });
+        if (!check) return;
+        await context.exposeBinding(
+          SOLID_DIAGNOSTIC_BINDING,
+          (_source, event: PageDiagnostic) =>
+            void this.solidDiagnosticEvents.push(
+              stampDiagnostic(event, {
+                scenario: this.currentScenario,
+                step: this.currentStep,
+              }),
+            ),
+        );
+        await context.addInitScript(solidObserveInitScript());
+      },
     );
     this.context = created.context;
     this.page = created.page;
@@ -1593,16 +1669,6 @@ Before(
       } catch (e) {}
     `);
     }
-    this.errors = [];
-    this.page.on("pageerror", (err) => this.errors.push(err.message));
-    // A WINDOW THE PAGE OPENS (the reader popped out) is a document of its
-    // own, and what it throws is this scenario's too — named by where it was
-    // thrown, so it reads apart from the main page's.
-    this.context.on("page", (opened) => {
-      opened.on("pageerror", (err) =>
-        this.errors.push(`${opened.url()}: ${err.message}`),
-      );
-    });
 
     // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
     // own 30 fps clock independent of Chrome's paint speed, so the recording is
@@ -1629,6 +1695,45 @@ Before(
     }
   },
 );
+
+// WHERE THE RUN IS, for anything that arrives between steps. A diagnostic
+// reaches the binding with no notion of what provoked it; the scenario name
+// alone cannot say, because four workers interleave and one scenario runs
+// dozens of steps. So the step text is recorded as each step starts, and each
+// event is stamped with it as it arrives.
+BeforeStep(function (this: KoluWorld, { pickle, pickleStep }) {
+  this.currentScenario = pickle.name;
+  this.currentStep = pickleStep.text;
+});
+
+// THE SOLID-DIAGNOSTICS LANE'S VERDICT: a scenario whose pages raised a Solid
+// dev diagnostic fails, naming each — what the diagnostics channel handed
+// over (code, grade, location, owner path, node name) and what reached the
+// console, plus everything the pages threw, since a diagnostic that throws is
+// also a page error. EXACTLY ONE finding is advisory — an `EFFECT_RELAY_TEAR`
+// Solid grades `info` — printed and failing nothing, because that is Solid's
+// own word for "reported, not wrong" there (a DOM measurement's relay tear is
+// the standing example). Every other code fails whatever its grade: `info` is
+// not a blanket pass, since Solid grades a multi-effect
+// `EFFECT_WRITES_OWN_SOURCE` cycle `info` while telling you to derive it.
+// Defined BEFORE the main After hook because Cucumber runs After hooks in
+// reverse definition order, so this runs last — after the teardown and failure
+// artifacts, which a throw here must not skip. On a production server it has
+// nothing to look at: nothing collected it.
+After(function (this: KoluWorld) {
+  const verdict = solidDiagnosticVerdict({
+    events: this.solidDiagnosticEvents,
+    lines: this.solidDiagnostics,
+    footers: this.solidDiagnosticFooters,
+    pageErrors: this.errors,
+  });
+  if (verdict === undefined) return;
+  if (!verdict.fails) {
+    console.info(`[worker:${workerId}] ${verdict.words}`);
+    return;
+  }
+  throw new Error(verdict.words);
+});
 
 // Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +
 // VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s

@@ -44,7 +44,7 @@ import { runAction } from "../runAction";
 import { useServerIdentity } from "../useServerIdentity";
 import { getNowTicker } from "../terminal/staleness";
 import { app, hostKeys, padiMap, preferences } from "../wire";
-import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { agentDistroToastIcon } from "./toastMark";
 import {
   type AgentFleetGroup,
   type AgentHostDetail,
@@ -99,7 +99,9 @@ export function agentDistroStored(): AgentDistroPrefs | null {
 /** The Agents setting new terminals get — the stored value through the one fold
  *  (`agentDistroSettingOf`: never chosen is off). Every other reader uses this. */
 export const agentDistroSetting = createRoot(() =>
-  createMemo(() => agentDistroSettingOf(agentDistroStored())),
+  createMemo(() => agentDistroSettingOf(agentDistroStored()), {
+    name: "agentDistroSetting",
+  }),
 );
 
 /** Per-host status reads, one subscription per pool member. */
@@ -128,22 +130,40 @@ const byHost = createRoot(() => {
       // the package alone: a profile-only
       // update keeps the same package.
       const [landed, setLanded] = createSignal<string | undefined>();
-      createEffect(() => {
-        const set = landed();
-        if (set === undefined) return;
-        const receipt = receiptSub.value();
-        if (receipt === undefined || receiptSet(receipt) !== set) return;
-        setLanded(undefined);
-        const run = receipt.lastRun;
-        // Not a landing this padi recorded (say, the set moved under it):
-        // there are no words to quote, so there is nothing to announce.
-        if (run?.outcome !== "updated") return;
-        const words = agentToast.updated(agentsWhere(host), updateWords(run));
-        toast.success(words.title, {
-          description: words.description,
-          icon: AgentDistroLogo({ size: 16 }),
-        });
-      });
+      // What has already been announced, as a plain variable: consuming the
+      // slot must not be a write this effect's own compute reads back. A fresh
+      // receipt for the same set is a new landing and announces again.
+      let announced: { set: string; receipt: unknown } | undefined;
+      createEffect(
+        () => {
+          const set = landed();
+          if (set === undefined) return null;
+          const receipt = receiptSub.value();
+          if (receipt === undefined || receiptSet(receipt) !== set) return null;
+          if (announced?.set === set && announced.receipt === receipt)
+            return null;
+          const run = receipt.lastRun;
+          // Not a landing this padi recorded (say, the set moved under it):
+          // there are no words to quote, so there is nothing to announce.
+          return {
+            set,
+            receipt,
+            words:
+              run?.outcome === "updated"
+                ? agentToast.updated(agentsWhere(host), updateWords(run))
+                : null,
+          };
+        },
+        (landing) => {
+          if (landing === null) return;
+          announced = { set: landing.set, receipt: landing.receipt };
+          if (landing.words === null) return;
+          toast.success(landing.words.title, {
+            description: landing.words.description,
+            icon: agentDistroToastIcon(),
+          });
+        },
+      );
       watchLanding(() => sub.value(), setLanded);
       // "Checking": the host is up and agents are on, but its status cell has
       // not sent its first frame. Derived here from the cell's own pending

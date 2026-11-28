@@ -16,7 +16,7 @@ export const FILTER_CHIP_BASE =
 
 /** The accent-vs-neutral colour grammar: neutral (with a hover lift) while
  *  the chip is permissive, accent once it is actively filtering. Returned
- *  as a `classList` object so both chips read identically. */
+ *  as a `class` object so both chips read identically. */
 export function filterChipAccent(active: boolean): Record<string, boolean> {
   return {
     "text-fg-3 hover:text-fg": !active,

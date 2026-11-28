@@ -20,7 +20,7 @@
  *  the `__xterm` e2e bridge — is wired in `onReady`, inside that owner. */
 
 import { WEB_URL_PATTERN } from "@kolu/url-shape";
-import { getOwner, onCleanup, runWithOwner } from "solid-js";
+import { getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
 import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -65,12 +65,20 @@ export function createXtermLifecycle(
    *  the component body, but is present by the time the post-await body reads it
    *  (the div mounts synchronously before the font `await` resolves). */
   getContainer: () => HTMLElement,
-  /** Read lazily too, and specifically re-read AFTER the font await for
-   *  construction — so a reactive `theme`/`fontSize` that changed while the font
-   *  was loading constructs the terminal with the LATEST value, not a snapshot
-   *  taken at call time (which the deferred live-update effects would then miss,
-   *  having already fired-and-bailed while `core` was still null). */
+  /** Read lazily too — first called from the component body (a strict-read
+   *  window), and again after the font await — and specifically re-read AFTER
+   *  that await for construction, so a reactive `theme`/`fontSize` that changed
+   *  while the font was loading constructs the terminal with the LATEST value,
+   *  not a snapshot taken at call time (which the deferred live-update effects
+   *  would then miss, having already fired-and-bailed while `core` was still
+   *  null). */
   getOptions: () => XtermLifecycleOptions,
+  /** Called under the owner captured at line 1 of this function — the CALLER's
+   *  owner (a component body), re-entered with `runWithOwner` once the font has
+   *  loaded. Not an effect callback and not a `ref` callback: `onCleanup` and
+   *  the `create*` primitives are legal here. It is an OWNED scope, though, so
+   *  a signal written here must declare `ownedWrite` — dev throws
+   *  REACTIVE_WRITE_IN_OWNED_SCOPE otherwise — and reads here are untracked. */
   onReady: (core: XtermCore) => void,
 ): void {
   const owner = getOwner();
@@ -95,7 +103,16 @@ export function createXtermLifecycle(
       // Capture the face we AWAIT and pin it into construction below, so xterm is
       // never built with a font we didn't wait for (kolu's fontFamily is static,
       // but a mid-await change must not slip an un-awaited face past the measure).
-      const awaitedFontFamily = getOptions().terminalOptions.fontFamily;
+      //
+      // UNTRACKED, and specifically only this one read: this runs synchronously
+      // in the consumer's component body, where reading a reactive value is a
+      // STRICT_READ_UNTRACKED. The bag `getOptions()` builds carries the live
+      // `theme`/`fontSize` too, and every one of those is discarded here and
+      // re-read after the await (where the live effects own them) — so the only
+      // thing this snapshot is allowed to depend on is the face it awaits.
+      const awaitedFontFamily = untrack(
+        () => getOptions().terminalOptions.fontFamily,
+      );
       await document.fonts.load(`1em ${awaitedFontFamily}`);
       if (disposed) return;
       const container = getContainer();

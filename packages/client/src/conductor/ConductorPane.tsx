@@ -36,7 +36,10 @@
  *  lost it or a child that died. The panel shows the sentence whoever found out
  *  wrote, verbatim, and offers no composer and no fallback path. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
+import {
+  createEventListener,
+  makeEventListener,
+} from "@solid-primitives/event-listener";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
@@ -67,13 +70,13 @@ import { revealTranscriptRow } from "./transcriptScroll";
 import WorkReader from "./reader/WorkReader";
 import ReaderChrome from "./reader/ReaderChrome";
 import { openReader, readerFilled, readerTarget } from "./reader/useReader";
-import { chatTurns, joinsOf, turnWorks } from "./turnWorks";
+import { chatTurns, turnWorks } from "./turnWorks";
 import {
   finishedReplyOf,
   provideTypedReply,
   type TypedReply,
 } from "./typedReply";
-import { useWorkMap } from "./useWorks";
+import { useJoins, useWorkMap } from "./useWorks";
 
 const ConductorPane: Component<{
   class?: string;
@@ -82,10 +85,11 @@ const ConductorPane: Component<{
   const feed = createConductorTranscript();
   let transcriptEl: HTMLDivElement | undefined;
   /** EACH ROW'S TURN, read once — one walk of the rows per change, over the
-   *  index of which terminal joined which work, built once per change of the
-   *  works. The transcript and the scope bar over it both read this. */
+   *  index of which terminal joined which work ({@link useJoins}, built work
+   *  by work for the whole app). The transcript and the scope bar over it
+   *  both read this. */
   const workMap = useWorkMap();
-  const joins = createMemo(() => joinsOf(workMap()));
+  const joins = useJoins();
   const turns = createMemo(() => turnWorks(feed.rows(), workMap(), joins()));
   /** THE ROWS IN THE ORDER THE CHAT IS DRAWN: turn by turn, each turn's rows
    *  under its message — so a message sent while a reply is still being
@@ -114,8 +118,8 @@ const ConductorPane: Component<{
           work: works.length === 1 ? (works[0] ?? null) : null,
         };
       },
-      undefined,
       {
+        name: "typedReply",
         equals: (a, b) =>
           a === b ||
           (a !== undefined &&
@@ -177,38 +181,42 @@ const ConductorPane: Component<{
     (event.dataTransfer?.types.includes("Files") ?? false) &&
     absent() === undefined &&
     state().refusal === null;
-  /** Bind the three drag events to the pane itself.
+  /** The pane itself, once it exists. The three drag listeners below are
+   *  bound from the COMPONENT'S own scope against this element rather than
+   *  from inside the `ref` callback, which is no place to register a
+   *  cleanup — `createEventListener` attaches when the element arrives and
+   *  detaches with the pane.
    *
-   *  Imperative, from the ref, for the same reason the terminal's own drop
-   *  path is: this is a static section, not a control, and the alternative is
-   *  an `onDrop` on a `<section>` that a11y linting rightly objects to — the
-   *  honest fix is to attach the listener, not to give the element a role it
-   *  does not have. */
-  const bindDrop = (el: HTMLElement): void => {
-    makeEventListener(el, "dragover", (event: DragEvent) => {
-      if (!takesDrop(event)) return;
-      // Without the preventDefault the browser refuses the drop and then
-      // NAVIGATES to the file when it lands, taking the whole session with it
-      // — the one failure a file drop must never have.
-      event.preventDefault();
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
-      setDropping(true);
-    });
-    makeEventListener(el, "dragleave", (event: DragEvent) => {
-      // `dragleave` fires crossing every child boundary too; only a pointer
-      // that has actually left the pane ends the affordance, or it flickers
-      // its way down the transcript.
-      const next = event.relatedTarget as Node | null;
-      if (next !== null && el.contains(next)) return;
-      setDropping(false);
-    });
-    makeEventListener(el, "drop", (event: DragEvent) => {
-      if (!takesDrop(event)) return;
-      event.preventDefault();
-      setDropping(false);
-      attachDroppedFiles([...(event.dataTransfer?.files ?? [])]);
-    });
-  };
+   *  Imperative, rather than `onDrop` on the element, for the same reason the
+   *  terminal's own drop path is: this is a static section, not a control,
+   *  and an `onDrop` on a `<section>` is something a11y linting rightly
+   *  objects to — the honest fix is to attach the listener, not to give the
+   *  element a role it does not have. */
+  const [paneEl, setPaneEl] = createSignal<HTMLElement>();
+  createEventListener(paneEl, "dragover", (event: DragEvent) => {
+    if (!takesDrop(event)) return;
+    // Without the preventDefault the browser refuses the drop and then
+    // NAVIGATES to the file when it lands, taking the whole session with it
+    // — the one failure a file drop must never have.
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+    setDropping(true);
+  });
+  createEventListener(paneEl, "dragleave", (event: DragEvent) => {
+    // `dragleave` fires crossing every child boundary too; only a pointer
+    // that has actually left the pane ends the affordance, or it flickers
+    // its way down the transcript.
+    const next = event.relatedTarget as Node | null;
+    const el = paneEl();
+    if (next !== null && el?.contains(next)) return;
+    setDropping(false);
+  });
+  createEventListener(paneEl, "drop", (event: DragEvent) => {
+    if (!takesDrop(event)) return;
+    event.preventDefault();
+    setDropping(false);
+    attachDroppedFiles([...(event.dataTransfer?.files ?? [])]);
+  });
 
   /** IS A FILE OPEN. Everything the frame does differently while one is open
    *  follows from this one fact. */
@@ -243,7 +251,7 @@ const ConductorPane: Component<{
 
   return (
     <section
-      ref={bindDrop}
+      ref={setPaneEl}
       data-testid="conductor-pane"
       data-phase={state().phase}
       // NO positioning of its own. The caller supplies it — `absolute inset-0`
@@ -302,24 +310,24 @@ const ConductorPane: Component<{
                   where they were, with their clocks stopped while nobody
                   could see them. */}
               <Show when={!phone()}>
-                <Shown.Provider value={worksShown}>
+                <Shown value={worksShown}>
                   {/* The works scroll inside the column (its
-                      `data-works-scroll`), beside a sidebar that stays put;
-                      this side itself never scrolls. */}
+                    `data-works-scroll`), beside a sidebar that stays put;
+                    this side itself never scrolls. */}
                   <aside
                     data-testid="conductor-side"
                     style={{
                       "content-visibility": reading() ? "hidden" : "visible",
                     }}
                     inert={reading()}
-                    aria-hidden={reading() || undefined}
+                    aria-hidden={reading() ? "true" : undefined}
                     class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${
                       reading() ? "w-0" : ""
                     }`}
                   >
                     <WorkColumn />
                   </aside>
-                </Shown.Provider>
+                </Shown>
               </Show>
               {/* ON A PHONE the works are a view of their own, drawn while
                   the Work tab is chosen and taken down when it is not: the
@@ -360,14 +368,14 @@ const ConductorPane: Component<{
                   contents skipped and out of reach — the conversation is one
                   press away, with the half-typed message and the scroll
                   position still in it. */}
-              <Shown.Provider value={chatShown}>
+              <Shown value={chatShown}>
                 <div
                   data-testid="conductor-chat"
                   style={{
                     "content-visibility": chatAside() ? "hidden" : "visible",
                   }}
                   inert={chatAside()}
-                  aria-hidden={chatAside() || undefined}
+                  aria-hidden={chatAside() ? "true" : undefined}
                   class={`flex min-h-0 w-full min-w-0 flex-col overflow-hidden ${
                     chatAside()
                       ? "order-first"
@@ -396,13 +404,13 @@ const ConductorPane: Component<{
                     }}
                   />
                   {/* A conversation that would not OPEN has no composer under
-                    it: there is nothing to say to an agent that is not there,
-                    and nothing to say at all when the records a restart reads
-                    would not decode. What is offered depends on WHICH of
-                    those happened, which is `ConductorRefusal`'s whole job —
-                    and no status line either way, because the line reports on
-                    a conversation that is running and this one never
-                    started. */}
+                  it: there is nothing to say to an agent that is not there,
+                  and nothing to say at all when the records a restart reads
+                  would not decode. What is offered depends on WHICH of
+                  those happened, which is `ConductorRefusal`'s whole job —
+                  and no status line either way, because the line reports on
+                  a conversation that is running and this one never
+                  started. */}
                   <Show
                     when={state().refusal !== null}
                     fallback={
@@ -415,7 +423,7 @@ const ConductorPane: Component<{
                     <ConductorRefusal state={state()} />
                   </Show>
                 </div>
-              </Shown.Provider>
+              </Shown>
             </div>
             <Show when={phone()}>
               <ConductorPhoneTabs />

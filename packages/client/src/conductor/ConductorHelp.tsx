@@ -9,7 +9,7 @@
  *  on a phone the body scrolls inside the sheet rather than growing past the
  *  window. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import {
   type Component,
   createEffect,
@@ -55,9 +55,12 @@ const sheetChrome = surface({ portalled: true });
  *  else's terminals would be taking clicks and Escape for a view they left. */
 export const ConductorHelpSheet: Component = () => {
   const shown = useShown();
-  createEffect(() => {
-    if (!shown()) helpSheet.close();
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) helpSheet.close();
+    },
+  );
   // FOCUS LANDS ON THE BODY, not on its first link. The only focusable thing
   // in the help is `Full docs` at the bottom, and a dialog that focused it
   // scrolled the sheet to its end on a phone — opening the help with its first
@@ -82,7 +85,7 @@ export const ConductorHelpSheet: Component = () => {
         <div
           ref={setBody}
           data-testid="conductor-help-body"
-          tabIndex={-1}
+          tabindex={-1}
           class="max-h-[80vh] overflow-y-auto px-4 py-3 outline-none"
         >
           {/* Spacing GROUPS: sections stand clear of each other, a section's

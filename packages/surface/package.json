@@ -7,6 +7,7 @@
   "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "//exports": "`./solid/testlib` is what another package's suite needs to drive a `.use()` view — the hand-driven source and the deltas harness — kept off `./solid` so no product's runtime imports a test helper (the same split as `kolu-work/testlib`). It adds no runtime edge: its deps are this package's own, so `nix/consumer-closure.json` is unchanged.",
   "exports": {
     ".": "./src/index.ts",
     "./channel-names": "./src/channelNames.ts",
@@ -39,6 +40,7 @@
     "./time": "./src/time.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
+    "./solid/testlib": "./src/solid/testlib.ts",
     "./solid/SurfaceGate": "./src/solid/SurfaceGate.tsx",
     "./solid/HostStatusPip": "./src/solid/HostStatusPip.tsx",
     "./links/following": "./src/links/following.ts",
@@ -58,20 +60,22 @@
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
+    "@kolu/solid-test-setup": "workspace:*",
+    "@solidjs/vite-plugin": "^3.0.1",
     "@types/node": "^22.0.0",
     "happy-dom": "^21.0.4",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "vite-plugin-solid": "^2.11.0",
     "vitest": "^5.0.3"
   },
   "dependencies": {
     "@effect/platform-browser": "4.1.5",
     "@effect/platform-node": "4.1.5",
     "@kolu/log": "workspace:*",
-    "@solid-primitives/rootless": "^1.5.3",
-    "@solid-primitives/scheduled": "^1.5.3",
+    "@solid-primitives/rootless": "^2.0.0",
+    "@solid-primitives/scheduled": "^2.0.0",
+    "@solidjs/web": "^2.0.4",
     "effect": "4.1.5",
-    "solid-js": "^1.9.0"
+    "solid-js": "^2.0.4"
   }
 }

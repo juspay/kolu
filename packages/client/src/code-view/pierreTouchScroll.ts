@@ -24,7 +24,6 @@
  *  (Originally lived in `MobileCodeSheet.tsx`; restored here after the mobile
  *  Code tab was unified into `CodeTab.tsx` + `RightPanelDrawer.tsx`.) */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { walkShadowRoots } from "../dom/shadowWalk";
 
 /** Below this many pixels of finger travel, a touch is still a tap — let
@@ -80,14 +79,16 @@ export function nextScrollTop(
 }
 
 /** Wire the manual touch-scroll driver onto `container` (the element wrapping
- *  the Pierre tree). Registers a non-passive `touchmove` so `preventDefault`
- *  can suppress iOS native scroll.
+ *  the Pierre tree) and RETURN the disposer that unwires it. Registers a
+ *  non-passive `touchmove` so `preventDefault` can suppress iOS native scroll.
  *
- *  MUST be called synchronously inside a SolidJS reactive owner — a `ref`
- *  callback or `onMount`, never after an `await`. Listener teardown rides on
- *  `makeEventListener`'s `onCleanup`, which silently no-ops outside an owner
- *  and would leak the four listeners. */
-export function attachPierreTouchScroll(container: HTMLElement): void {
+ *  Teardown is the caller's: the driver is attached from an effect whose
+ *  returned cleanup is this disposer (`CodeTab.tsx`), because the places a
+ *  driver is attached from — a `ref` callback, an effect callback — are
+ *  exactly the scopes where registering an `onCleanup` is forbidden
+ *  (CLEANUP_IN_FORBIDDEN_SCOPE). It therefore needs no reactive owner at all
+ *  and can be attached from anywhere, including after an `await`. */
+export function attachPierreTouchScroll(container: HTMLElement): () => void {
   let state: TouchScrollState | null = null;
 
   // Cache the located scroller — re-probing Pierre's whole shadow root on
@@ -141,12 +142,23 @@ export function attachPierreTouchScroll(container: HTMLElement): void {
     state = null;
   };
 
-  // `makeEventListener` registers its own `onCleanup` against the current
-  // reactive owner (hence the call-site requirement below). `{ passive: false }`
-  // on touchmove is load-bearing — it's what lets `preventDefault` suppress
-  // iOS's native scroll.
-  makeEventListener(container, "touchstart", onStart, { passive: false });
-  makeEventListener(container, "touchmove", onMove, { passive: false });
-  makeEventListener(container, "touchend", onEnd);
-  makeEventListener(container, "touchcancel", onEnd);
+  // `{ passive: false }` on touchmove is load-bearing — it's what lets
+  // `preventDefault` suppress iOS's native scroll. Plain listeners, removed by
+  // the returned disposer: nothing here registers an `onCleanup`, so the
+  // driver may be wired from a `ref` callback or an effect callback.
+  //
+  // The removals pass no options: a listener is keyed by type, callback and
+  // CAPTURE alone, and these are all bubble-phase — `passive` is a hint for
+  // the add, never part of the key.
+  const move = { passive: false } as const;
+  container.addEventListener("touchstart", onStart, move);
+  container.addEventListener("touchmove", onMove, move);
+  container.addEventListener("touchend", onEnd);
+  container.addEventListener("touchcancel", onEnd);
+  return () => {
+    container.removeEventListener("touchstart", onStart);
+    container.removeEventListener("touchmove", onMove);
+    container.removeEventListener("touchend", onEnd);
+    container.removeEventListener("touchcancel", onEnd);
+  };
 }

@@ -42,12 +42,36 @@
  *  `decided → seeded` trip — the same span the phase names. Without it the seed
  *  fell back to the saved-session cell, whose post-restore snapshot publishes
  *  behind a synchronous disk write and so routinely arrives AFTER the terminals
- *  it describes. */
+ *  it describes.
+ *
+ *  ── The restore WINDOW ───────────────────────────────────────────────────
+ *  One member here IS reactive, deliberately: {@link HostRestoreLatch.restoreInFlight}
+ *  — true from the click that issues `session.restore` until the seed for that
+ *  restore has run (or the restore failed / its answer expired). It is not a
+ *  gate for this hook's effect (the phase is); it is read by the DERIVED boot
+ *  pick (`createBootPick`), which must answer `null` for the whole window. The
+ *  host re-spawns each parked row under its own id, so mid-restore the census
+ *  shows a live set the marker's row is missing from, and a pick taken then
+ *  names the wrong tile — the camera latches on it, and focus and `isWatched`
+ *  follow it. Reactive because the pick is a memo: it must re-answer on the
+ *  window's edges. */
+import { createSignal, onSettled, runWithOwner } from "solid-js";
+
 export type HydrationPhase = "pending" | "decided" | "seeded";
 
 export interface HostRestoreLatch {
   /** The current phase — a NON-reactive gate the hydration effect reads. */
   readonly phase: HydrationPhase;
+  /** Is a restore this client issued still between its click and its view seed?
+   *  A REACTIVE read, unlike `phase` and `restoredActive` — the derived boot pick
+   *  subscribes to it and answers `null` while it is true. */
+  readonly restoreInFlight: () => boolean;
+  /** Open the restore window (the click that issues `session.restore`). */
+  beginRestore(): void;
+  /** Close it without a seed: the restore failed, was interrupted, or its answer
+   *  never arrived. `markSeeded` and `expireRestoredActive` close it too, so the
+   *  window can never outlive the trip it names. */
+  endRestore(): void;
   /** `pending → decided`: the empty-vs-restore decision has run. Idempotent — a
    *  no-op once past `pending`, so it can never regress a `seeded` host. */
   markDecided(): void;
@@ -89,12 +113,20 @@ export interface HostRestoreLatch {
 export function createSessionRestore(): HostRestoreLatch {
   let phase: HydrationPhase = "pending";
   let restoredActive: { readonly id: string | null } | null = null;
+  const [restoreInFlight, setRestoreInFlight] = createSignal(false);
   return {
     get phase() {
       return phase;
     },
     get restoredActive() {
       return restoredActive;
+    },
+    restoreInFlight,
+    beginRestore() {
+      setRestoreInFlight(true);
+    },
+    endRestore() {
+      setRestoreInFlight(false);
     },
     markDecided() {
       if (phase === "pending") phase = "decided";
@@ -105,6 +137,28 @@ export function createSessionRestore(): HostRestoreLatch {
         // The answer has been spent on THIS seed.
         restoredActive = null;
       }
+      // The seed this restore was waiting for has run: the pick may answer
+      // again — SETTLED, because the one production caller is the hydration
+      // effect's APPLY ARM, whose compute has just read the terminal census.
+      // This flag is read by the DERIVED boot pick, and so by the focus fact,
+      // the tile MRU and the WebGL budget, every one of which folds that same
+      // census: closed inline, they re-run inside the arm's frame against the
+      // list the compute was answering — the judged `EFFECT_RELAY_TEAR`,
+      // advisory once and `warn` from its third sighting, which three restores
+      // in one session reach. An owner-less `onSettled` lands the close in a
+      // later pass of the SAME flush — the pass the seed's own writes land in
+      // — so the window closing and the landing it waited for are one frame
+      // and none is lost. The phase above stays immediate: it is the arm's
+      // non-reactive once-only gate, which a second plan in this same flush
+      // must already find shut. Unowned so the one-shot enqueues instead of
+      // becoming a child effect of the arm (which would carry this very
+      // frame); the write creates no children and registers no cleanup, which
+      // `onSettled` forbids.
+      runWithOwner(null, () => {
+        onSettled(() => {
+          setRestoreInFlight(false);
+        });
+      });
     },
     reseedForRestore() {
       if (phase === "seeded") phase = "decided";
@@ -114,6 +168,8 @@ export function createSessionRestore(): HostRestoreLatch {
     },
     expireRestoredActive() {
       restoredActive = null;
+      // Nothing will seed from this answer, so the window ends here instead.
+      setRestoreInFlight(false);
     },
   };
 }

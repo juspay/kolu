@@ -13,7 +13,7 @@
  */
 
 import { Effect } from "effect";
-import { createRoot } from "solid-js";
+import { createRoot, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeWire } from "../fakeSocket.testlib";
 import { createServerLifecycle } from "./index";
@@ -94,6 +94,8 @@ describe("createServerLifecycle", () => {
       expect(status()).toBe("live");
 
       w.set("closed");
+      // Solid 2 defers the wire's status write; nothing reads it until it flushes.
+      flush();
       expect(lifecycle().kind).toBe("disconnected");
       expect(status()).toBe("down");
 
@@ -149,6 +151,7 @@ describe("createServerLifecycle", () => {
 
       // An ordinary close is a transient drop.
       w.set("closed");
+      flush();
       expect(lifecycle().kind).toBe("disconnected");
 
       // The link's terminal-close classifier retired the wire (the server
@@ -158,6 +161,7 @@ describe("createServerLifecycle", () => {
       // `processId` and `serverProcessId()` reports `undefined` rather than a
       // stale "current" id.
       w.set("retired");
+      flush();
       expect(lifecycle()).toEqual({
         kind: "restarted",
         transport: "closed",
@@ -178,6 +182,7 @@ describe("createServerLifecycle", () => {
       });
       // No open/probe yet → no relationship to lose; stay put.
       w.set("retired");
+      flush();
       expect(lifecycle().kind).toBe("connecting");
       dispose();
     });
@@ -205,6 +210,7 @@ describe("createServerLifecycle", () => {
 
       // A close before any identity never reports a drop (no relationship lost).
       w.set("closed");
+      flush();
       expect(lifecycle().kind).toBe("connecting");
 
       // Next open, probe succeeds: this is the INITIAL connect, not a reconnect.

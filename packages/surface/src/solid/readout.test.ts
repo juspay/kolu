@@ -18,7 +18,7 @@
  * instantly.
  */
 
-import { createComputed, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubHealth, SurfaceHealth } from "./health";
 import type { SurfaceConnectionStatus } from "./liveSignal";
@@ -151,110 +151,136 @@ describe("surfaceReadout", () => {
 
 describe("createSurfaceReadout", () => {
   it("folds once per CHANGE, not once per read", () => {
-    createRoot((dispose) => {
-      const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
-      const [error, setError] = createSignal<Error | undefined>(undefined);
-      // Stand in for the registry's plain accessor, which re-folds the WHOLE
-      // enrolment on every read — the walk this memo exists to stop repeating.
-      const health = vi.fn(
-        (): SurfaceHealth => fact(true, [sub("keys", { error: error() })]),
-      );
+    const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
+    const [error, setError] = createSignal<Error | undefined>(undefined);
+    // Stand in for the registry's plain accessor, which re-folds the WHOLE
+    // enrolment on every read — the walk this memo exists to stop repeating.
+    const health = vi.fn(
+      (): SurfaceHealth => fact(true, [sub("keys", { error: error() })]),
+    );
+    // The signals are driven from OUTSIDE the root, where a transport's frames
+    // and a subscription's errors come from; a write under an owner is
+    // REACTIVE_WRITE_IN_OWNED_SCOPE. Each write is observed after its `flush()`.
+    const { readout, dropReadout, dispose } = createRoot((dispose) => {
       const { readout, dispose: dropReadout } = createSurfaceReadout(
         status,
         health,
       );
-
-      const folds = () => health.mock.calls.length;
-      const before = folds();
-      // Six reads, as six JSX expressions would be: no new walk.
-      for (let i = 0; i < 6; i++) expect(readout().status).toBe("live");
-      expect(folds()).toBe(before);
-
-      setError(new Error("boom"));
-      expect(readout().stopped).toEqual(["keys"]);
-      expect(folds()).toBe(before + 1);
-
-      setStatus("retired");
-      expect(readout().needsReload).toBe(true);
-      expect(folds()).toBe(before + 2);
-
-      dropReadout();
-      dispose();
+      return { readout, dropReadout, dispose };
     });
+
+    const folds = () => health.mock.calls.length;
+    const before = folds();
+    // Six reads, as six JSX expressions would be: no new walk.
+    for (let i = 0; i < 6; i++) expect(readout().status).toBe("live");
+    expect(folds()).toBe(before);
+
+    setError(new Error("boom"));
+    flush();
+    expect(readout().stopped).toEqual(["keys"]);
+    expect(folds()).toBe(before + 1);
+
+    setStatus("retired");
+    flush();
+    expect(readout().needsReload).toBe(true);
+    expect(folds()).toBe(before + 2);
+
+    dropReadout();
+    dispose();
   });
 
   it("notifies nobody while the readout still says the same thing", () => {
-    createRoot((dispose) => {
-      const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
-      const [subs, setSubs] = createSignal<SubHealth[]>([sub("preferences")]);
+    const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
+    const [subs, setSubs] = createSignal<SubHealth[]>([sub("preferences")]);
+    // A split `createEffect`: the compute reads the memo (so it has a live
+    // observer), the effect phase records what it read. Each flush paints at
+    // most once, so the list is the memo's NOTIFICATIONS, not its recomputes.
+    const painted: SurfaceReadoutStatus[] = [];
+    const { dropReadout, dispose } = createRoot((dispose) => {
       const { readout, dispose: dropReadout } = createSurfaceReadout(
         status,
         () => fact(true, subs()),
       );
-      // `createComputed`, not `createEffect`: it tracks in the same synchronous
-      // pass as the signal writes below, so each assertion reads a settled list
-      // without pumping Solid's effect queue. What is under test is the memo's
-      // NOTIFICATION, which is the same either way.
-      const painted: SurfaceReadoutStatus[] = [];
-      createComputed(() => painted.push(readout().status));
-      expect(painted).toEqual(["live"]);
-
-      // Membership churn on a healthy page — a row opens, a terminal
-      // re-subscribes — re-folds to the same (empty) evidence, so no indicator
-      // bound to the readout re-renders.
-      setSubs([sub("preferences"), sub("documents[abc]", { pending: true })]);
-      expect(painted).toEqual(["live"]);
-
-      const stopped = sub("documents.keys", { error: new Error("boom") });
-      setSubs([sub("preferences"), stopped]);
-      expect(painted).toEqual(["live", "degraded"]);
-
-      // Same status AND the same name list: still one paint.
-      setSubs([stopped, sub("preferences")]);
-      expect(painted).toEqual(["live", "degraded"]);
-
-      // The subscription re-delivers; its own error() self-clears, and so does
-      // the readout — nothing latches here that does not latch beneath.
-      setSubs([sub("preferences"), sub("documents.keys")]);
-      expect(painted).toEqual(["live", "degraded", "live"]);
-
-      setStatus("retired");
-      expect(painted).toEqual(["live", "degraded", "live", "retired"]);
-
-      dropReadout();
-      dispose();
+      createEffect(
+        () => readout().status,
+        (status) => {
+          painted.push(status);
+        },
+      );
+      return { dropReadout, dispose };
     });
+    flush(); // the effect's first run lands on the flush after creation
+    expect(painted).toEqual(["live"]);
+
+    // Membership churn on a healthy page — a row opens, a terminal
+    // re-subscribes — re-folds to the same (empty) evidence, so no indicator
+    // bound to the readout re-renders.
+    setSubs([sub("preferences"), sub("documents[abc]", { pending: true })]);
+    flush();
+    expect(painted).toEqual(["live"]);
+
+    const stopped = sub("documents.keys", { error: new Error("boom") });
+    setSubs([sub("preferences"), stopped]);
+    flush();
+    expect(painted).toEqual(["live", "degraded"]);
+
+    // Same status AND the same name list: still one paint.
+    setSubs([stopped, sub("preferences")]);
+    flush();
+    expect(painted).toEqual(["live", "degraded"]);
+
+    // The subscription re-delivers; its own error() self-clears, and so does
+    // the readout — nothing latches here that does not latch beneath.
+    setSubs([sub("preferences"), sub("documents.keys")]);
+    flush();
+    expect(painted).toEqual(["live", "degraded", "live"]);
+
+    setStatus("retired");
+    flush();
+    expect(painted).toEqual(["live", "degraded", "live", "retired"]);
+
+    dropReadout();
+    dispose();
   });
 
   it("stops folding once disposed — the memo does not outlive the connection", () => {
-    createRoot((dispose) => {
-      const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
-      const health = vi.fn((): SurfaceHealth => fact(true));
+    const [status, setStatus] = createSignal<SurfaceConnectionStatus>("live");
+    const health = vi.fn((): SurfaceHealth => fact(true));
+    // OBSERVE the memo first, and keep observing after. Without a live reader
+    // Solid never re-runs a memo at all, so a `dispose` that did nothing would
+    // pass a fold-count assertion just as quietly as one that worked — the
+    // reader is what makes the count evidence.
+    const painted: SurfaceReadoutStatus[] = [];
+    const { readout, dropReadout, dispose } = createRoot((dispose) => {
       const { readout, dispose: dropReadout } = createSurfaceReadout(
         status,
         health,
       );
-      // OBSERVE the memo first, and keep observing after. Without a live reader
-      // Solid never re-runs a memo at all, so a `dispose` that did nothing would
-      // pass a fold-count assertion just as quietly as one that worked — the
-      // reader is what makes the count evidence.
-      const painted: SurfaceReadoutStatus[] = [];
-      createComputed(() => painted.push(readout().status));
-      setStatus("reconnecting");
-      expect(painted).toEqual(["live", "reconnecting"]);
-      const folds = health.mock.calls.length;
-
-      // Now drop the readout's own root. Its memo is gone, so the observer above
-      // is no longer fed and nothing re-walks the fact — which is what keeps a
-      // disposed connection from leaving a standing computation on a registry it
-      // no longer belongs to.
-      dropReadout();
-      setStatus("live");
-      expect(health.mock.calls.length).toBe(folds);
-      expect(painted).toEqual(["live", "reconnecting"]);
-      expect(readout().status).toBe("reconnecting");
-      dispose();
+      createEffect(
+        () => readout().status,
+        (status) => {
+          painted.push(status);
+        },
+      );
+      return { readout, dropReadout, dispose };
     });
+    flush();
+    setStatus("reconnecting");
+    flush();
+    expect(painted).toEqual(["live", "reconnecting"]);
+    const folds = health.mock.calls.length;
+
+    // Now drop the readout's own root. Its memo is gone, so the observer above
+    // is no longer fed and nothing re-walks the fact — which is what keeps a
+    // disposed connection from leaving a standing computation on a registry it
+    // no longer belongs to.
+    dropReadout();
+    setStatus("live");
+    flush();
+    expect(health.mock.calls.length).toBe(folds);
+    expect(painted).toEqual(["live", "reconnecting"]);
+    expect(readout().status).toBe("reconnecting");
+    dispose();
   });
 });
 
@@ -267,46 +293,57 @@ describe("createSurfaceReadout — the graced down-state (presentingDown)", () =
   });
 
   /** Observe a readout's `presentingDown` as a painted list under a root. The
-   *  `await Promise.resolve()` after the mount and after each write flushes
-   *  `gracedDown`'s deferred `createEffect` (Solid runs effects at the end of a
-   *  batch), so its timer arms before the fake clock advances — the pattern
+   *  status is written from OUTSIDE the root (a write under an owner is
+   *  REACTIVE_WRITE_IN_OWNED_SCOPE), and every write is followed by `flush()`:
+   *  writes are staged until it and an effect's run is part of it, so
+   *  `gracedDown`'s timer arms before the fake clock advances, and the show the
+   *  timer writes is readable only after the next one — the pattern
    *  `gracedDown.test.ts` documents. */
-  async function watch(initial: SurfaceConnectionStatus) {
-    return createRoot(async (dispose) => {
-      const [status, setStatus] =
-        createSignal<SurfaceConnectionStatus>(initial);
+  function watch(initial: SurfaceConnectionStatus) {
+    const [status, setStatus] = createSignal<SurfaceConnectionStatus>(initial);
+    const painted: boolean[] = [];
+    const { readout, dispose } = createRoot((dispose) => {
       const { readout } = createSurfaceReadout(status, () => fact(true));
-      const painted: boolean[] = [];
-      createComputed(() => painted.push(readout().presentingDown));
-      await Promise.resolve();
-      return { setStatus, painted, readout, dispose };
+      createEffect(
+        () => readout().presentingDown,
+        (presenting) => {
+          painted.push(presenting);
+        },
+      );
+      return { readout, dispose };
     });
+    flush();
+    return { setStatus, painted, readout, dispose };
   }
 
-  it("never presents a sub-second drop — the watchdog's own recovery window", async () => {
-    const w = await watch("live");
+  it("never presents a sub-second drop — the watchdog's own recovery window", () => {
+    const w = watch("live");
     expect(w.readout().presentingDown).toBe(false);
     w.setStatus("reconnecting");
-    await Promise.resolve();
+    flush();
     // Inside the grace: still false.
     vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 100);
+    flush();
     expect(w.readout().presentingDown).toBe(false);
     // Recovered before the window elapsed: never painted true once.
     w.setStatus("live");
-    await Promise.resolve();
+    flush();
     vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS * 4);
+    flush();
     expect(w.readout().presentingDown).toBe(false);
     expect(w.painted).not.toContain(true);
     w.dispose();
   });
 
-  it("presents a SUSTAINED down-state once the grace elapses", async () => {
-    const w = await watch("live");
+  it("presents a SUSTAINED down-state once the grace elapses", () => {
+    const w = watch("live");
     w.setStatus("reconnecting");
-    await Promise.resolve();
+    flush();
     vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 1);
+    flush();
     expect(w.readout().presentingDown).toBe(false);
     vi.advanceTimersByTime(1);
+    flush();
     expect(w.readout().presentingDown).toBe(true);
     // The instantaneous status never moved with the grace — the dot/probe/client
     // read `reconnecting` from the instant it dropped.
@@ -314,24 +351,25 @@ describe("createSurfaceReadout — the graced down-state (presentingDown)", () =
     w.dispose();
   });
 
-  it("hides INSTANTLY on recovery — no second window on the way down", async () => {
-    const w = await watch("live");
+  it("hides INSTANTLY on recovery — no second window on the way down", () => {
+    const w = watch("live");
     w.setStatus("reconnecting");
-    await Promise.resolve();
+    flush();
     vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
+    flush();
     expect(w.readout().presentingDown).toBe(true);
     w.setStatus("live");
-    await Promise.resolve();
+    flush();
     // No timer advance: the falling edge is instant.
     expect(w.readout().presentingDown).toBe(false);
     expect(w.readout().status).toBe("live");
     w.dispose();
   });
 
-  it("presents `retired` IMMEDIATELY — terminal, so the grace window is bypassed", async () => {
-    const w = await watch("live");
+  it("presents `retired` IMMEDIATELY — terminal, so the grace window is bypassed", () => {
+    const w = watch("live");
     w.setStatus("retired");
-    await Promise.resolve();
+    flush();
     // No timer advance: a retired wire never re-dials, so there is nothing the
     // grace window could hold back. This matches the frozen disposed-connection
     // readout (`connectSurfaces`' `retiredReadout`), which is also `true`.

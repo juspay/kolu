@@ -40,9 +40,20 @@ export function createWidthDrag(
   host: Accessor<HTMLElement | null>,
 ): WidthDrag {
   const hostSize = createElementSize(host);
+  // THE DRAG'S WIDTH, TWICE: a plain variable is the authority and the signal
+  // is its mirror, the shape `scrollLock` already uses. A Solid 2 write is
+  // staged until the flush, so the release reading the signal back would
+  // answer the pre-drag `null` whenever the move and the release land in one
+  // synchronous run — and the drag would store nothing at all.
+  let dragWidth: number | null = null;
   const [dragging, setDragging] = createSignal<number | null>(null);
-  const rendered = (): number =>
-    width.effective(dragging() ?? width.stored(), hostSize.width ?? 0);
+  const drag = (next: number | null) => {
+    dragWidth = next;
+    setDragging(next);
+  };
+  const widthFor = (held: number | null): number =>
+    width.effective(held ?? width.stored(), hostSize.width ?? 0);
+  const rendered = (): number => widthFor(dragging());
   let abort: AbortController | null = null;
   onCleanup(() => abort?.abort());
   return {
@@ -53,20 +64,19 @@ export function createWidthDrag(
       if (e.button !== 0 || abort !== null) return;
       e.preventDefault();
       const startX = e.clientX;
-      const startWidth = rendered();
+      const startWidth = widthFor(dragWidth);
       abort = new AbortController();
       capturePointerGesture(
         {
-          onMove: (ev) =>
-            setDragging(width.clamp(startWidth + (ev.clientX - startX))),
+          onMove: (ev) => drag(width.clamp(startWidth + (ev.clientX - startX))),
           onEnd: () => {
-            const next = dragging();
+            const next = dragWidth;
             if (next !== null) width.set(next);
-            setDragging(null);
+            drag(null);
             abort = null;
           },
           onCancel: () => {
-            setDragging(null);
+            drag(null);
             abort = null;
           },
         },

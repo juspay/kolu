@@ -2,27 +2,26 @@
  *  the lifetime of the calling owner, bound to its elements through refs. */
 
 import { Draggable, Droppable } from "@dnd-kit/dom";
-import {
-  type Accessor,
-  createEffect,
-  type JSX,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { type Accessor, createEffect, onCleanup, onSettled } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { nearestCenter } from "./collision";
 import {
   type DragTransform,
   NO_TRANSFORM,
-  requireDragDropScope,
+  useDragDropScope,
 } from "./DragDropProvider";
 
 export type DraggableHandle = {
   /** The dragged element: what the drag measures and the overlay is sized to. */
   ref: (el: HTMLElement) => void;
-  /** The element a press starts the drag on — the dragged element itself, or
-   *  a grip inside it. dnd-kit's pointer sensor binds it while it is mounted;
-   *  with no handle mounted, the draggable cannot be picked up. */
+  /** The element a press starts the drag on — a grip inside the dragged
+   *  element. The scope's pointer sensor binds the press to THAT element
+   *  alone, so a draggable with no handle bound cannot be picked up. */
   handleRef: (el: HTMLElement) => void;
+  /** Unbinds the handle. A caller whose grip is rendered conditionally calls
+   *  this when that grip goes, so the draggable never keeps a detached node as
+   *  its press target; the calling owner's disposal unbinds it too. */
+  releaseHandle: () => void;
   isActiveDraggable: Accessor<boolean>;
   /** The drag's offset while this one is dragged, else none. */
   transform: Accessor<DragTransform>;
@@ -41,33 +40,46 @@ export function createDraggable(
     disabled?: Accessor<boolean>;
   },
 ): DraggableHandle {
-  const scope = requireDragDropScope("createDraggable");
+  const scope = useDragDropScope();
   const draggable = new Draggable({ id, register: false }, scope.manager);
   draggable.register();
   onCleanup(draggable.destroy);
+  // A ref callback is not a scope a cleanup may be registered in (Solid 2
+  // answers `CLEANUP_IN_FORBIDDEN_SCOPE`), so the element the ref recorded is
+  // held here and unbound either by this factory's own owner or by an explicit
+  // `releaseHandle` from the caller that knows its grip went.
+  let handleEl: HTMLElement | undefined;
+  const releaseHandle = () => {
+    if (handleEl === undefined) return;
+    if (draggable.handle === handleEl) draggable.handle = undefined;
+    handleEl = undefined;
+  };
+  onCleanup(releaseHandle);
   const disabled = options?.disabled;
   if (disabled)
-    createEffect(() => {
-      draggable.disabled = disabled();
-    });
+    createEffect(
+      () => disabled(),
+      (off) => {
+        draggable.disabled = off;
+      },
+    );
   const isActiveDraggable = () => scope.activeId() === id;
   return {
     ref: (el) => {
       draggable.element = el;
     },
     handleRef: (el) => {
+      handleEl = el;
       draggable.handle = el;
-      onCleanup(() => {
-        if (draggable.handle === el) draggable.handle = undefined;
-      });
     },
+    releaseHandle,
     isActiveDraggable,
     transform: () => (isActiveDraggable() ? scope.transform() : NO_TRANSFORM),
   };
 }
 
 export function createDroppable(id: string): DroppableHandle {
-  const scope = requireDragDropScope("createDroppable");
+  const scope = useDragDropScope();
   const droppable = new Droppable(
     {
       id,
@@ -79,8 +91,11 @@ export function createDroppable(id: string): DroppableHandle {
   );
   droppable.register();
   onCleanup(droppable.destroy);
-  // Mounted means in the document, so a drag already under way can measure it.
-  onMount(() => scope.measureArrival(droppable));
+  // Once the first render has settled the element is in the document, so a drag
+  // already under way can measure it.
+  onSettled(() => {
+    scope.measureArrival(droppable);
+  });
   return {
     ref: (el) => {
       scope.attachDroppable(droppable, el);

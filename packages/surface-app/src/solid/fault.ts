@@ -5,7 +5,7 @@
  * A throw while drawing unmounts the subtree that faulted — Solid does that
  * either way; the only choice is between a card that says so and a blank page.
  * This boundary is the framework's half of that card. It CATCHES (an
- * `ErrorBoundary` around whatever it wraps — the composition root wraps the
+ * `Errored` boundary around whatever it wraps — the composition root wraps the
  * whole shell, because a client that threw mid-render is not running the code
  * that would draw any in-app error screen). It RECORDS (one `console.error`
  * naming the moment — a boundary SWALLOWS, and Solid re-throws only when
@@ -29,7 +29,8 @@
  * it's safely consumable from `node_modules`.
  */
 
-import { createComponent, ErrorBoundary, type JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { createComponent, createEffect, Errored } from "solid-js";
 import { thrownText } from "../index";
 
 /** The LOOK of an uncaught throw — the one thing a consumer supplies. Handed
@@ -49,16 +50,24 @@ export interface SurfaceFaultBoundaryProps {
 export function SurfaceFaultBoundary(
   props: SurfaceFaultBoundaryProps,
 ): JSX.Element {
-  return createComponent(ErrorBoundary, {
-    fallback: (error: unknown) => {
+  return createComponent(Errored, {
+    // `Errored` hands its fallback the fault as an ACCESSOR (and a `reset` this
+    // boundary does not offer: a client that threw mid-render is reloaded, not
+    // retried in place). The fallback IS the boundary's render scope — Solid 2
+    // runs it inside the boundary's own computation and an element is what it
+    // must return (a returned FUNCTION is not an `Element` there), so the
+    // accessor is read right here, where that scope tracks it.
+    fallback: (error: () => unknown) => {
       // THE RECORD, and it is not decoration: the boundary swallows, so this
       // line is the only way the fault reaches a console at all. One line
       // naming the moment, the way `createSurfaceSocket` records a retirement.
-      console.error(
-        "surface-app: this client threw while drawing the page —",
-        error,
-      );
-      return props.fault(thrownText(error));
+      createEffect(error, (fault) => {
+        console.error(
+          "surface-app: this client threw while drawing the page —",
+          fault,
+        );
+      });
+      return props.fault(thrownText(error()));
     },
     get children() {
       return props.children;

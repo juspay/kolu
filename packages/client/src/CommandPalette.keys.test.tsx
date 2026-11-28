@@ -1,5 +1,5 @@
-import { createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   type DisplayEntry,
@@ -10,7 +10,7 @@ import {
 // Keep the palette's real list rendering; replace surrounding app services
 // and row decoration with inert surfaces (same seam as
 // CommandPalette.render.test.tsx).
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
   },
@@ -48,6 +48,7 @@ const row = (name: string, index: number): DisplayEntry => ({
   kind: "row",
   cmd: { kind: "action", name, onSelect: () => {} },
   index,
+  segments: [{ text: name, hit: false }],
 });
 
 it("separates entries the tree cannot tell apart", () => {
@@ -69,9 +70,11 @@ it("keeps a distinct row's key stable when its neighbours move", () => {
   );
 });
 
-// The defect this guards: `keyArray` stores one node per key, so a repeated
-// key made the list hand the same node to two entries on the next refresh —
-// a row vanished, and Solid's node bookkeeping stopped matching the DOM.
+// What this guards: every entry gets its own key, so every row is painted and
+// a reorder moves the right node. Solid 2's keyed `mapArray` pairs same-key
+// entries by occurrence order (`newIndices` / `newIndicesNext`,
+// @solidjs/signals 2.0.4 `dist/dev.js`:3537-3560) — nothing vanishes, but two
+// rows sharing a key swap nodes (and node-local state) whenever they move.
 it("paints every same-named row, and keeps painting it across a refresh", () => {
   const tree = (): PaletteItem[] => [
     { kind: "action", name: "spare", onSelect: () => {} },

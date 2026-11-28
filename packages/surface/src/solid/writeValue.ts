@@ -2,132 +2,346 @@
  * The ONE place `@kolu/surface`'s Solid layer merges a server value into a
  * store — and therefore the one place Solid's `reconcile` is imported at all.
  *
- * Objects/arrays go through `reconcile` for fine-grained per-field reactivity;
- * primitives are written by direct assignment.
+ * Objects and arrays go through `reconcile` for fine-grained per-field
+ * reactivity; primitives — and the first frame, which has nothing to merge into
+ * — are written by assignment.
+ *
+ * ── What a merge can carry across frames ──
+ *
+ * `reconcile` ADOPTS the incoming frame: at every level it reaches, the store's
+ * backing BECOMES the frame's own object by a pointer swap, and the nodes that
+ * exist are notified where the two frames disagree (`@solidjs/signals` 2.0.4
+ * `dist/dev.js`: `reconcileState` :6525, `applyAdopt` :6564, `adoptPB` :4364).
+ * Nothing off the wire is cloned, and nothing already in the store is mutated:
+ * a frame handed to the store is frozen by construction, and `snapshot(store)`
+ * is always the newest frame's own objects.
+ *
+ * So the thing a merge can carry across records is not the raw object — it is
+ * the store PROXY, which is the row identity every consumer actually holds: a
+ * `<For>` item, a per-row memo, a component that captured a row. Per array slot,
+ * a merge either hands the proxy standing there the incoming element (it keeps
+ * its identity and its readers are notified field by field) or drops it for a
+ * fresh one (every reader of that row re-reads). `key` is what decides which,
+ * and it decides it PER ELEMENT:
+ *
+ *   - `reconcile(v, "id")` / `reconcile(v, fn)` — the aligned prefix is walked
+ *     positionally while each pair's keys match; from the first misalignment,
+ *     incoming elements are matched to previous ones BY KEY, so a surviving row
+ *     keeps its proxy wherever it moved to and an element matching nothing is
+ *     replaced (`applyAdopt` :6592, `sameRow` :5136);
+ *   - an element whose key reads `undefined` falls back to its POSITION — it
+ *     adopts whatever proxy stands at that index (`applyAdopt` :6592, "keyless
+ *     item: positional fallback");
+ *   - `reconcile(v, null)` makes every element keyless: the whole array merges
+ *     by position — measured here on a 3→4 mid-insert, the proxy that was
+ *     record `b` comes to hold record `mid` and the one that was `c` comes to
+ *     hold `b`. Solid 2 has no spelling of "replace every element" among its
+ *     three documented key forms; the one below is how this module asks for it.
+ *   - a nested OBJECT (not an array element) is merged in place unless both
+ *     sides carry the key and read DIFFERENT, in which case it is replaced
+ *     whole (`descend` :6809). Two `undefined`s are not a mismatch, so a key no
+ *     object outside the arrays carries leaves every object merging per field.
+ *   - at the ROOT, a key that reads different on the two frames is not a
+ *     replacement but a THROW — "Cannot reconcile states with different
+ *     identity" (`reconcileState` :6553). This module answers that case itself
+ *     (see {@link frameMerge}) by replacing, which is what a frame-by-frame
+ *     merge means: the member now holds a different entity.
+ *   - a value `reconcile` cannot reach at all — a `Date`, `Map`, `Set`, typed
+ *     array or class instance — is served RAW by the store (`isWrappable`
+ *     :1969; the draft get traps :5737, :5782 hand such a child back
+ *     unwrapped), so there is no proxy to merge into and `reconcileState`
+ *     :6556 throws "reconcile target is not a store proxy". {@link frameMerge}
+ *     answers that case too, on EITHER side, by replacing.
+ *
+ * A level nothing is observing is skipped: with a key, `descend` adopts only
+ * where a node exists below (`:6837`), so an unread row is replaced whatever the
+ * key says. Identity is preserved exactly where it is observable, which is why
+ * every identity test beside this file OBSERVES the rows it then compares.
  *
  * **Never keyed unless the member SAID so.** `reconcile(next)` defaults to
  * `key: "id"`: it assumes every array element carries a top-level `id` and that
  * that field is the element's IDENTITY. A framework merging ARBITRARY app
  * payloads has no basis for either half of that assumption, and inheriting it
  * from a library default is how the assumption gets made without anyone deciding
- * to make it.
+ * to make it. Worse under the default than under any explicit key: a payload
+ * that did not happen to name a field `id` reads EVERY element's key as
+ * `undefined`, which is the positional fallback above — the guess silently
+ * degrades to the one behaviour this module exists to avoid.
  *
- * What the key actually decides is which PREVIOUS OBJECTS survive a merge. When
- * every element's key reads `undefined` — the shape of any payload that didn't
- * happen to name a field `id` — Solid's diff treats them all as the same key, so
- * it RECYCLES the previous row objects positionally and mutates the new record's
- * fields into them. Measured on a 3→4 mid-insert: the keyed default reuses 3 of 4
- * row objects, and the object that was record `b` comes to hold record `mid`. Any
- * consumer that reads identity rather than position — a `<For>` keyed by
- * reference, a memo that caches per row, a component holding a row across
- * frames — is then looking at a row whose identity says one thing and whose
- * fields say another. That is the shape of the downstream report this file's
- * default comes from: a live view that dropped and duplicated records on exactly
- * the edits that MOVE them (mid-insert, mid-delete, reorder), while end-appends
- * and in-place rewrites — the two edits that move nothing — stayed green.
+ * The downstream report this file's default comes from is exactly that shape: a
+ * live view that dropped and duplicated records on the edits that MOVE them
+ * (mid-insert, mid-delete, reorder), while end-appends and in-place rewrites —
+ * the two edits that move nothing — stayed green.
  *
- * So an UNDECLARED merge passes `{ key: null }`: an element is replaced rather
- * than recycled, and no object is ever carried across records. A collection's
- * keyed dictionary is not merged here at all — `useCollectionDeltas` owns its
- * store and writes the keys a frame NAMES, replacing each leaf whole for the same
- * replaced-rather-than-recycled reason, and it stays outside this seam (a fold may
- * be holding the very object a merge would mutate).
+ * ── The UNDECLARED spelling: replaced, never recycled ──
  *
- * **Stated precisely, because the alternative invites overclaiming:** on Solid
- * 1.9 both spellings produce the same VALUES (checked across 4,000 randomised
- * shape × edit pairs — keyless rows, `id` rows, repeated-`id` rows, nested
- * arrays); what they differ in is object identity, and therefore which consumers
- * notify and what a reference-keyed reader sees. The suite beside this file pins
- * the identity law, not a value diff, because the value diff is not where the
- * defect lives.
+ * An undeclared member passes a key FUNCTION that answers for the INCOMING
+ * frame's array elements and `undefined` for everything else
+ * ({@link freshElementKey}). Every clause of the law falls out of that one
+ * asymmetry, because the previous frame's objects are never the incoming
+ * frame's:
+ *
+ *   - an element of the previous frame reads `undefined` and an incoming
+ *     element reads a key, so the aligned prefix breaks at the first slot and
+ *     the by-key match finds nothing: every element is REPLACED, and no proxy
+ *     ever comes to hold a record it did not already hold;
+ *   - a nested object reads `undefined` on both sides, so it keeps merging per
+ *     field — an unchanged leaf beside a changed one still notifies nobody;
+ *   - the root reads `undefined`, so the root identity throw cannot fire.
+ *
+ * The frame is walked once to tag its array elements. The walk STOPS at an
+ * element (it is replaced, so no merge ever descends into one), so it costs the
+ * object spine plus one tag per element — an order below the decode that just
+ * produced the frame, and nothing per unchanged leaf.
+ *
+ * **Stated precisely, because the alternative invites overclaiming:** both
+ * spellings produce the same VALUES; what they differ in is proxy identity, and
+ * therefore which consumers notify and what a reference-keyed reader sees. The
+ * suite beside this file pins the identity law, not a value diff, because the
+ * value diff is not where the defect lives.
  *
  * ── What replacing every element COSTS, and the declaration that pays for it ──
  *
- * Replacing is safe and it is also total: nothing off the wire is `===` what came
- * before, so a frame REPEATING what the store already holds still replaces every
- * element and still notifies every reader of every array. A live view redrawn on
- * each keystroke pays a full teardown of every keyed `<For>` under it per frame,
- * and every per-row binding re-runs for every row for a one-character change in
- * one row. The measurement (the downstream audit's §6 replay, reproduced in this
- * file's suite): an identical frame notifies `rows[$TRACK]` once and
- * `rows[0].node.title` once. Zero is what those numbers should be.
+ * Replacing is safe and it is also total: nothing off the wire is `===` what
+ * came before, so a frame REPEATING what the store already holds still replaces
+ * every element and still notifies every reader of every array. A live view
+ * redrawn on each keystroke pays a full teardown of every keyed `<For>` under it
+ * per frame, and every per-row binding re-runs for every row for a
+ * one-character change in one row. Measured in this file's suite: an identical
+ * frame notifies `rows[$TRACK]` once and `rows[0].node.title` once. Zero is what
+ * those numbers should be — and zero is what they are once a key is declared.
  *
  * The framework cannot fix that by guessing better — the guess is the defect. It
  * fixes it by being TOLD: a cell or stream spec declares an `arrayKey` (see
  * `../define.ts`) — the field that identifies an element of an array inside that
- * member's value — and the declaration travels on the member's DESCRIPTOR, so the
- * definition site, not the use site, is where the answer lives. A declared merge
- * passes `{ key: <that field>, merge: true }`:
+ * member's value — and the declaration travels on the member's DESCRIPTOR, so
+ * the definition site, not the use site, is where the answer lives. A declared
+ * merge passes that field as the key:
  *
  *   - an array whose elements carry the field is diffed BY IT — a repeated frame
- *     recycles every element and notifies nothing; a reorder MOVES the objects a
+ *     recycles every element and notifies nothing; a reorder MOVES the proxies a
  *     keyed `<For>` is following instead of rebuilding its DOM;
- *   - an array whose elements do NOT carry it is merged BY POSITION (`merge:
- *     true`), which is likewise silent on a repeated frame. This is the declared
- *     reach of the key, not a fallback around it: the member named one identity,
- *     and for arrays that identity does not describe, position is what is left.
- *     A consumer that needs those elements' identity declares THEIR field instead
- *     (the declaration is one field per member, because Solid's `reconcile` takes
- *     one) or reads them by value.
+ *   - an array whose elements do NOT carry it is merged BY POSITION, which is
+ *     likewise silent on a repeated frame. This is the declared reach of the
+ *     key, not a fallback around it: the member named one identity, and for
+ *     arrays that identity does not describe, position is what is left. A
+ *     consumer that needs those elements' identity declares THEIR field instead
+ *     (the declaration is one field per member, because `reconcile` takes one)
+ *     or reads them by value.
  *
  * **The named field must be REQUIRED and NON-NULLABLE on the element**, and that
- * is a property of the schema because it cannot be one of the merge: Solid picks
- * keyed-versus-positional for a WHOLE array by reading `target[0][key]` alone, so
- * an optional field lets whichever row happens to be first in a frame decide how
- * every other row is merged. What that costs is stated exactly, because it is
- * smaller than it sounds: identity PRESERVATION, never correctness. An object
- * survives a position only when its key MATCHES the one already standing there —
- * a key that reads different replaces — so the worst an optional field can do is
- * drop that array's frame back to the undeclared behaviour. It cannot recycle an
- * object onto a record it did not already hold. The O(1) check cannot tell those
- * two cases apart either, which is why the constraint lives in the schema, where
- * it is unrepresentable rather than merely unadvised.
+ * is a property of the schema because it cannot be one of the merge. Solid 2
+ * decides keyed-versus-positional PER ELEMENT, so an optional field does not
+ * cost an array its keyed diff — it costs the rows that are missing it their
+ * identity, one at a time and invisibly: a row whose key reads `undefined`
+ * takes the positional fallback and ADOPTS the proxy standing at its index,
+ * which under a declared key is some other record's row. Measured: against
+ * `[{key:"a"},{key:"b"}]`, the frame `[{n:2},{key:"a"}]` hands `a`'s proxy to
+ * the keyless row. That is the recycling the undeclared default exists to
+ * prevent, reappearing inside a declaration that was supposed to prevent it —
+ * so the field is made unrepresentable-when-absent in the schema, which is the
+ * only place it CAN be made unrepresentable: the merge sees values, not schemas.
  *
  * The declared field is IDENTITY WHEREVER IT APPEARS, not only inside arrays: a
  * nested object that happens to carry it is merged in place while it reads the
- * same, and REPLACED WHOLE the moment it reads different. That is the same
- * sentence as the array rule, applied to a value the member did not put in a
- * list, and it is coherent — the field said what the object IS, and it now says
- * something else — but it is a consequence worth knowing before naming a field
- * that also lives outside the rows it was chosen for.
+ * same, and REPLACED WHOLE the moment it reads different. At the member's root
+ * that same mismatch is Solid's "different identity" throw rather than a
+ * replacement, so this module makes it a replacement — the only reading a
+ * frame-by-frame merge admits.
  *
- * An undeclared member is unchanged in every particular — same `{ key: null }`,
- * same replaced-never-recycled law, same suite pinning it.
+ * An undeclared member is replaced-never-recycled, and the suite beside this
+ * file pins it. The objects that law protects are the store's PROXIES: a frame
+ * is adopted by pointer swap and never mutated, so a row's identity is the
+ * proxy standing at its slot, not the frame object behind it.
  */
 
-import type { SetStoreFunction } from "solid-js/store";
-import { reconcile } from "solid-js/store";
+import { isWrappable, reconcile, type StoreSetter } from "solid-js";
 
-/** Merge `next` into a store under the member's DECLARED array identity — the only
- *  merge this package performs (see the module docstring for what `arrayKey`
- *  buys, what `key: null` costs, and why the honest default is to be told rather
- *  than to guess). Exported so the other store-writing seams in
- *  `@kolu/surface/solid` reach the merge through this module rather than importing
- *  `reconcile` and re-deciding the question.
+/** The key an INCOMING frame's array element answers under an undeclared
+ *  member. Any defined value does: the previous frame's elements are not in the
+ *  tag map, so their key reads `undefined` and no incoming element can ever
+ *  match one. Distinctness would buy nothing — matches are looked up in the
+ *  PREVIOUS frame's keys, which are all `undefined` and therefore not indexed at
+ *  all (`applyAdopt` :6592). */
+const ELEMENT_OF_THIS_FRAME = true;
+
+/** Tag every array element reachable in `next` — at any depth — and answer with
+ *  the element key `reconcile` reads.
  *
- *  `arrayKey` undefined ⇒ elements are replaced, never recycled. */
-export function reconcileFrame<T>(next: T, arrayKey?: string) {
-  return reconcile(
-    next as Record<string, unknown>,
-    arrayKey === undefined
-      ? { key: null }
-      : // `merge: true` is what routes an array the key does NOT describe to a
-        // positional merge instead of Solid's all-keys-are-`undefined` diff. Both
-        // land positionally; the explicit branch is the one that says so.
-        { key: arrayKey, merge: true },
-  ) as unknown as (prev: T) => T;
+ *  The walk does NOT descend into an element: an element is replaced by this
+ *  very key, so no merge ever descends into one either, and arrays nested inside
+ *  one are never paired with anything. What it costs is the object spine plus
+ *  one tag per element.
+ *
+ *  The map doubles as the walk's cycle guard (`false` = visited spine), because
+ *  a frame is not guaranteed acyclic: the in-process link passes values through
+ *  without serialization, the same reason `framesEqual` carries one. */
+function freshElementKey(next: object): (item: unknown) => unknown {
+  const tags = new WeakMap<object, boolean>();
+  const walk = (value: unknown): void => {
+    if (value === null || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const element of value) {
+        if (element !== null && typeof element === "object") {
+          tags.set(element as object, ELEMENT_OF_THIS_FRAME);
+        }
+      }
+      return;
+    }
+    if (tags.has(value)) return;
+    tags.set(value, false);
+    for (const key in value as Record<string, unknown>) {
+      walk((value as Record<string, unknown>)[key]);
+    }
+  };
+  walk(next);
+  return (item: unknown) =>
+    typeof item === "object" && item !== null && tags.get(item) === true
+      ? ELEMENT_OF_THIS_FRAME
+      : undefined;
+}
+
+/** Solid's own rule for "can a merge reach into this value?", imported rather
+ *  than restated so this module cannot drift from the check it is pre-empting:
+ *  a plain object, a null-prototype object or an array is WRAPPABLE; a `Date`,
+ *  `Map`, `Set`, typed array, `RegExp` or class instance is not
+ *  (`@solidjs/signals` 2.0.4 `dist/dev.js` `isWrappable` :1969). The store
+ *  serves an unwrappable child RAW (the draft get traps :5709, :5754), so there
+ *  is no store proxy at that slot for `reconcileState` :6528 to merge into.
+ *
+ *  The `typeof` half is the narrowing `isWrappable`'s own signature cannot give
+ *  from `unknown` — it is the same question asked twice, never a second rule. */
+function mergeable(value: unknown): value is object {
+  return typeof value === "object" && value !== null && isWrappable(value);
+}
+
+/** The merge to run for this frame, or `null` when `next` must REPLACE what
+ *  stands there rather than merge into it.
+ *
+ *  Three cases replace. Either side is something a merge cannot reach
+ *  ({@link mergeable}): nothing mergeable stands there yet (the first frame, or
+ *  a primitive where an object now arrives), or one of the two frames is a
+ *  `Date`/`Map`/`Set`/class instance, which the store serves raw — merging
+ *  into one throws "reconcile target is not a store proxy" on the SECOND frame,
+ *  and merging one IN would leave a non-proxy as a container's backing. A
+ *  member whose value is such a thing is REPLACED whole, frame for frame, which
+ *  is the only merge its shape admits. And, under a declared key, a root whose
+ *  key reads DIFFERENT from the incoming one: that is a different entity, which
+ *  `reconcileState` :6553 answers with a throw rather than a replacement, while
+ *  a replacement is what the member means. A root key that reads `undefined` on
+ *  the standing value is no mismatch — the member's key simply does not
+ *  describe the root — and merges. */
+function frameMerge<T extends object>(
+  prev: unknown,
+  next: T,
+  arrayKey: string | undefined,
+): ((state: object) => unknown) | null {
+  if (!mergeable(prev) || !mergeable(next)) return null;
+  if (arrayKey === undefined) {
+    return reconcile<T, object>(next, freshElementKey(next));
+  }
+  const was = (prev as Record<string, unknown>)[arrayKey];
+  const now = (next as Record<string, unknown>)[arrayKey];
+  // `sameKey`'s rule (:3876), so this agrees with the check it is pre-empting:
+  // identical, or both `NaN`.
+  if (
+    was !== undefined &&
+    !(was === now || (Number.isNaN(was) && Number.isNaN(now)))
+  ) {
+    return null;
+  }
+  return reconcile<T, object>(next, arrayKey);
+}
+
+/** Merge `next` into a store ROOT under the member's DECLARED array identity —
+ *  the merge `useCell`'s local store performs on a whole value (see the module
+ *  docstring for what `arrayKey` buys and what an undeclared member gets
+ *  instead). Exported so the other store-writing seams in `@kolu/surface/solid`
+ *  reach the merge through this module rather than importing `reconcile` and
+ *  re-deciding the question.
+ *
+ *  `arrayKey` undefined ⇒ array elements are replaced, never recycled. */
+export function reconcileFrame<T extends object>(
+  next: T,
+  arrayKey?: string,
+): (state: T) => T | undefined {
+  return (state) => {
+    const merge = frameMerge(state, next, arrayKey);
+    // A setter callback that RETURNS a value replaces: every root key the frame
+    // carries is written by reference and every key it drops is deleted, which
+    // is the replacement a root identity change means.
+    if (merge === null) return next;
+    merge(state);
+  };
 }
 
 /** Write `next` into the wrapped `{ v: T }` store at the `"v"` key, under the
- *  member's declared array identity (see {@link reconcileFrame}). */
+ *  member's declared array identity (see {@link reconcileFrame}). The wrapper is
+ *  what lets a member's value be of ANY shape — a primitive, or an object a
+ *  merge can reach — while the store itself stays an object. */
 export function writeWrappedValue<T>(
-  setStore: SetStoreFunction<{ v: T | undefined }>,
+  setStore: StoreSetter<{ v: T | undefined }>,
   next: T,
   arrayKey?: string,
 ): void {
-  if (next !== null && typeof next === "object") {
-    setStore("v", reconcileFrame(next, arrayKey) as unknown as T | undefined);
-  } else {
-    setStore("v", next);
+  if (next === null || typeof next !== "object") {
+    setStore((draft) => {
+      draft.v = next;
+    });
+    return;
   }
+  const frame: object = next;
+  setStore((draft) => {
+    const prev: unknown = draft.v;
+    const merge = frameMerge(prev, frame, arrayKey);
+    if (merge === null || !mergeable(prev)) {
+      draft.v = next;
+      return;
+    }
+    merge(prev);
+  });
+}
+
+/** Merge `next` into the value a DRAFT DICTIONARY holds at `key` — the merge the
+ *  batched `deltas` store performs on one entry a frame named
+ *  (`./useCollection.ts`'s `applySnapshot`/`applyDelta`), under the collection's
+ *  declared array identity (see {@link reconcileFrame} for what that buys).
+ *
+ *  `prev` is what the store holds at `key` RIGHT NOW, handed in rather than read
+ *  back out of the draft: the deltas store keeps a plain mirror of its dictionary
+ *  beside it, and that mirror IS the store's backing by reference — a frame is
+ *  adopted by pointer swap, never cloned — so the question "can a merge reach
+ *  into what stands there?" is answered without walking the draft at all. The
+ *  draft is read only on the path that then merges into it, which is the one
+ *  place a mutation proxy for that entry has to exist.
+ *
+ *  A key the dictionary does not hold yet (`prev` undefined), a primitive on
+ *  either side, or a value a merge cannot reach is ASSIGNED — the same three
+ *  replacements {@link writeWrappedValue} makes, for the same reasons.
+ *
+ *  The entry the store already adopted is NOT written through: `reconcile` adopts
+ *  the incoming frame at every level it reaches (`@solidjs/signals` 2.0.4
+ *  `dist/dev.js` `adoptPB` :4364 — "the incoming object becomes the backing by
+ *  reference at the fold — no clones, no user-object mutation"), so a `fold`
+ *  consumer holding a previous frame's object keeps it frozen, exactly as it did
+ *  when every entry was replaced whole. What the merge changes is which READERS
+ *  wake: the entry's leaf readers where the two frames disagree, instead of every
+ *  reader under that key for the one leaf that moved. */
+export function writeEntryValue<T>(
+  draft: Record<string, T>,
+  key: string,
+  prev: unknown,
+  next: T,
+  arrayKey?: string,
+): void {
+  if (next === null || typeof next !== "object") {
+    draft[key] = next;
+    return;
+  }
+  const merge = frameMerge(prev, next as T & object, arrayKey);
+  if (merge === null) {
+    draft[key] = next;
+    return;
+  }
+  merge(draft[key] as object);
 }

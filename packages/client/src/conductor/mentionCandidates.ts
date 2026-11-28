@@ -33,7 +33,6 @@ import {
   type NeedsYou,
   type Work,
   type WorkId,
-  type WorkRow,
   workIdParts,
 } from "kolu-work";
 import {
@@ -94,6 +93,36 @@ const distinctPart = (id: WorkId): string =>
       workSlug(key.kind === "branch" ? key.branch : key.id.slice(-8)),
   });
 
+/** A WORK AS THE MENU READS IT — the two things a row says about a work (the
+ *  title it is named by and where it stands), read off the record ONCE. The
+ *  menu is drawn over the whole collection, so reading them per work is what
+ *  keeps a work that moved from re-reading every other work's record. */
+export interface WorkMention {
+  readonly work: WorkId;
+  /** The record as the MIRROR holds it, which is what a face handed this row
+   *  reads its own leaves off (`WorkChipFace`). The two readings below are
+   *  folded from the snapshot instead, so a row that names a work does not
+   *  subscribe every leaf of it. */
+  readonly record: Work;
+  readonly title: string;
+  readonly standing: string;
+}
+
+/** ONE WORK'S OWN MENU READING. The standing is the CARD's own lead, not a
+ *  second vocabulary for where a work stands: "Needs you", "Agents at work",
+ *  "CI running", "Merged". */
+export const workMentionOf = (
+  work: WorkId,
+  record: Work,
+  /** What the row hands on — the mirror's record where the two differ. */
+  held: Work = record,
+): WorkMention => ({
+  work,
+  record: held,
+  title: record.title,
+  standing: standingLine(record, Option.none()).lead,
+});
+
 /** EVERY WORK'S OWN WORD after `@`, in the order given. A work is its title's
  *  slug ({@link workSlug}) while that slug is its alone; one that another
  *  work also slugs to, or that a terminal is already called (`taken`), adds
@@ -102,18 +131,18 @@ const distinctPart = (id: WorkId): string =>
  *  with one title (a work stopped and opened again on a new branch) can both
  *  be picked. */
 function workWords(
-  works: ReadonlyArray<readonly [WorkId, Work]>,
+  works: ReadonlyArray<WorkMention>,
   taken: ReadonlySet<string>,
 ): ReadonlyArray<string> {
-  const bases = works.map(([, work]) => workSlug(work.title));
+  const bases = works.map((one) => workSlug(one.title));
   const count = new Map<string, number>();
   for (const base of bases) count.set(base, (count.get(base) ?? 0) + 1);
   const used = new Set<string>(taken);
-  return works.map(([id], at) => {
+  return works.map((one, at) => {
     const base = bases[at] ?? "work";
     let word =
       (count.get(base) ?? 0) > 1 || taken.has(base)
-        ? `${base}-${distinctPart(id)}`
+        ? `${base}-${distinctPart(one.work)}`
         : base;
     for (let n = 2; used.has(word); n += 1) word = `${base}-${n}`;
     used.add(word);
@@ -126,30 +155,33 @@ function workWords(
  *  lists them — in progress oldest first, then the finished ones. `taken` is
  *  the terminals' names, which no work's word may be. */
 export function workMentionCandidates(
-  works: ReadonlyArray<WorkRow>,
+  works: ReadonlyArray<WorkMention>,
   needs: ReadonlyArray<NeedsYou>,
   taken: ReadonlySet<string>,
 ): WorkCandidate[] {
-  const byId = new Map<WorkId, Work>(works);
-  const order = [...needs.map((one) => one.work), ...works.map(([id]) => id)];
+  const byId = new Map<WorkId, WorkMention>(
+    works.map((one) => [one.work, one]),
+  );
+  const order = [
+    ...needs.map((one) => one.work),
+    ...works.map((one) => one.work),
+  ];
   const seen = new Set<WorkId>();
-  const rows: Array<readonly [WorkId, Work]> = [];
+  const rows: WorkMention[] = [];
   for (const id of order) {
-    const record = byId.get(id);
-    if (record === undefined || seen.has(id)) continue;
+    const one = byId.get(id);
+    if (one === undefined || seen.has(id)) continue;
     seen.add(id);
-    rows.push([id, record]);
+    rows.push(one);
   }
   const words = workWords(rows, taken);
-  return rows.map(([id, record], at) => ({
+  return rows.map((one, at) => ({
     kind: "work",
-    work: id,
-    title: record.title,
-    name: words[at] ?? workSlug(record.title),
-    record,
-    // The card's own lead, not a second vocabulary for where a work
-    // stands: "Needs you", "Agents at work", "CI running", "Merged".
-    standing: standingLine(record, Option.none()).lead,
+    work: one.work,
+    title: one.title,
+    name: words[at] ?? workSlug(one.title),
+    record: one.record,
+    standing: one.standing,
   }));
 }
 

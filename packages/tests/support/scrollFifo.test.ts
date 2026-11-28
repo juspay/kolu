@@ -30,8 +30,8 @@ test("retireScrollFifo kills the cat and removes the dir when the fire step neve
   assert.ok(pid !== undefined, "cat did not start");
 
   // A failed assertion must not leave the live `cat` behind: it holds this
-  // process open, so the failure would surface as a hung lane, not a red one
-  // (this file is also imported by every Cucumber process via `support/**`).
+  // process open, so the failure would surface as a hung `node --test` run,
+  // not a red one.
   try {
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline && !catStillListed(fifo)) {

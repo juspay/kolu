@@ -36,7 +36,8 @@
  * doesn't use.
  */
 
-import { type Accessor, createMemo, type JSX } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { type GateStatus, gateStatus, type SurfaceHealth } from "./health";
 
 /** The framework's neutral defaults — apps pass `readyColor`/`notReadyTone` to
@@ -138,11 +139,13 @@ export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
   });
   return (
     <span
-      class={`inline-block h-1.5 w-1.5 rounded-full ${props.class ?? ""}`}
-      classList={{
-        "motion-safe:animate-pulse":
-          (props.pulse ?? true) && display() !== "ready",
-      }}
+      class={[
+        `inline-block h-1.5 w-1.5 rounded-full ${props.class ?? ""}`,
+        {
+          "motion-safe:animate-pulse":
+            (props.pulse ?? true) && display() !== "ready",
+        },
+      ]}
       style={{ background: color() }}
       // The folded verdict, exposed for CSS theming — green is CSS-ownable via
       // `[data-health="ready"]` without an app being able to set it imperatively.

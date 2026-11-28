@@ -5,8 +5,8 @@
  *  opened in, the other view's navigation does not close it, and a jump made
  *  in one view does not move the other's toggle or get used up by it. */
 
-import { createSignal, type JSX } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import {
   afterAll,
   afterEach,
@@ -42,10 +42,7 @@ afterEach(() => {
 const mount = (body: () => JSX.Element): void => {
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(
-    () => <Shown.Provider value={() => true}>{body()}</Shown.Provider>,
-    host,
-  );
+  dispose = render(() => <Shown value={() => true}>{body()}</Shown>, host);
 };
 
 const draft = {
@@ -63,12 +60,12 @@ const VIEW_B = { kind: "terminal", id: "view-b-terminal" } as const;
 function twoViews(a: CommentViewState, b: CommentViewState) {
   mount(() => (
     <>
-      <CommentView.Provider value={a}>
+      <CommentView value={a}>
         <CommentComposer queue={VIEW_A} />
-      </CommentView.Provider>
-      <CommentView.Provider value={b}>
+      </CommentView>
+      <CommentView value={b}>
         <CommentComposer queue={VIEW_B} />
-      </CommentView.Provider>
+      </CommentView>
     </>
   ));
 }
@@ -80,6 +77,9 @@ describe("two comment-capturing views mounted at once", () => {
     twoViews(a, b);
 
     a.composer.open(draft);
+    // Opening a draft is a staged write: the popover is drawn on the flush
+    // that follows, exactly as a user sees it a frame after their selection.
+    flush();
     expect(composers()).toHaveLength(1);
 
     const box = document.querySelector<HTMLTextAreaElement>(
@@ -88,12 +88,15 @@ describe("two comment-capturing views mounted at once", () => {
     if (!box) throw new Error("no composer text box");
     box.value = "Tighten this";
     box.dispatchEvent(new Event("input", { bubbles: true }));
+    // The typed body lands on the next flush; the click below is a later turn.
+    flush();
     const save = Array.from(
       document.querySelectorAll<HTMLButtonElement>(
         "[data-testid=kolu-comment-composer] button",
       ),
     ).find((button) => button.textContent?.startsWith("Save"));
     save?.click();
+    flush();
 
     expect(
       useComments(VIEW_A)
@@ -112,6 +115,7 @@ describe("two comment-capturing views mounted at once", () => {
     a.composer.open(draft);
     // What a Code view does when what it shows changes.
     b.composer.close();
+    flush();
 
     expect(a.composer.target()).not.toBeNull();
     expect(composers()).toHaveLength(1);
@@ -156,8 +160,8 @@ describe("two comment-capturing views mounted at once", () => {
       const [shown] = createSignal({ host: "local", terminalId });
       mount(() => (
         <>
-          <CommentView.Provider value={a}>{null}</CommentView.Provider>
-          <CommentView.Provider value={b}>
+          <CommentView value={a}>{null}</CommentView>
+          <CommentView value={b}>
             <BrowseFileDispatcher
               at={shown()}
               comments={{ kind: "terminal", id: terminalId }}
@@ -171,7 +175,7 @@ describe("two comment-capturing views mounted at once", () => {
               repoVault={{ paths: [], pending: false }}
               theme="dark"
             />
-          </CommentView.Provider>
+          </CommentView>
         </>
       ));
       return { comment, a, b };

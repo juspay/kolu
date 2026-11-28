@@ -30,11 +30,12 @@ async function* fromArray<T>(items: T[]): AsyncGenerator<T> {
   for (const item of items) yield item;
 }
 
-/** Drain several macrotasks. `createReactiveSubscription` wraps the iife in
- *  a `createEffect`, whose initial run is deferred. One tick covers signal
- *  propagation, one for factory resolution, one for the async iterator's
- *  first `next()`, one for store update — four is comfortable. */
-async function flush(ticks = 4): Promise<void> {
+/** Drain several macrotasks. `createReactiveSubscription` opens its fiber in an
+ *  effect's EFFECT PHASE, which runs on a flush rather than at creation. One tick
+ *  covers that flush and signal propagation, one for factory resolution, one for
+ *  the async iterator's first `next()`, one for the store update — four is
+ *  comfortable. */
+async function settle(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await new Promise<void>((r) => setTimeout(r, 0));
   }
@@ -54,7 +55,7 @@ describe("createReactiveSubscription", () => {
                 return streamOf(fromArray([1]));
               },
             );
-            await flush();
+            await settle();
             resolve({ v: sub() as undefined, p: sub.pending() });
             dispose();
           });
@@ -75,7 +76,7 @@ describe("createReactiveSubscription", () => {
             () => stream.source,
           );
           stream.push(42);
-          await flush();
+          await settle();
           resolve({ v: readSub(sub), p: sub.pending() });
           stream.close();
           dispose();
@@ -97,7 +98,7 @@ describe("createReactiveSubscription", () => {
               return streamOf(fromArray([1]));
             },
           );
-          await flush();
+          await settle();
           resolve();
           dispose();
         });
@@ -117,9 +118,9 @@ describe("createReactiveSubscription", () => {
             inputs.push(i);
             return streamOf(fromArray([1]));
           });
-          await flush();
+          await settle();
           setInput("B");
-          await flush();
+          await settle();
           resolve();
           dispose();
         });
@@ -146,17 +147,17 @@ describe("createReactiveSubscription", () => {
             return s.source;
           });
 
-          await flush();
+          await settle();
           streams.get("A")?.push(1);
-          await flush();
+          await settle();
           const before = readSub(sub);
 
           setInput("B");
-          await flush();
+          await settle();
           const afterChange = sub();
 
           streams.get("B")?.push(2);
-          await flush();
+          await settle();
           const afterYield = readSub(sub);
 
           resolve({ before, afterChange, afterYield });
@@ -188,17 +189,17 @@ describe("createReactiveSubscription", () => {
               },
             );
 
-            await flush();
+            await settle();
             streams.get("A")?.push(1);
-            await flush();
+            await settle();
             // pending=false now
 
             setInput("B");
-            await flush();
+            await settle();
             const mid = sub.pending();
 
             streams.get("B")?.push(2);
-            await flush();
+            await settle();
             const after = sub.pending();
 
             resolve({ mid, after });
@@ -226,19 +227,19 @@ describe("createReactiveSubscription", () => {
             return s.source;
           });
 
-          await flush();
+          await settle();
           // No items yielded for A yet — its iife is parked on iterable.next().
           setInput("B");
-          await flush();
+          await settle();
 
           // Push to A's old stream after the abort. The aborted iife wakes,
           // checks signal.aborted, and breaks before setStore.
           streams.get("A")?.push(99);
-          await flush();
+          await settle();
 
           // Push to B's new stream — should land.
           streams.get("B")?.push(2);
-          await flush();
+          await settle();
 
           resolve(sub());
           for (const s of streams.values()) s.close();
@@ -261,11 +262,11 @@ describe("createReactiveSubscription", () => {
                   ? Stream.fail(new Error("A failed"))
                   : streamOf(fromArray([1])),
             );
-            await flush();
+            await settle();
             const before = sub.error() !== undefined;
 
             setInput("B");
-            await flush();
+            await settle();
             const after = sub.error() !== undefined;
 
             resolve({ before, after });
@@ -294,11 +295,11 @@ describe("createReactiveSubscription", () => {
             return stream.source;
           });
           stream.push(1);
-          await flush();
+          await settle();
           const before = readSub(sub);
 
           setInput(null);
-          await flush();
+          await settle();
           const afterNull = sub();
 
           resolve({ before, afterNull });
@@ -324,7 +325,7 @@ describe("createReactiveSubscription", () => {
             () => "A",
             () => Stream.unwrap(Effect.fail(new Error("boom"))),
           );
-          await flush();
+          await settle();
           resolve(readSubError(sub).message);
           dispose();
         });
@@ -344,7 +345,7 @@ describe("createReactiveSubscription", () => {
                 })(),
               ),
           );
-          await flush();
+          await settle();
           resolve(readSubError(sub).message);
           dispose();
         });
@@ -362,7 +363,7 @@ describe("createReactiveSubscription", () => {
             () => Stream.fail("string-error"),
             { onError: (e) => seen.push(e.message) },
           );
-          await flush();
+          await settle();
           resolve();
           dispose();
         });
@@ -396,11 +397,11 @@ describe("createReactiveSubscription", () => {
                 : streamOf(fromArray<number>([1])),
             { onError: (e) => seen.push(e.message) },
           );
-          await flush();
+          await settle();
           setInput("B");
-          await flush();
+          await settle();
           failA?.(); // A's stream fails AFTER it was superseded
-          await flush();
+          await settle();
           resolve();
           dispose();
         });
@@ -430,13 +431,13 @@ describe("createReactiveSubscription", () => {
                 }),
               ),
           );
-          await flush();
+          await settle();
           expect(finalized).toBe(false); // still running: nothing torn down yet
           dispose();
           resolve();
         });
       });
-      await flush();
+      await settle();
       expect(finalized).toBe(true);
     });
   });
@@ -452,7 +453,7 @@ describe("createReactiveSubscription", () => {
             () => "A",
             () => streamOf(fromArray([{ a: 1, b: 2 }])),
           );
-          await flush();
+          await settle();
           resolve(readSub(sub));
           dispose();
         });

@@ -7,7 +7,8 @@
  *  test bans a hand-rolled `kolu.dev` literal anywhere else under
  *  `packages/client/src`, so this is the only place a doc URL is spelled. */
 
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 /** Every product-docs page under `website/src/content/docs/`. Keep in lock-step
  *  with the basenames there — the set-equality test enforces both directions. */

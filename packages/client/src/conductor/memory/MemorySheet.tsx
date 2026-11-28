@@ -5,7 +5,7 @@
  *  or a click outside closes it, and it closes when the pane goes behind a
  *  host tab. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { Markdown } from "@kolu/solid-markdown";
 import { toError } from "@kolu/surface/run-stream";
@@ -149,7 +149,7 @@ const ExportMenu: Component = () => {
       <button
         type="button"
         data-testid="memory-export"
-        aria-expanded={open()}
+        aria-expanded={open() ? "true" : "false"}
         class={headButton}
         onClick={() => setOpen((was) => !was)}
       >
@@ -191,9 +191,12 @@ export const MemorySheet: Component = () => {
   const memory = useMemory();
   const shown = useShown();
   const facts = useConductorFacts();
-  createEffect(() => {
-    if (!shown()) memorySheet.close();
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (!isShown) memorySheet.close();
+    },
+  );
   const share = () => memory.used() / MEMORY_CAP;
   return (
     <ModalDialog
@@ -279,22 +282,26 @@ export const MemorySheet: Component = () => {
           <div class="flex items-center gap-2">
             <span class="h-1 w-20 overflow-hidden rounded-full bg-surface-3">
               <span
-                class="block h-full"
-                classList={{
-                  "bg-warning": share() > 0.9,
-                  "bg-accent": share() <= 0.9,
-                }}
+                class={[
+                  "block h-full",
+                  {
+                    "bg-warning": share() > 0.9,
+                    "bg-accent": share() <= 0.9,
+                  },
+                ]}
                 style={{ width: `${Math.min(share(), 1) * 100}%` }}
               />
             </span>
             <span
               data-testid="memory-size"
               data-nearly-full={share() > 0.9 ? "" : undefined}
-              class="font-mono text-[0.62rem]"
-              classList={{
-                "text-warning": share() > 0.9,
-                "text-fg-3": share() <= 0.9,
-              }}
+              class={[
+                "font-mono text-[0.62rem]",
+                {
+                  "text-warning": share() > 0.9,
+                  "text-fg-3": share() <= 0.9,
+                },
+              ]}
             >
               {memory.used().toLocaleString("en")} of{" "}
               {MEMORY_CAP.toLocaleString("en")} characters

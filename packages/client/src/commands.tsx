@@ -51,7 +51,6 @@ import {
 import { memorySheet, useMemoryNeed } from "./conductor/memory/useMemory";
 import { useNeedsYou, useWorks } from "./conductor/useWorks";
 import { showWork } from "./conductor/workListing";
-import { workHost, workSubtitle } from "./conductor/workReadings";
 import {
   terminalHostGroups,
   terminalSwitchActions,
@@ -61,6 +60,7 @@ import { hostRootActions } from "./palette/hostActions";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
+import { workPaletteRows } from "./palette/workActions";
 import { runAction } from "./runAction";
 import { stateBackupsDialog } from "./StateBackupsDialog";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
@@ -239,9 +239,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
    *  sections — each row takes the one route to a work. */
   const needs = useNeedsYou();
   const memory = useMemoryNeed();
-  const works = useWorks();
+  /** The works section, built PER WORK (`workPaletteRows`): each row's reads
+   *  of its own record live in that row's memo, so the command list below
+   *  tracks N rows rather than every leaf of every work. */
+  const workRows = workPaletteRows(useWorks());
 
-  return createMemo((): PaletteCommand[] => [
+  const commands = createMemo((): PaletteCommand[] => [
     // --- Root index: terminals (all hosts) + hosts ---
     // Empty root caps terminals to Recent (~3); a query surfaces all matches
     // flat across hosts (host chip on each row). ⌘⇧K opens Terminals as a
@@ -287,15 +290,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         },
       ];
     })(),
-    ...works().map(
-      ([id, work]): PaletteAction => ({
-        kind: "action",
-        name: work.title,
-        description: workSubtitle(work, workHost(work)).join(" · "),
-        section: "works",
-        onSelect: () => showWork(id),
-      }),
-    ),
+    ...workRows(),
 
     // --- Terminals section: fleet list + new terminal ---
     ...(terminalsScopeOpen()
@@ -763,4 +758,5 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ],
     },
   ]);
+  return commands;
 }

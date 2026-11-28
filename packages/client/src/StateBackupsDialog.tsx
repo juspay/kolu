@@ -30,15 +30,19 @@
  *  not offer an action the channel cannot carry out (the #1793 affordance
  *  axis, same rule as the palette's "Restart kaval"). */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import {
   type Component,
-  createResource,
+  createDeferred,
+  createMemo,
   createSignal,
+  Errored,
   For,
+  isPending,
+  refresh,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -48,8 +52,8 @@ import { runAction, runActionPromise, type UiAction } from "./runAction";
 import { formatTimeAgo } from "./terminal/staleness";
 import { createDisclosure } from "./ui/createDisclosure";
 import InlineConfirmButton from "./ui/InlineConfirmButton";
-import { formatSize } from "./ui/memory";
 import ModalDialog from "./ui/ModalDialog";
+import { formatSize } from "./ui/memory";
 import { surface } from "./ui/Surface";
 import { client, hostKeys, padiMap } from "./wire";
 
@@ -58,6 +62,12 @@ import { client, hostKeys, padiMap } from "./wire";
 export const stateBackupsDialog = createDisclosure();
 
 const chrome = surface({ portalled: true });
+
+/** A listing, and the ring whose it is. */
+interface Listed {
+  readonly title: string;
+  readonly rows: ReadonlyArray<BackupRow>;
+}
 
 /** A snapshot row, normalized across the two stores' wire shapes. */
 interface BackupRow {
@@ -86,8 +96,6 @@ type RestoreOutcome =
 
 /** The five things that differ between the two rings, spelled once per store. */
 interface StoreAdapter {
-  /** `For`-key and resource identity. */
-  key: string;
   title: string;
   subtitle: string;
   /** Is the store reachable right now? A padi ring lives on ITS host. */
@@ -100,7 +108,6 @@ interface StoreAdapter {
 const UNDOABLE = "The current state is snapshotted first, so this is undoable.";
 
 const koluStore: StoreAdapter = {
-  key: "kolu",
   title: "kolu-server",
   subtitle:
     "preferences · hosts · the Conductor's works, their Code views and memory",
@@ -147,7 +154,6 @@ const koluStore: StoreAdapter = {
 const padiStore = (host: HostKey): StoreAdapter => {
   const entry = () => padiMap.entry(host);
   return {
-    key: `padi:${host}`,
     title: `padi — ${hostLabel(host)}`,
     // Offer only what the channel can carry out (#1793).
     subtitle:
@@ -205,14 +211,46 @@ const StateBackupsDialog: Component = () => {
     koluStore,
     ...hostKeys().map((host) => padiStore(host)),
   ];
-  const browsing = (): StoreAdapter | null => {
+  /** THE RING BEING BROWSED — memoized, so the listing below subscribes to
+   *  the ring and not to every `view` write. A restore writes `view` twice
+   *  (in flight, then back to the list) with the SAME store, and a plain
+   *  function would re-run the listing on each: three listings for one
+   *  restore, with the rows dimmed throughout. */
+  const browsing = createMemo<StoreAdapter | null>(() => {
     const v = view();
     return v.kind === "stores" ? null : v.store;
-  };
-  const [backups, { refetch }] = createResource(
-    () => (stateBackupsDialog.open() ? browsing() : null),
-    (store: StoreAdapter) => store.list(),
+  });
+  /** THE SELECTED RING'S SNAPSHOTS, with the ring they are OF. Asked for the
+   *  store being browsed, and only while the dialog is open — a closed
+   *  dialog lists nothing. A failed listing is thrown at the reader and
+   *  caught by the `Errored` boundary around the rows.
+   *
+   *  A LISTING IN THE AIR HOLDS NOTHING: deferred, with `null` declared as
+   *  the loading value, so no reader ever suspends on it and the pick
+   *  commits in the press's own frame — the ring's title, its "← Stores"
+   *  affordance and a plain "Loading…" where the rows will be. A remote padi
+   *  ring answers in seconds, and a frame held that long is a frozen screen.
+   *
+   *  A deferred node LAGS, so the rows it holds stay up while the next
+   *  listing is read. What they are OF is carried beside them, so they are
+   *  kept on a re-list of the SAME ring and dropped the moment another ring
+   *  is picked — one ring's snapshots must never sit under another's title.
+   *  Compared by title: the padi adapters are rebuilt per render, so the
+   *  object is no identity and one title per ring is. */
+  const listed = createDeferred<Listed | null>(
+    () => {
+      const store = stateBackupsDialog.open() ? browsing() : null;
+      if (store === null) return null;
+      const title = store.title;
+      return store.list().then((rows) => ({ title, rows }));
+    },
+    { loadingValue: null },
   );
+  /** This ring's rows — `null` while its own listing is still in the air. */
+  const backups = (): ReadonlyArray<BackupRow> | null => {
+    const one = listed();
+    return one !== null && one.title === browsing()?.title ? one.rows : null;
+  };
 
   const close = (open: boolean) => {
     stateBackupsDialog.onOpenChange(open);
@@ -240,7 +278,13 @@ const StateBackupsDialog: Component = () => {
                 id,
               });
             }
-            void refetch();
+            // A restore writes a snapshot of the state it replaced, so the
+            // list this dialog is showing is out of date the moment it lands:
+            // re-ask. No `affects` beside it — the re-ask is made AT the
+            // restore's end, so there is no window before it in which the
+            // rows must already read as pending; `isPending` over the list
+            // covers the re-ask itself.
+            void refresh(listed);
           }),
         ),
         Effect.catch((err) =>
@@ -295,69 +339,87 @@ const StateBackupsDialog: Component = () => {
           </div>
         </Show>
 
-        {/* Snapshot list for the selected store. */}
+        {/* Snapshot list for the selected store. Drawn the moment the ring is
+            picked: the title and the chrome are on screen while the first
+            listing is still in the air, with "Loading…" where the rows will
+            be. */}
         <Show when={browsing()}>
           {(store) => (
             <div class="space-y-1.5">
               <div class="text-[11px] text-fg-3">{store().title}</div>
-              <Show when={backups.error}>
-                <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
-                  Failed to list backups: {toError(backups.error).message}
-                </div>
-              </Show>
-              <Show when={backups.loading}>
-                <div class="px-1 text-[11px] text-fg-3">Loading…</div>
-              </Show>
-              <Show
-                when={
-                  !backups.loading &&
-                  (backups() ?? []).length === 0 &&
-                  !backups.error
-                }
-              >
-                <div class="px-1 text-[11px] text-fg-3">
-                  No backups yet — a snapshot is taken at every boot (and
-                  daily), once the store has content.
-                </div>
-              </Show>
-              <For each={backups() ?? []}>
-                {(row) => (
-                  <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
-                    <div class="min-w-0">
-                      <div class="font-medium text-fg">
-                        {formatTimeAgo(row.savedAtMs) || "—"}
-                        <span class="ml-2 text-[11px] font-normal text-fg-3">
-                          {row.summary} · {formatSize(row.sizeBytes)}
-                        </span>
-                      </div>
-                      <div class="truncate font-mono text-[10px] text-fg-3">
-                        {row.file}
-                      </div>
-                    </div>
-                    {/* The repo's canonical destructive-action affordance: it
-                        owns the confirm step, the Cancel/confirm pair and the
-                        `data-testid` triplet every other confirm exposes. */}
-                    <Show when={row.restorable}>
-                      <div class="mt-2">
-                        <InlineConfirmButton
-                          label="Restore"
-                          inFlightLabel="Restoring…"
-                          tone="warning"
-                          confirmCopy={store().confirmCopy(row)}
-                          inFlight={view().kind === "restoring"}
-                          testid={`state-backup-restore-${row.file}`}
-                          onConfirm={() =>
-                            runAction(
-                              "restore state backup",
-                              restore(store(), row),
-                            )
-                          }
-                        />
-                      </div>
-                    </Show>
+              {/* A RING THAT COULD NOT BE LISTED says so in place of the
+                  list — the read throws it here. The `Errored` is built per
+                  ring, so one ring's failure cannot outlive the ring it was
+                  about. */}
+              <Errored
+                fallback={(why) => (
+                  <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+                    Failed to list backups: {toError(why()).message}
                   </div>
                 )}
-              </For>
+              >
+                <Show
+                  when={backups()}
+                  fallback={
+                    <div class="px-1 text-[11px] text-fg-3">Loading…</div>
+                  }
+                >
+                  {(rows) => (
+                    // THE ROWS DIM ON A RE-LIST of the SAME ring (a restore
+                    // re-asks): the rows on screen are this ring's own, so
+                    // they stay, dimmed, until the next listing lands.
+                    <div
+                      class={`space-y-1.5 ${isPending(listed) ? "opacity-60" : ""}`}
+                    >
+                      <Show when={rows().length === 0}>
+                        <div class="px-1 text-[11px] text-fg-3">
+                          No backups yet — a snapshot is taken at every boot
+                          (and daily), once the store has content.
+                        </div>
+                      </Show>
+                      <For each={rows()}>
+                        {(row) => (
+                          <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
+                            <div class="min-w-0">
+                              <div class="font-medium text-fg">
+                                {formatTimeAgo(row.savedAtMs) || "—"}
+                                <span class="ml-2 text-[11px] font-normal text-fg-3">
+                                  {row.summary} · {formatSize(row.sizeBytes)}
+                                </span>
+                              </div>
+                              <div class="truncate font-mono text-[10px] text-fg-3">
+                                {row.file}
+                              </div>
+                            </div>
+                            {/* The repo's canonical destructive-action
+                                affordance: it owns the confirm step, the
+                                Cancel/confirm pair and the `data-testid`
+                                triplet every other confirm exposes. */}
+                            <Show when={row.restorable}>
+                              <div class="mt-2">
+                                <InlineConfirmButton
+                                  label="Restore"
+                                  inFlightLabel="Restoring…"
+                                  tone="warning"
+                                  confirmCopy={store().confirmCopy(row)}
+                                  inFlight={view().kind === "restoring"}
+                                  testid={`state-backup-restore-${row.file}`}
+                                  onConfirm={() =>
+                                    runAction(
+                                      "restore state backup",
+                                      restore(store(), row),
+                                    )
+                                  }
+                                />
+                              </div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </Show>
+              </Errored>
             </div>
           )}
         </Show>

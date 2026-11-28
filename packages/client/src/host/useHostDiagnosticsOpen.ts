@@ -31,7 +31,8 @@
  *  rides `createSharedRoot`, the repo's spelling for a shared reactive value
  *  with an owner (`host/isActiveHost.ts`). */
 
-import { createSelector, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
+import { createKeySelector } from "../createKeySelector";
 import { createSharedRoot } from "../createSharedRoot";
 
 /** The open host's CANONICAL encoded key — `null` when nothing is open. */
@@ -41,10 +42,12 @@ const [anchor, setAnchor] = createSignal<HTMLElement | undefined>();
 
 export { openKey as openHostDiagnosticsKey, anchor as hostDiagnosticsAnchor };
 
-/** Is `encKey`'s panel the open one? A selector, so a chip re-renders only
- *  when its own answer changes. */
+/** Is `encKey`'s panel the open one? A per-key projection
+ *  ({@link createKeySelector}), so a chip re-renders only when its own answer
+ *  changes — the chip that lost the panel and the chip that gained it, nobody
+ *  else. */
 export const useHostDiagnosticsSelector = createSharedRoot(() =>
-  createSelector(openKey),
+  createKeySelector(openKey),
 );
 
 /** Open `encKey`'s details, hung off `anchor` — the element the user acted on

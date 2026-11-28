@@ -1,11 +1,9 @@
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
-  applyHostLiveIds,
   clearHostVisits,
   mruIdsForHost,
   parseVisitList,
-  removeVisit,
   upsertVisit,
   visitedAtOf,
   type VisitEntry,
@@ -14,7 +12,6 @@ import {
 const T = (s: string) => s as TerminalId;
 const A = T("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const B = T("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-const C = T("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
 const Z = T("zzzzzzzz-zzzz-4zzz-8zzz-zzzzzzzzzzzz");
 
 describe("upsertVisit", () => {
@@ -51,6 +48,7 @@ describe("upsertVisit", () => {
         "local",
         T(`00000000-0000-4000-8000-00000000000${i}`),
         i,
+        [],
         3,
       );
     }
@@ -59,6 +57,23 @@ describe("upsertVisit", () => {
       T("00000000-0000-4000-8000-000000000004"),
       T("00000000-0000-4000-8000-000000000003"),
       T("00000000-0000-4000-8000-000000000002"),
+    ]);
+  });
+
+  it("drops the dead ids the activation carries, on that host only", () => {
+    // The prune rides the gesture that writes, so the 50 slots stay live
+    // history instead of filling with the last 50 terminals to die.
+    const prev: VisitEntry[] = [
+      { hostKey: "local", terminalId: A, visitedAt: 3 },
+      { hostKey: "local", terminalId: Z, visitedAt: 2 },
+      { hostKey: "remote:zest", terminalId: Z, visitedAt: 1 },
+    ];
+    const out = upsertVisit(prev, "local", B, 9, [Z]);
+    expect(out).toEqual([
+      { hostKey: "local", terminalId: B, visitedAt: 9 },
+      { hostKey: "local", terminalId: A, visitedAt: 3 },
+      // The same id is alive on another host: an id is only dead where it died.
+      { hostKey: "remote:zest", terminalId: Z, visitedAt: 1 },
     ]);
   });
 
@@ -111,16 +126,6 @@ describe("parseVisitList", () => {
   });
 });
 
-describe("seedHostVisits stamps", () => {
-  it("uses tiny ranks so activity ranking is not drowned", async () => {
-    const { seedHostVisits } = await import("./visitRecency");
-    const seeded = seedHostVisits("local", [A, B], 1_700_000_000_000);
-    expect(seeded[0]!.visitedAt).toBe(2);
-    expect(seeded[1]!.visitedAt).toBe(1);
-    expect(Math.max(seeded[0]!.visitedAt, 9_000)).toBe(9_000);
-  });
-});
-
 describe("visitedAtOf", () => {
   const visits: VisitEntry[] = [
     { hostKey: "local", terminalId: A, visitedAt: 1000 },
@@ -132,7 +137,7 @@ describe("visitedAtOf", () => {
   });
 });
 
-describe("mruIdsForHost / applyHostLiveIds / clear", () => {
+describe("mruIdsForHost / clear", () => {
   it("filters host slice", () => {
     const visits: VisitEntry[] = [
       { hostKey: "local", terminalId: A, visitedAt: 3 },
@@ -142,55 +147,12 @@ describe("mruIdsForHost / applyHostLiveIds / clear", () => {
     expect(mruIdsForHost(visits, "local")).toEqual([A, B]);
   });
 
-  it("seeds an empty host trail without touching others", () => {
-    const prev: VisitEntry[] = [
-      { hostKey: "remote:zest", terminalId: Z, visitedAt: 9 },
-    ];
-    const out = applyHostLiveIds(prev, "local", [B, A], 100);
-    expect(mruIdsForHost(out, "local")).toEqual([B, A]);
-    expect(out.find((e) => e.hostKey === "remote:zest")?.visitedAt).toBe(9);
-  });
-
-  it("preserves survivor timestamps and does not restamp on reconcile", () => {
-    const prev: VisitEntry[] = [
-      { hostKey: "local", terminalId: A, visitedAt: 50 },
-      { hostKey: "local", terminalId: B, visitedAt: 40 },
-      { hostKey: "local", terminalId: C, visitedAt: 30 },
-      { hostKey: "remote:zest", terminalId: Z, visitedAt: 99 },
-    ];
-    const out = applyHostLiveIds(prev, "local", [A, B], 1000);
-    expect(out.find((e) => e.terminalId === A)?.visitedAt).toBe(50);
-    expect(out.find((e) => e.terminalId === B)?.visitedAt).toBe(40);
-    expect(out.find((e) => e.terminalId === C)).toBeUndefined();
-    expect(out.find((e) => e.terminalId === Z)?.visitedAt).toBe(99);
-  });
-
-  it("appends missing live ids without restamping survivors", () => {
-    const prev: VisitEntry[] = [
-      { hostKey: "local", terminalId: A, visitedAt: 50 },
-    ];
-    const out = applyHostLiveIds(prev, "local", [A, B], 1000);
-    expect(out.find((e) => e.terminalId === A)?.visitedAt).toBe(50);
-    expect(out.find((e) => e.terminalId === B)?.visitedAt).toBeLessThan(50);
-  });
-
-  it("caps by true recency so newer remote visits survive local reconcile", () => {
-    const prev: VisitEntry[] = [
-      { hostKey: "remote:zest", terminalId: Z, visitedAt: 99 },
-      { hostKey: "local", terminalId: A, visitedAt: 50 },
-    ];
-    const out = applyHostLiveIds(prev, "local", [A, B], 1000, 2);
-    expect(out.map((e) => e.terminalId)).toEqual([Z, A]);
-    expect(out.find((e) => e.terminalId === Z)?.visitedAt).toBe(99);
-  });
-
-  it("removeVisit and clearHostVisits", () => {
+  it("clearHostVisits", () => {
     const prev: VisitEntry[] = [
       { hostKey: "local", terminalId: A, visitedAt: 1 },
       { hostKey: "local", terminalId: B, visitedAt: 2 },
       { hostKey: "remote:zest", terminalId: Z, visitedAt: 3 },
     ];
-    expect(removeVisit(prev, "local", A)).toHaveLength(2);
     expect(clearHostVisits(prev, "local").map((e) => e.hostKey)).toEqual([
       "remote:zest",
     ]);

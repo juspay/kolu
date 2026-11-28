@@ -23,7 +23,7 @@ import {
   workIdOf,
 } from "kolu-work";
 import { seeded } from "kolu-work/testlib";
-import { createRoot, createSignal } from "solid-js";
+import { createRoot, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { FleetTerminalStanding } from "../palette/fleetTerminals";
 
@@ -156,9 +156,12 @@ const member = (role: WorkMember["role"]): WorkMember => ({
   joinedAt: AT,
 });
 
-/** The card's reading of {@link WORK}, as `createWorkFacts` makes it. */
-const factsOf = <T>(read: (facts: WorkFacts) => T): T =>
-  createRoot((dispose) => {
+/** The card's reading of {@link WORK}, as `createWorkFacts` makes it. The
+ *  flush commits whatever the caller just wrote: Solid 2 stages a write
+ *  until the next flush, and `createRoot` does not flush. */
+const factsOf = <T>(read: (facts: WorkFacts) => T): T => {
+  flush();
+  return createRoot((dispose) => {
     const out = read(
       createWorkFacts(
         () => ID,
@@ -168,6 +171,7 @@ const factsOf = <T>(read: (facts: WorkFacts) => T): T =>
     dispose();
     return out;
   });
+};
 
 /** A member ref the browser resolves: a host key and a terminal id. */
 const refOf = (n: number): string =>
@@ -291,19 +295,25 @@ describe("a work's PR as the mirror moves it", () => {
     const value = pr(2438, "open", 3, true);
     const reading: PrResult = { kind: "ok", value };
     setPrs(new Map([[ID, reading]]));
-    createRoot((dispose) => {
-      const facts = createWorkFacts(
+    // Solid 2 stages a write until the next flush, and `createRoot` does not
+    // flush. The mirror writes from outside the card's owner, so the root
+    // only makes the facts and hands them back.
+    flush();
+    const { facts, dispose } = createRoot((dispose) => ({
+      facts: createWorkFacts(
         () => ID,
         () => WORK,
-      );
-      expect(facts.checks()).toEqual(checksTally(workPrOf(WORK, reading)));
-      const before = facts.checks();
-      Object.assign(value, { checkRuns: pr(2438, "open", 9, true).checkRuns });
-      setPrs(new Map([[ID, reading]]));
-      expect(facts.checks()).not.toEqual(before);
-      expect(facts.checks()).toEqual(checksTally(workPrOf(WORK, reading)));
-      dispose();
-    });
+      ),
+      dispose,
+    }));
+    expect(facts.checks()).toEqual(checksTally(workPrOf(WORK, reading)));
+    const before = facts.checks();
+    Object.assign(value, { checkRuns: pr(2438, "open", 9, true).checkRuns });
+    setPrs(new Map([[ID, reading]]));
+    flush();
+    expect(facts.checks()).not.toEqual(before);
+    expect(facts.checks()).toEqual(checksTally(workPrOf(WORK, reading)));
+    dispose();
   });
 });
 

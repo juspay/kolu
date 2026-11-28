@@ -28,7 +28,16 @@ export const surface = defineSurface({
 // surface.group — one Rpc per member verb, tagged `surface/<member>/<verb>`.
 ```
 
-Part of the kolu monorepo — `"@kolu/surface": "workspace:*"`.
+Part of the kolu monorepo — `"@kolu/surface": "workspace:*"`. The SolidJS layer
+(`@kolu/surface/solid`) runs on Solid 2: `solid-js` 2 and `@solidjs/web` 2. Its
+`.use()` views open their stream on the flush after they are created, so a
+value reads `undefined` (and `pending()` reads `true`) until the first frame.
+
+An accessor-input `.use()` resets its value, `error()`, `complete()` and
+`pending()` when its input changes, once that update settles. A failure the
+fresh subscription reports while it opens is not reset over: `error()` keeps
+it. The new input's first frame is a value, never an `updated`/`changed`
+change.
 
 ## Docs
 
@@ -43,3 +52,11 @@ Parameterized snapshot/delta streams also expose
 view shared by equal static inputs and released with its last Solid owner.
 It uses the existing delta fold, retry fence, subscription cache and health
 registry; ordinary accessor-input `.use()` remains per consumer.
+
+`@kolu/surface/solid` also exports the repo's one chunked fold — `joinChunks`
+/ `joinRows` / `foldEach` — for a list of more rows than a single memo may
+read without Solid judging it wide; the Reference page has the shapes.
+
+A suite in another package drives a view through `@kolu/surface/solid/testlib`
+— the hand-driven source, the deltas harness and its `settle` — rather than
+re-writing them, and no product runtime imports that door.

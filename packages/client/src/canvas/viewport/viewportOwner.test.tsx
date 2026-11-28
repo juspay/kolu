@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush, onCleanup } from "solid-js";
 import { expect, it, vi } from "vitest";
 const camera = vi.hoisted(() => ({
   setPanX: vi.fn(),
@@ -12,7 +13,10 @@ vi.mock("../../hostScope/hostScopes", () => ({
   }),
 }));
 vi.mock("./gestures", () => ({ installGestures: () => () => {} }));
-import { useCanvasViewport } from "./useCanvasViewport";
+import {
+  createContainerSizeObserver,
+  useCanvasViewport,
+} from "./useCanvasViewport";
 it("waits for laid-out dimensions, uses them for centering and zoom, and releases the observer", () => {
   let width = 600;
   let disconnected = 0;
@@ -41,19 +45,28 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
   const host = document.createElement("div");
   document.body.append(host);
   const viewport = useCanvasViewport();
-  const dispose = render(
-    () => (
+  const dispose = render(() => {
+    // The attach lives in a ref callback, which may neither create a
+    // primitive nor register a cleanup, so the measuring and the release are
+    // both the component's own owner's — exactly the pairing `TerminalCanvas`
+    // uses.
+    createContainerSizeObserver();
+    let containerEl: HTMLDivElement | undefined;
+    onCleanup(() => {
+      if (containerEl) viewport.releaseContainer(containerEl);
+    });
+    return (
       <div
-        ref={(el) =>
+        ref={(el) => {
+          containerEl = el;
           viewport.setContainerRef(el, {
             wheelTargetScrollsItself: () => false,
             covered: () => false,
-          })
-        }
+          });
+        }}
       />
-    ),
-    host,
-  );
+    );
+  }, host);
   try {
     // Insertion alone is not readiness: the split panels can still be sizing.
     expect(viewport.mounted()).toBe(false);
@@ -71,6 +84,9 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
       ],
       {} as ResizeObserver,
     );
+    // The observer's measurement is a staged write: a real reader sees it on
+    // the next flush, never in the same synchronous turn as the delivery.
+    flush();
     expect(viewport.viewportSize()).toEqual({ width: 600, height: 400 });
     expect(viewport.viewportCenter()).toEqual({ x: 300, y: 200 });
     width = 800;
@@ -86,6 +102,7 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
       ],
       {} as ResizeObserver,
     );
+    flush();
     expect(viewport.viewportSize().width).toBe(800);
     expect(viewport.viewportCenter()).toEqual({ x: 400, y: 200 });
     viewport.zoomIn();
@@ -98,6 +115,8 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
     vi.unstubAllGlobals();
     host.remove();
   }
+  // The release clears the measurement; settle it before reading `mounted`.
+  flush();
   expect(disconnected).toBe(1);
   expect(viewport.mounted()).toBe(false);
 });

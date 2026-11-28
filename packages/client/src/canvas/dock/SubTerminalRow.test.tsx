@@ -12,7 +12,7 @@ import {
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { AgentInfo } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const PARENT = "parent-tile" as TerminalId;

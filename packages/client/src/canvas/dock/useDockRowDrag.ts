@@ -19,12 +19,8 @@
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo } from "solid-js";
-import {
-  createDraggable,
-  createDroppable,
-  requireDragDropScope,
-} from "../../dnd";
+import { type Accessor, createEffect, createMemo, untrack } from "solid-js";
+import { createDraggable, createDroppable, useDragDropScope } from "../../dnd";
 import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
@@ -50,7 +46,7 @@ export type DockRowDrag = {
  *  not a row drag — a branch cluster, or nothing at all. The one reader is the
  *  repo card's header, which is a drop target for ROW drags only. */
 export function useDraggedRowId(): Accessor<TerminalId | null> {
-  const scope = requireDragDropScope("useDraggedRowId");
+  const scope = useDragDropScope();
   return () => rowIdOfDragId(scope.activeId() ?? "");
 }
 
@@ -74,47 +70,95 @@ export function dockDropContext(store: {
  *  themselves and the repo card's header — so "would this drop be accepted" is
  *  asked once and painted identically wherever it is asked. */
 export function useDockDropVerdict(
-  target: DockDropTarget,
+  target: Accessor<DockDropTarget>,
   isActiveTarget: Accessor<boolean>,
 ): Accessor<"over" | "invalid" | undefined> {
-  const scope = requireDragDropScope("useDockDropVerdict");
+  const scope = useDragDropScope();
   const store = useTerminalStore();
   const drop = dockDropContext(store);
-  return createMemo(() => {
-    if (!isActiveTarget()) return undefined;
-    const dragged = rowIdOfDragId(scope.activeId() ?? "");
-    // A cluster drag hovering this target is not this target's business: the
-    // verdict is about ROW drops.
-    if (dragged === null) return undefined;
-    return dropHighlightOf(drop, dragged, target);
-  });
+  return createMemo(
+    () => {
+      if (!isActiveTarget()) return undefined;
+      const dragged = rowIdOfDragId(scope.activeId() ?? "");
+      // A cluster drag hovering this target is not this target's business: the
+      // verdict is about ROW drops.
+      if (dragged === null) return undefined;
+      return dropHighlightOf(drop, dragged, target());
+    },
+    { name: "dockDropVerdict" },
+  );
 }
 
-/** One desktop dock row's drag sockets. */
-export function useDockRowDrag(id: TerminalId): DockRowDrag {
+/** One desktop dock row's drag sockets.
+ *
+ *  `id` is an ACCESSOR, read inside this hook's own derivations: the hover
+ *  verdict and the live gate below follow it, so a caller hands the row's id
+ *  straight through without reading it in its component body. The one read
+ *  that cannot follow is the dnd-kit registration — a registered draggable
+ *  keeps the id it was created with for this owner's lifetime. So the id is
+ *  sampled once and every later read is checked against it: a caller whose id
+ *  changes under one instance would be registered with dnd-kit under the old
+ *  id while the verdict and the live gate followed the new one, and nothing
+ *  would say so. Every caller today renders from a keyed `<For>`, so an
+ *  instance IS its terminal. */
+export function useDockRowDrag(id: Accessor<TerminalId>): DockRowDrag {
   const store = useTerminalStore();
-  const draggable = createDraggable(rowDragId(id));
-  const droppable = createDroppable(rowDragId(id));
+  const registered = untrack(id);
+  const dragId = rowDragId(registered);
+  const { isLive } = dockDropContext(store);
+  // The live gate read off the id this hook REGISTERED with, which is what the
+  // draggable below is wired from: the flag and the handle belong to that one
+  // registration, while the getters that speak for the row go through `rowId`.
+  const live = createMemo(() => isLive(registered));
+  // A sleeping row cannot be dragged, said once and explicitly: a press that
+  // reaches this draggable starts nothing while it is disabled. The grip is the
+  // affordance, not the rule — a row that lost its grip must not become
+  // draggable by some other element, and a grip that outlived its row must not
+  // be what a press has to land on.
+  const draggable = createDraggable(dragId, { disabled: () => !live() });
+  const droppable = createDroppable(dragId);
+  // The grip exists exactly while the row is live, so when the row sleeps THAT
+  // element is gone: unbind it with it, rather than leaving a detached grip
+  // bound as the draggable's press target.
+  createEffect(
+    () => live(),
+    (nowLive) => {
+      if (!nowLive) draggable.releaseHandle();
+    },
+  );
+  /** The row's id, refused if it is no longer the one registered. */
+  const rowId = (): TerminalId => {
+    const now = id();
+    if (now !== registered) {
+      throw new Error(
+        `useDockRowDrag was given a changing id (${registered} -> ${now}) — ` +
+          "the dnd-kit draggable and droppable keep the id they were " +
+          "registered with for this owner's lifetime, so the drag would act " +
+          "for one row while the verdict spoke for another. Render one hook " +
+          "per id, under a keyed loop.",
+      );
+    }
+    return now;
+  };
   const drop = useDockDropVerdict(
-    { kind: "row", id },
+    () => ({ kind: "row", id: rowId() }),
     droppable.isActiveDroppable,
   );
   // A row whose terminal is SLEEPING is neither draggable nor a drop target:
-  // its grip is not rendered (so no gesture can start) and the drop rules refuse
-  // it (a live row must not nest under a dormant parent). Sleep freezes a whole
-  // family, so a slept parent's splits are sleeping rows beside it — a tree the
-  // dock keeps intact; only a LIVE terminal can be re-homed. The droppable stays
-  // registered so the refusal can be PAINTED — a sleeping row under the pointer
-  // reads as "no", rather than letting the drop silently resolve to some other
-  // row behind it.
-  const { isLive } = dockDropContext(store);
+  // the draggable is disabled and its grip is not rendered, and the drop rules
+  // refuse it (a live row must not nest under a dormant parent). Sleep freezes
+  // a whole family, so a slept parent's splits are sleeping rows beside it — a
+  // tree the dock keeps intact; only a LIVE terminal can be re-homed. The
+  // droppable stays registered so the refusal can be PAINTED — a sleeping row
+  // under the pointer reads as "no", rather than letting the drop silently
+  // resolve to some other row behind it.
   return {
     ref: (el) => {
       draggable.ref(el);
       droppable.ref(el);
     },
     get handle() {
-      return isLive(id) ? draggable.handleRef : undefined;
+      return isLive(rowId()) ? draggable.handleRef : undefined;
     },
     get drop() {
       return drop();

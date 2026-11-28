@@ -20,8 +20,8 @@
  * we always re-fit on tab return regardless of whether ResizeObserver caught
  * up. The cost is one debounced fit() call per tab switch — negligible.
  *
- * Must be called inside a SolidJS owner (e.g. onMount) so makeEventListener
- * auto-cleans up on dispose.
+ * Must be called inside a SolidJS owner (a component body, or `onSettled`) so
+ * makeEventListener auto-cleans up on dispose.
  */
 
 import { makeEventListener } from "@solid-primitives/event-listener";

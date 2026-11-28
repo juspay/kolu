@@ -75,15 +75,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        {
-          terminalId: "t1",
-          hostState: () => "warming",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "warming", {
+        terminalId: "t1",
+        hostState: () => "warming",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -109,15 +106,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -136,15 +130,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 132, rows: 43 },
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 132, rows: 43 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -160,15 +151,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => true,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => true,
+        resize,
+      }),
     );
     await settle();
 
@@ -183,15 +171,12 @@ describe("publishGridAction", () => {
 
     runAction(
       "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => false,
-          resize,
-        },
-      ),
+      publishGridAction({ cols: 80, rows: 24 }, "connected", {
+        terminalId: "t1",
+        hostState: () => "connected",
+        ptyLive: () => false,
+        resize,
+      }),
     );
     await settle();
 
@@ -238,6 +223,11 @@ describe("createGridPublisher", () => {
       ptyGrid: () => ptyGrid,
       setHost(next: string) {
         host = next;
+      },
+      /** The pane's host-state tick: the real caller is an effect, which hands
+       *  the publisher the word its compute read. */
+      restate() {
+        publisher.republishSuppressed(host);
       },
     };
   }
@@ -334,21 +324,21 @@ describe("createGridPublisher", () => {
     // The host reconverges. The attach is SILENT — no frame, no failure, no end
     // — so nothing re-opens it and, pre-fix, nothing ever restated the grid.
     h.setHost("connected");
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize).toHaveBeenCalledTimes(1);
     expect(h.resize).toHaveBeenCalledWith({ cols: 132, rows: 43 });
     expect(h.ptyGrid()).toBe("132×43");
 
     // ONCE. The effect re-runs on every host-state tick, and a second write of
     // the same grid must cost nothing.
-    h.publisher.republishSuppressed();
-    h.publisher.republishSuppressed();
+    h.restate();
+    h.restate();
     expect(h.resize).toHaveBeenCalledTimes(1);
   });
 
   it("(K4) a flip with nothing suppressed publishes nothing", () => {
     const h = harness();
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize).not.toHaveBeenCalled();
   });
 
@@ -365,14 +355,14 @@ describe("createGridPublisher", () => {
     }
 
     h.setHost("connected");
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize.mock.calls).toEqual([[{ cols: 132, rows: 40 }]]);
 
     // A publish that goes through normally supersedes the latch, so a LATER
     // flip cannot replay a grid the pane has already moved past.
     h.publisher.publish({ cols: 80, rows: 24 });
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize.mock.calls).toEqual([
       [{ cols: 132, rows: 40 }],
       [{ cols: 80, rows: 24 }],
@@ -390,13 +380,13 @@ describe("createGridPublisher", () => {
     h.publisher.publish({ cols: 132, rows: 43 });
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS / 2);
     h.setHost("connected");
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
     expect(h.resize.mock.calls).toEqual([[{ cols: 132, rows: 43 }]]);
     // …and the latch is empty afterwards: the grid landed.
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize).toHaveBeenCalledTimes(1);
   });
 
@@ -414,7 +404,7 @@ describe("createGridPublisher", () => {
     expect(h.resize).toHaveBeenCalledTimes(1);
 
     h.setHost("connected");
-    h.publisher.republishSuppressed();
+    h.restate();
     expect(h.resize.mock.calls).toEqual([
       [{ cols: 100, rows: 30 }],
       [{ cols: 132, rows: 43 }],

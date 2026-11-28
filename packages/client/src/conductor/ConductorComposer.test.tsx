@@ -33,12 +33,23 @@ import {
   type WorkId,
   type WorkRow,
 } from "kolu-work";
-import { type Accessor, createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  createSignal,
+  flush,
+} from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { aboutWork, showAllChat } from "./chatScope";
-import { askFromWelcome, composerText, setComposerText } from "./drafts";
+import {
+  askFromWelcome,
+  completionOpen,
+  composerText,
+  setComposerText,
+} from "./drafts";
 import ConductorComposer from "./ConductorComposer";
 import { pickedWork, unpickWork } from "./workListing";
 import { standingLine } from "./workReadings";
@@ -62,15 +73,25 @@ const mirror = vi.hoisted(() => ({
   needs: (() => []) as Accessor<ReadonlyArray<NeedsYou>>,
   membership: (() => new Map()) as Accessor<ReadonlyMap<string, Membership>>,
 }));
-vi.mock("./useWorks", () => ({
-  useWorks: () => mirror.works,
-  useNeedsYou: () => mirror.needs,
-  useWorkMap: () => () => new Map(mirror.works()),
-  useMembership: () => mirror.membership,
-  // A work's chip reads its terminals; these works have none.
-  useWorkMembers: () => () => new Map(),
-  useSeen: () => () => new Map(),
-}));
+// `await import` and not a static one: a mock factory is hoisted above this
+// file's imports, so the reading it builds on has to be reached inside it.
+vi.mock("./useWorks", async () => {
+  // The menu's per-work reading, taken off the SAME records by the real one:
+  // the title and the standing line are still the works' own.
+  const { workMentionOf } = await import("./mentionCandidates");
+  return {
+    useWorks: () => mirror.works,
+    useNeedsYou: () => mirror.needs,
+    useWorkMap: () => () => new Map(mirror.works()),
+    useWorkAt: (id: WorkId) => mirror.works().find(([at]) => at === id)?.[1],
+    useWorkMentions: () => () =>
+      mirror.works().map(([id, record]) => workMentionOf(id, record)),
+    useMembership: () => mirror.membership,
+    // A work's chip reads its terminals; these works have none.
+    useWorkMembers: () => () => new Map(),
+    useSeen: () => () => new Map(),
+  };
+});
 // The wire-facing neighbours, inert: a real upload would only add a second
 // thing to fail. The prompt verb is a spy the tests read — what a message
 // CARRIES is half of what a mention is for.
@@ -233,9 +254,9 @@ function mount(
   document.body.append(root);
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <ConductorComposer state={STATE} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -246,7 +267,16 @@ function mount(
   box.value = text;
   box.setSelectionRange(text.length, text.length);
   box.dispatchEvent(new Event("input", { bubbles: true }));
-  return { el: root, box, tick: setRows };
+  flush();
+  return {
+    el: root,
+    box,
+    // A fleet frame, as the composer sees it: on the frame after.
+    tick: (next: FleetTerminalRow[]) => {
+      setRows(next);
+      flush();
+    },
+  };
 }
 
 /** What the one Send on screen was handed. */
@@ -255,6 +285,7 @@ const sentMentions = (): ReadonlyArray<ConductorMention> =>
 
 const press = (el: HTMLElement, key: string): void => {
   el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  flush();
 };
 
 const rowsIn = (el: HTMLElement, testId: string): HTMLElement[] => [
@@ -417,6 +448,7 @@ describe("the welcome's example ask", () => {
     const text = "Plan and build a dark mode toggle";
     const { box } = mount("");
     askFromWelcome(text);
+    flush();
 
     expect(box.value).toBe(text);
     expect(composerText()).toBe(text);
@@ -455,6 +487,7 @@ describe("a chat pointed at one piece of work", () => {
     el.querySelector<HTMLElement>(
       '[data-testid="conductor-scope-chip-remove"]',
     )?.click();
+    flush();
     expect(el.querySelector('[data-testid="conductor-scope-chip"]')).toBeNull();
   });
 
@@ -464,6 +497,7 @@ describe("a chat pointed at one piece of work", () => {
     el.querySelector<HTMLElement>(
       '[data-testid="conductor-scope-chip"] [data-testid="work-chip"]',
     )?.click();
+    flush();
     expect(pickedWork()).toBe(PANE);
     expect(
       el.querySelector('[data-testid="conductor-scope-chip"]'),
@@ -477,6 +511,7 @@ describe("a work mentioned in the box", () => {
     press(box, "Enter");
     const chip = () => rowsIn(el, "conductor-mention-chip")[0];
     chip()?.querySelector<HTMLElement>('[data-testid="work-chip"]')?.click();
+    flush();
     expect(pickedWork()).toBe(PANE);
     expect(chip()).toBeDefined();
     chip()
@@ -484,7 +519,72 @@ describe("a work mentioned in the box", () => {
         '[data-testid="conductor-mention-chip-remove"]',
       )
       ?.click();
+    flush();
     expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
     expect(box.value).not.toContain("@page-chats-open-in-a-pane");
+  });
+});
+
+describe("an idle box across fleet ticks", () => {
+  it("arms nothing, four ticks running — the `armed` memo may not republish an equal-but-new list", () => {
+    // Nothing in the box resolves, so `armedMentions` returns a fresh `[]` on
+    // every run, and every fleet metadata tick re-mints the candidates and runs
+    // it again. Four such publishes are Solid's `UNSTABLE_MEMO_OUTPUT`, which
+    // `@kolu/solid-test-setup` fails the test on — so the `sameRows` gate on
+    // `armed` is what this holds.
+    const { el, tick } = mount("nothing to see here", WORKS, NEEDS);
+    expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
+
+    for (const intent of ["second", "third", "fourth", "fifth"])
+      tick([here(), there(intent)]);
+
+    expect(rowsIn(el, "conductor-mention-chip")).toHaveLength(0);
+  });
+});
+
+describe("the shared fact that a completion menu is open", () => {
+  it("wakes a reader of the box and the menu once per keystroke", () => {
+    // THE RACE THIS FACT EXISTS TO SETTLE. The pane decides between leaving
+    // the Conductor's mode and closing the menu from ONE `Escape`, so it
+    // reads the box and this fact together. Copied out of the composer's
+    // derivation by an effect, the fact lands a flush after the box it is
+    // about: such a reader runs twice for one keystroke, and the first of
+    // those runs pairs the new box with the old answer.
+    const { box } = mount("");
+    const runs: Array<{ typed: string; open: boolean }> = [];
+    const stop = createRoot((end) => {
+      createEffect(
+        () => ({ typed: composerText(), open: completionOpen() }),
+        (seen) => {
+          runs.push(seen);
+        },
+        { name: "standDown" },
+      );
+      return end;
+    });
+    flush();
+    runs.length = 0;
+
+    box.value = "@";
+    box.setSelectionRange(1, 1);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+
+    expect(runs).toEqual([{ typed: "@", open: true }]);
+    stop();
+  });
+
+  it("is false with no composer on screen", () => {
+    const { box } = mount("");
+    box.value = "@";
+    box.setSelectionRange(1, 1);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flush();
+    expect(completionOpen()).toBe(true);
+
+    dispose?.();
+    dispose = undefined;
+    flush();
+    expect(completionOpen()).toBe(false);
   });
 });

@@ -57,9 +57,14 @@ import {
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import {
+  createEffect,
+  createSignal,
+  createStore,
+  runWithOwner,
+} from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
@@ -76,6 +81,7 @@ import {
   type CodeViewState,
   codeHistoryVerbs,
   createCodeHistories,
+  type SelectedFiles,
   selectionWith,
 } from "../code-view/codeViewState";
 
@@ -86,13 +92,15 @@ const MIN_PANEL_SIZE = 0.05;
  *  every writer of a tree share accepts, and each pane's Corvu `minSize`.
  *  Mirrors `MIN_PANEL_SIZE`'s role for the Right panel's own split. */
 export const MIN_CODE_PANE_SHARE = 0.1;
-/** Drop a size write when it matches the stored value. Corvu's `Resizable`
- *  runs `createEffect(() => onSizesChange(sizes()))`, so it re-emits the
- *  *current* `sizes` prop on every reactive invalidation — and re-registers
- *  panels (re-emitting again) on every mount during restart churn. Those
- *  re-emits carry the value we already hold; persisting them is pure noise
+/** Drop a size write that matches the value already stored. Corvu reports
+ *  only real changes — a controlled root never echoes the `sizes` prop back
+ *  (`ui/corvuResizable.ts` holds the corvu-read lore) — but the prop and the
+ *  store DIVERGE while the panel is collapsed: the prop reads `[1, 0]` while
+ *  the store keeps the remembered share. So a genuine report, from a panel
+ *  registering during restart churn or from the layout pass on expand, can
+ *  carry exactly the share we already hold, and persisting it is pure noise
  *  (#1041). Corvu rounds sizes to 6 decimals, so a tolerance below that
- *  catches the echo without dropping a real one-pixel drag step. */
+ *  catches those without dropping a real one-pixel drag step. */
 const SIZE_EPSILON = 1e-6;
 
 const [perTerminal, setPerTerminal] = createStore<
@@ -139,12 +147,155 @@ function freshPerTerminalState(): RightPanelPerTerminalState {
   };
 }
 
+/** The per-terminal record for `id`: the local state if this browser has
+ *  written one, else THE TERMINAL'S OWN RECORD, else the fresh seed. The ONE
+ *  fallback — the tile reader, the pane reader, the promotion seed and the
+ *  focused-place mirror all go through it.
+ *
+ *  Reading the record here, rather than waiting for session restore to copy
+ *  it into the local store, is the READ half of the rule the split's saved
+ *  state follows (`terminal/splitPanelState.ts`): a mount must never lay a
+ *  tile out from a default the record disagrees with. It matters for SIZE in
+ *  maximized posture, where the panel's width comes out of the tile's box.
+ *  Unlike the split, a local entry here has no settle rule — once this
+ *  browser writes one it wins for the rest of the session, so a failed write
+ *  shows until the next reload and a foreign write is not adopted. That is
+ *  this module's long-standing behaviour and is untouched here.
+ *
+ *  EVERY read here is reactive, so this is a TRACKED-PHASE function: callers in
+ *  the effect phase take their facts from {@link focusedPlace} instead. */
+function stateOf(id: TerminalId | null): RightPanelPerTerminalState {
+  if (id === null) return freshPerTerminalState();
+  return (
+    perTerminal[id] ??
+    useTerminalStore().getMetadata(id)?.rightPanel ??
+    freshPerTerminalState()
+  );
+}
+
+/** A record's values in plain objects of this module's own — never a store's,
+ *  at any depth.
+ *
+ *  {@link stateOf} answers with the LIVE object: `perTerminal[id]` is a
+ *  `createStore` proxy and a terminal's own `rightPanel` is a
+ *  subscription-store proxy. A container spread alone is not enough, because
+ *  `selectedFileByMode` is a nested object: the copy would carry the store's
+ *  own map, and reading its leaves later — in the effect phase, which is where
+ *  the write-only verbs run — is STRICT_READ_UNTRACKED. Copying both levels
+ *  here, inside a tracked compute, is what makes the mirror's promise true.
+ *  (`conductor/workCodeView.ts`'s `plainView` is the same copy for the work
+ *  face's record.) */
+function plainRecord(
+  s: RightPanelPerTerminalState,
+): RightPanelPerTerminalState {
+  return s.selectedFileByMode === undefined
+    ? { ...s }
+    : { ...s, selectedFileByMode: { ...s.selectedFileByMode } };
+}
+
+/** A record as a DRAFT: the decoded schema type is readonly all the way down,
+ *  and {@link writeFrom}'s mutator arm writes it leaf by leaf. */
+type RightPanelDraft = Omit<
+  {
+    -readonly [K in keyof RightPanelPerTerminalState]: RightPanelPerTerminalState[K];
+  },
+  "selectedFileByMode"
+> & {
+  selectedFileByMode?: {
+    -readonly [M in keyof SelectedFiles]: SelectedFiles[M];
+  };
+};
+
+/** The focused pane and the record it carries. */
+type PanePlace = {
+  readonly id: TerminalId | null;
+  readonly state: RightPanelPerTerminalState;
+};
+
+interface PlaceMirror {
+  /** The focused pane and its record, as plain values. */
+  readonly now: () => PanePlace;
+  /** Fold a write this module just made into the mirror. */
+  readonly noteWrite: (
+    id: TerminalId,
+    state: RightPanelPerTerminalState,
+  ) => void;
+}
+
+/** THE FOCUSED PANE'S PLACE AS PLAIN VALUES — what the WRITE-ONLY verbs of
+ *  `CodeViewState` consult instead of the store.
+ *
+ *  `setSelectedFile` and `recordNavigation` are called from the Code view's
+ *  EFFECT PHASE, where reading a signal, a store property or a memo is
+ *  STRICT_READ_UNTRACKED. Those callers are still there: the open controller's
+ *  effect lands a resolved ref through `finishOpenRequest` / `onResolved`
+ *  (`code-view/CodeTab.tsx`), which calls the view's one `select(…)` funnel.
+ *  (The inventory-membership clear is gone — the shown file is derived now —
+ *  but it was never the only one.) Both verbs need the same two facts — which
+ *  pane is focused, and what its record says — so ONE mirror serves both, and
+ *  the write path below takes its merge base from the caller rather than
+ *  reading it.
+ *
+ *  Kept in step from two sides: one app-lifetime computation that does the
+ *  reactive reads (a focus move, a restored record, a write made elsewhere all
+ *  land in it), and {@link PlaceMirror.noteWrite}, which folds in this module's
+ *  own writes as they are made — a store write is staged, so the computation
+ *  alone would not let two writes in one tick compose.
+ *
+ *  The copy is taken in the COMPUTE, which runs eagerly at creation and again
+ *  in each propagation pass — so the mirror is current before ANY effect
+ *  callback of that pass reads it, with no ordering between effects to rely on.
+ *  Assigning a plain field is not a reactive write, and the compute does
+ *  nothing else: no signal, no store, no I/O. The effect phase has nothing left
+ *  to do, which is why it is empty rather than the keeper.
+ *
+ *  It is a copy of the VALUES ({@link plainRecord}), not of the reference:
+ *  `stateOf` answers with the live store object, so mirroring it would hand
+ *  the write-only verbs a proxy to read leaves off. Copying here makes this
+ *  compute track the focused record's leaves, which is precisely the keeper's
+ *  job — a leaf written anywhere (this browser, a session restore, another
+ *  face) re-runs it and the mirror is current again.
+ *
+ *  The initial value is the STATIC default, never `freshPerTerminalState()`:
+ *  it is only ever read if something consults the mirror before the compute has
+ *  run at all, and `collapsed` — the one field that seed reads a preference for
+ *  — is a TILE fact no write-only verb consults. */
+const focusedPlace = createSharedRoot((): PlaceMirror => {
+  const store = useTerminalStore();
+  let place: PanePlace = { id: null, state: DEFAULT_RIGHT_PANEL_PER_TERMINAL };
+  createEffect(
+    (): void => {
+      const id = store.focusedTerminalId();
+      place = {
+        id,
+        state:
+          id === null
+            ? DEFAULT_RIGHT_PANEL_PER_TERMINAL
+            : plainRecord(stateOf(id)),
+      };
+    },
+    () => {},
+  );
+  return {
+    now: () => place,
+    noteWrite: (id, state) => {
+      if (id === place.id) place = { id, state };
+    },
+  };
+});
+
+/** Echo a terminal's panel record to the server, for session restore.
+ *
+ *  The record is PASSED IN — the one the local write just produced — never read
+ *  back out of the store: a store write is STAGED, so `perTerminal[id]` here
+ *  would still answer with the PRE-write record, and with nothing at all on a
+ *  terminal's very first write (which would drop that report entirely and leave
+ *  the first tab/collapse of every terminal unpersisted). */
 function reportToServer(
   id: TerminalId,
+  s: RightPanelPerTerminalState,
   rpc: ReturnType<typeof padiRpcOf>,
 ): void {
-  const s = perTerminal[id];
-  if (!s) return;
   // Run at the seam: the caller is a synchronous store mutation echoing a local
   // write that already happened, with nothing to compose into.
   runAction(
@@ -201,28 +352,12 @@ export function useRightPanel() {
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
-  /** The per-terminal record for `id`: the local state if this browser has
-   *  written one, else THE TERMINAL'S OWN RECORD, else the fresh seed. The ONE
-   *  fallback — the tile reader, the pane reader and the promotion seed all go
-   *  through it.
-   *
-   *  Reading the record here, rather than waiting for session restore to copy
-   *  it into the local store, is the READ half of the rule the split's saved
-   *  state follows (`terminal/splitPanelState.ts`): a mount must never lay a
-   *  tile out from a default the record disagrees with. It matters for SIZE in
-   *  maximized posture, where the panel's width comes out of the tile's box.
-   *  Unlike the split, a local entry here has no settle rule — once this
-   *  browser writes one it wins for the rest of the session, so a failed write
-   *  shows until the next reload and a foreign write is not adopted. That is
-   *  this module's long-standing behaviour and is untouched here. */
-  function stateOf(id: TerminalId | null): RightPanelPerTerminalState {
-    if (id === null) return freshPerTerminalState();
-    return (
-      perTerminal[id] ??
-      store.getMetadata(id)?.rightPanel ??
-      freshPerTerminalState()
-    );
-  }
+  /** The focused pane's place, as plain values — the mirror the write-only
+   *  verbs read (see {@link focusedPlace}). Touched HERE, in the one function
+   *  every consumer of the panel calls, so the computation that keeps it is
+   *  standing from the app's first use of the panel rather than from whichever
+   *  write happens to reach it first. */
+  const place = focusedPlace();
 
   /** The desktop panel's collapsed bit — the TILE's, so moving focus between
    *  panes of one tile never opens/closes the panel or shifts layout. The
@@ -255,12 +390,66 @@ export function useRightPanel() {
     return codeModeFor(codeLister(git), paneState().codeMode);
   }
 
-  /** All panel writes share local initialization, mutation, and persistence.
-   *  The host is explicit so an in-flight create can retain its destination.
+  /** Write `update` onto `id`'s record from a base the CALLER has already read,
+   *  and persist the result. READ-FREE — it consults no signal, memo or store
+   *  property of its own — so a write-only verb may run it in the effect phase.
+   *  (The draft the mutator reads is not a tracked read; the merge base is the
+   *  only thing that would have been one, and it arrives as a value.)
    *
-   *  The local entry is seeded from {@link stateOf} — the record when there is
-   *  one — so a partial write cannot replace the terminal's saved tab, mode or
-   *  selection with a default it never held. */
+   *  The base is the terminal's current record, so a partial write cannot
+   *  replace its saved tab, mode or selection with a default it never held. An
+   *  entry already held locally wins over the base — two writes in one tick then
+   *  compose on the staged entry rather than each starting from the committed
+   *  one.
+   *
+   *  The record the write PRODUCES is captured inside the mutator and handed on
+   *  to {@link reportToServer} and to the place mirror: a read of
+   *  `perTerminal[id]` after the write would answer with the pre-write record.
+   *  It is handed on as plain VALUES ({@link plainRecord}) — the draft's own
+   *  `selectedFileByMode` is the store's nested object, and the mirror's whole
+   *  point is that nothing downstream reads a store leaf. The fresh entry is
+   *  copied the same way, so a mutator arm writing a leaf cannot reach back
+   *  into the caller's base.
+   *
+   *  The MUTATOR arm writes the draft leaf by leaf; the partial arm replaces
+   *  whole fields. A field holding an object (the selection map) belongs to
+   *  the mutator arm: assigning a fresh container over one the store already
+   *  holds is `IMMUTABLE_UPDATE_IN_STORE`, and wakes every reader of the
+   *  container's other leaves. */
+  function writeFrom(
+    id: TerminalId,
+    base: RightPanelPerTerminalState,
+    update:
+      | Partial<RightPanelPerTerminalState>
+      | ((s: RightPanelDraft) => void),
+    rpc: ReturnType<typeof padiRpcOf>,
+  ): void {
+    // Assigned by the mutator below, which the store setter runs synchronously.
+    let written!: RightPanelPerTerminalState;
+    // DETACHED: `setSelectedFile` and the other write-only verbs run in the
+    // Code view's EFFECT PHASE, and a store setter under an owner is
+    // REACTIVE_WRITE_IN_OWNED_SCOPE — an error, not a warning. `createStore`
+    // has no `ownedWrite` to declare (only `createSignal` does), so detaching
+    // is the hatch, as `terminal/useTerminalDiagnostics.ts` detaches its own.
+    // It costs nothing: this is app-global per-terminal state rather than the
+    // caller's own, and nothing inside registers a cleanup.
+    runWithOwner(null, () =>
+      setPerTerminal((all) => {
+        const held = all[id];
+        const state = held ?? plainRecord(base);
+        if (typeof update === "function") update(state);
+        else Object.assign(state, update);
+        if (!held) all[id] = state;
+        written = plainRecord(state);
+      }),
+    );
+    place.noteWrite(id, written);
+    reportToServer(id, written, rpc);
+  }
+
+  /** All panel writes made from the TRACKED phase (a gesture, an action, a
+   *  capture): the merge base is read here, through {@link stateOf}. The host is
+   *  explicit so an in-flight create can retain its destination. */
   function mutatePanel(
     id: TerminalId,
     update:
@@ -268,27 +457,7 @@ export function useRightPanel() {
       | ((s: RightPanelPerTerminalState) => void),
     rpc: ReturnType<typeof padiRpcOf>,
   ): void {
-    setPerTerminal(
-      produce((all) => {
-        const held = all[id];
-        const state = held ?? { ...stateOf(id) };
-        if (typeof update === "function") update(state);
-        else Object.assign(state, update);
-        if (!held) all[id] = state;
-      }),
-    );
-    reportToServer(id, rpc);
-  }
-
-  /** UI gestures that belong to the TILE (visibility) target the active tile; an
-   *  empty workspace has no target. */
-  function mutateTile(
-    update:
-      | Partial<RightPanelPerTerminalState>
-      | ((s: RightPanelPerTerminalState) => void),
-  ): void {
-    const id = store.activeId();
-    if (id !== null) mutatePanel(id, update, activePadiRpc);
+    writeFrom(id, stateOf(id), update, rpc);
   }
 
   /** UI gestures that belong to the PANE (tab / sub-mode / selection) target the
@@ -302,14 +471,20 @@ export function useRightPanel() {
     if (id !== null) mutatePanel(id, update, activePadiRpc);
   }
 
-  /** Write the ACTIVE TILE's `collapsed` bit (reported to the server for session
-   *  restore). Naturally a no-op on an empty workspace — the EmptyState owns the
-   *  screen and there's no active tile, so `mutateTile` drops the write rather
-   *  than recording a ghost state. Every collapsed-mutating path (toggle/collapse/
+  /** Write a TILE's `collapsed` bit (reported to the server for session
+   *  restore). `null` is "no tile to record a posture for" — an empty workspace,
+   *  where the EmptyState owns the screen — and drops the write rather than
+   *  recording a ghost state. Every collapsed-mutating path (toggle / collapse /
    *  expand and `reveal`'s desktop branch) routes through here so the write lives
-   *  in one place rather than per-caller. */
-  const setCollapsed = (next: boolean) => {
-    mutateTile({ collapsed: next });
+   *  in one place rather than per-caller.
+   *
+   *  The tile is NAMED by the caller, never re-read here: a caller that has just
+   *  moved focus would otherwise write the posture of the tile the user was on
+   *  before it, since a focus write is staged and `store.activeId()` still
+   *  answers with the old one for the rest of the synchronous run. */
+  const setCollapsed = (tileId: TerminalId | null, next: boolean) => {
+    if (tileId !== null)
+      mutatePanel(tileId, { collapsed: next }, activePadiRpc);
   };
 
   /** Capture a panel patch NOW and apply it to the terminal's id when an async
@@ -343,26 +518,82 @@ export function useRightPanel() {
     );
   }
 
+  /** The focused pane's stack as the LIVE focus names it — the rendered
+   *  enablement reads, which must re-answer when focus moves to a pane with a
+   *  different history. */
+  const liveBrowser = () => {
+    const id = store.focusedTerminalId();
+    return id === null ? null : histories.browserFor(id);
+  };
+
   /** The FOCUSED PANE's Code-tab place, behind the Code view's one state
    *  interface. Each verb reads and writes the pane that has focus — main or
-   *  any split — so focus moving between panes moves the whole place with it. */
+   *  any split — so focus moving between panes moves the whole place with it.
+   *
+   *  Two phases, two sources for "which pane": the RENDERED reads
+   *  (`codeMode`, `selectedFile`, the two enablement accessors) go through the
+   *  store, so they re-answer the moment focus moves; the WRITE-ONLY verbs
+   *  (`setSelectedFile`, `recordNavigation`, and the two navigate verbs that
+   *  share their lookup) go through the {@link focusedPlace} mirror, because the
+   *  Code view calls them from its effect phase where a store read would be
+   *  STRICT_READ_UNTRACKED. */
   const code: CodeViewState = {
     codeMode: paneCodeMode,
     setCodeMode: (mode) => mutatePane({ codeMode: mode }),
     /** Per-mode file selection, keyed by `(focusedPane, mode)` so each pane
      *  remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode) => paneState().selectedFileByMode?.[mode] ?? null,
-    // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
-    // (Effect's `Struct.Type`), so the map is REBUILT ({@link selectionWith}).
+    // ONE LEAF PER WRITE. `selectionWith` decides — "unchanged", or the map
+    // the record should end up with — and the mutator arm below writes the
+    // single mode's key. Assigning the rebuilt map over the one the store
+    // already holds would be `IMMUTABLE_UPDATE_IN_STORE`, and would wake every
+    // reader of the OTHER modes' leaves for a one-mode change (the tree menu's
+    // cross-mode jump writes `browse` while `local` is shown, re-running the
+    // Local view's file query for nothing).
+    //
+    // WRITE-ONLY, and now true at every depth: the mirror hands over a copy of
+    // the record's VALUES ({@link plainRecord}), so reading `selectedFileByMode`
+    // and its leaves here touches no store property. No focused pane is no
+    // target, exactly as `mutatePane` drops a write on an empty workspace.
     setSelectedFile: (mode, path) => {
-      const next = selectionWith(paneState().selectedFileByMode, mode, path);
-      if (next !== "unchanged") mutatePane({ selectedFileByMode: next });
+      const { id, state } = place.now();
+      if (id === null) return;
+      const next = selectionWith(state.selectedFileByMode, mode, path);
+      if (next === "unchanged") return;
+      writeFrom(
+        id,
+        state,
+        (s) => {
+          if (next === undefined) {
+            // The last selection went away. ABSENCE — not a present
+            // `undefined` — is the only spelling of "no selection", on the
+            // wire and here.
+            delete s.selectedFileByMode;
+          } else if (s.selectedFileByMode === undefined) {
+            s.selectedFileByMode = { ...next };
+          } else if (path === null) {
+            delete s.selectedFileByMode[mode];
+          } else {
+            s.selectedFileByMode[mode] = path;
+          }
+        },
+        activePadiRpc,
+      );
     },
     // ── Navigation history (back / forward), one stack per pane ──────
+    // Keyed by the mirror's plain id: `recordNavigation` lands in the effect
+    // phase beside the selection it records (`CodeTab`'s one `select` funnel),
+    // so this lookup must read nothing reactive either.
     ...codeHistoryVerbs(() => {
-      const id = store.focusedTerminalId();
+      const { id } = place.now();
       return id === null ? null : histories.browserFor(id);
     }),
+    // …and the two the toolbar RENDERS, back on the live focus: keyed by the
+    // mirror they would answer about the previous pane until something else
+    // invalidated the button, leaving back/forward enabled on a pane with no
+    // history to walk.
+    canNavigateBack: () => liveBrowser()?.canBack() ?? false,
+    canNavigateForward: () => liveBrowser()?.canForward() ?? false,
   };
 
   return {
@@ -409,9 +640,9 @@ export function useRightPanel() {
      *  width offset and toggle state off this (not raw `collapsed`) so an
      *  empty workspace shows no ghost panel. */
     panelOpen: () => hasTerminals() && !collapsed(),
-    togglePanel: () => setCollapsed(!collapsed()),
-    collapsePanel: () => setCollapsed(true),
-    expandPanel: () => setCollapsed(false),
+    togglePanel: () => setCollapsed(store.activeId(), !collapsed()),
+    collapsePanel: () => setCollapsed(store.activeId(), true),
+    expandPanel: () => setCollapsed(store.activeId(), false),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE && Math.abs(size - rp().size) > SIZE_EPSILON)
         updatePreferences({ rightPanel: { size } }, { coalesce: true });
@@ -443,10 +674,23 @@ export function useRightPanel() {
      *  Resizable otherwise. Producers (e.g. `openInCodeTab`) call this to
      *  express intent ("show the panel") without owning the touch-vs-desktop
      *  fork; the two visibility volatilities (session-local `drawerOpen`,
-     *  persisted `collapsed`) stay separate and are resolved here in one place. */
-    reveal: () => {
-      if (!isDesktop()) setDrawerOpen(true);
-      else if (collapsed()) setCollapsed(false);
+     *  persisted `collapsed`) stay separate and are resolved here in one place.
+     *
+     *  `of` NAMES the pane the reveal is FOR — its containing tile owns the
+     *  desktop posture. A caller that has just moved focus to that pane MUST
+     *  name it: a focus write is staged, so the active tile read here would
+     *  still be the one the user was on, and the reveal would uncollapse THAT
+     *  tile's panel instead. Named by nobody, it is the active tile — the
+     *  chrome gestures, which move no focus of their own. */
+    reveal: (of?: TerminalId) => {
+      if (!isDesktop()) {
+        setDrawerOpen(true);
+        return;
+      }
+      const tileId =
+        of === undefined ? store.activeId() : store.containingTile(of);
+      if (tileId !== null && stateOf(tileId).collapsed)
+        setCollapsed(tileId, false);
     },
 
     // ── Per-pane task state ──────────────────────────────────────────
@@ -465,9 +709,18 @@ export function useRightPanel() {
      *  a "browse" selection as "local" while Inspector is active and trigger a
      *  spurious reset on the round-trip back. */
     code,
-    /** Switch the focused pane to Inspector. `codeMode` is preserved so toggling
-     *  back to Code restores the user's last sub-mode. */
-    showInspector: () => mutatePane({ activeTab: "inspector" }),
+    /** Switch a pane to Inspector. `codeMode` is preserved so toggling back to
+     *  Code restores the user's last sub-mode.
+     *
+     *  `of` NAMES the pane, exactly as `reveal` does, and for the same reason: a
+     *  caller that has just landed focus on it must name it, since a focus write
+     *  is staged and the focused pane read here would still be the one the user
+     *  came from — the Inspector would then open on THAT pane. Named by nobody,
+     *  it is the focused pane (the panel's own tab bar, which moves no focus). */
+    showInspector: (of?: TerminalId) => {
+      if (of === undefined) mutatePane({ activeTab: "inspector" });
+      else mutatePanel(of, { activeTab: "inspector" }, activePadiRpc);
+    },
     /** Switch the focused pane to the Code tab. When `mode` is omitted, the
      *  persisted `codeMode` is used — this is the round-trip case
      *  (Inspector→Code restores the last view). Pass `mode` explicitly to
@@ -477,22 +730,28 @@ export function useRightPanel() {
         activeTab: "code",
         ...(mode !== undefined && { codeMode: mode }),
       }),
-    /** Atomic "set the Code tab at `mode`" — switch to Code, set the
-     *  requested sub-mode. Does NOT touch visibility (collapsed pref or
-     *  drawer-open signal); the host (`RightPanelDrawer`) watches the
-     *  paired `pendingOpen` signal seeded by `openInCodeTab` and ensures
-     *  the surface is visible per its own semantics (desktop expand vs.
-     *  touch-layout drawer open). Keeping visibility out of this function is
-     *  what lets one persisted bit live on the desktop side without
-     *  touch-layout gestures polluting it.
+    /** Atomic "set PANE `terminalId`'s Code tab at `mode`" — switch that pane to
+     *  Code, set the requested sub-mode. Does NOT touch visibility (collapsed
+     *  pref or drawer-open signal); `openInCodeTab` pairs it with `reveal`, and
+     *  keeping visibility out of this function is what lets one persisted bit
+     *  live on the desktop side without touch-layout gestures polluting it.
+     *
+     *  The pane is NAMED, not read off focus: the one caller moves focus TO that
+     *  pane in the same breath, and a focus write is staged — reading the
+     *  focused pane here would answer with the pane the user was on and change
+     *  ITS tab instead.
      *
      *  Short-circuits when the tab+mode is already current — every
      *  diff→browse and browse→browse `openCodeAt` would otherwise
      *  round-trip an idempotent write to the server. */
-    openCodeAt: (mode: CodeTabView) => {
-      const cur = paneState();
+    openCodeAt: (terminalId: TerminalId, mode: CodeTabView) => {
+      const cur = stateOf(terminalId);
       if (cur.activeTab === "code" && cur.codeMode === mode) return;
-      mutatePane({ activeTab: "code", codeMode: mode });
+      mutatePanel(
+        terminalId,
+        { activeTab: "code", codeMode: mode },
+        activePadiRpc,
+      );
     },
 
     // ── Handing panel state to a terminal that has just appeared ─────
@@ -544,7 +803,9 @@ export function useRightPanel() {
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {
-      setPerTerminal(produce((s) => delete s[id]));
+      setPerTerminal((s) => {
+        delete s[id];
+      });
       histories.forget(id);
     },
   } as const;

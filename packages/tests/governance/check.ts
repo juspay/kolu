@@ -19,6 +19,10 @@ import {
 } from "./betaAssumptions";
 import { findCaseCollisions, validateCaseCollisions } from "./caseCollisions";
 import { checkClosureWalksAgree } from "./closureWalk";
+import {
+  collectEffectCleanupHits,
+  validateEffectCleanupHits,
+} from "./effectCleanup";
 import { collectEffectPins, validateEffectPins } from "./effectPin";
 import {
   assertAppendOnly,
@@ -40,6 +44,10 @@ import {
   collectPackageReadmes,
   validatePackageReadmes,
 } from "./packageReadmes";
+import {
+  collectPrimitiveNameHits,
+  validatePrimitiveNameHits,
+} from "./primitiveNames";
 import {
   collectRunEdges,
   RUN_EDGE_ALLOWLIST,
@@ -201,6 +209,20 @@ const runEdgeSites = [...runEdges.values()].reduce((sum, n) => sum + n, 0);
 // compiles, type-checks, reads exactly like the code it replaced, and never
 // dispatches. Neither tsc nor biome can see it.
 validateAwaitedFaceCalls(collectAwaitedFaceCalls(repoRoot));
+
+// The expression-bodied effect-apply ban — the same family again, and the one
+// Solid 2 made necessary. An apply arm's value IS its cleanup, so a concise
+// arrow over a setter hands the scheduler a `false`, which halts reactivity in
+// prod and throws in dev. TypeScript types such a call `void`; biome is not
+// type-aware. Two of these shipped here.
+validateEffectCleanupHits(collectEffectCleanupHits(repoRoot));
+
+// The unnamed-primitive ban — the naming half of the same Solid 2 story. A
+// `createSignal`/`createMemo`/`createStore` with no declarator has no name to
+// take, so Solid's dev diagnostics address it as the bare kind and every such
+// primitive under one owner folds into a single nameless bucket. The dev lane
+// found 5 549 events in one such row.
+validatePrimitiveNameHits(collectPrimitiveNameHits(repoRoot));
 
 // The `Schema.optional` tolerance allowlist (B3) — the third scan of the same
 // family. `optionalKey` is the migration's law; the four fields that break it

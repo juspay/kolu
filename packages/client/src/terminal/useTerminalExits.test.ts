@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 import { useTerminalExits } from "./useTerminalExits";
 
 const ids = (...xs: string[]) => xs as TerminalId[];
-/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/** Solid flushes `createEffect` on a microtask; a macrotask tick drains it.
+ *  Named `settle` so it does not shadow Solid's own `flush`. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("useTerminalExits", () => {
   it("releases a terminal's exit subscription the moment it leaves the list", async () => {
@@ -22,15 +23,15 @@ describe("useTerminalExits", () => {
           onCleanup(() => live.delete(id));
         },
       });
-      await flush();
+      await settle();
       expect([...live].sort()).toEqual(["a", "b"]);
 
       setList(ids("a")); // "b" killed
-      await flush();
+      await settle();
       expect([...live]).toEqual(["a"]);
 
       setList(ids()); // killAll
-      await flush();
+      await settle();
       expect(live.size).toBe(0);
 
       dispose();
@@ -45,12 +46,12 @@ describe("useTerminalExits", () => {
         ids: list,
         subscribe: (id) => counts.set(id, (counts.get(id) ?? 0) + 1),
       });
-      await flush();
+      await settle();
 
       setList(ids("a"));
-      await flush();
+      await settle();
       setList(ids("a", "b")); // adding "b" must not re-run "a"
-      await flush();
+      await settle();
 
       expect(counts.get("a")).toBe(1);
       expect(counts.get("b")).toBe(1);

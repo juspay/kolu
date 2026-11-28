@@ -13,14 +13,7 @@
  *  screen. Tab accepts too (and only accepts) — the shell habit — so somebody
  *  who distrusts Enter mid-token has a key that can never send. */
 
-import {
-  type Accessor,
-  createComputed,
-  createMemo,
-  createSignal,
-  on,
-  type Setter,
-} from "solid-js";
+import { type Accessor, createMemo, createSignal, type Setter } from "solid-js";
 import type { TokenQuery } from "./mentions";
 
 export type CompletionIntent =
@@ -96,14 +89,19 @@ export function completionQuestion(
  *  the fleet happened to list first. The person changed the query or they did
  *  not; nothing else gets a vote.
  *
- *  A COMPUTED, not an effect: the reset writes derived state, so it must land
- *  in the same update as the keystroke that changed the question — an effect
- *  would run after the render that already drew a stale highlight. */
+ *  A WRITABLE DERIVATION, not an effect: the highlight follows the question
+ *  and is also set by the arrow keys. A write lands at once; a new question
+ *  re-derives it to the top in the same update as the keystroke that changed
+ *  it, where an effect would run after a render that already drew a stale
+ *  highlight.
+ */
 export function createCompletionHighlight(
   question: () => string,
 ): readonly [Accessor<number>, Setter<number>] {
   const asked = createMemo(question);
-  const [selected, setSelected] = createSignal(0);
-  createComputed(on(asked, () => setSelected(0)));
+  const [selected, setSelected] = createSignal<number>(() => {
+    asked();
+    return 0;
+  });
   return [selected, setSelected];
 }

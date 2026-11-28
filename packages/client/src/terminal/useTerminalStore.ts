@@ -12,8 +12,9 @@
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo, createSelector } from "solid-js";
+import { createMemo, createProjection } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
+import { foldEach } from "@kolu/surface/solid";
 import { terminalListSub } from "../hostScope/activeWire";
 import { useViewState } from "../useViewState";
 import { useSubPanel } from "./useSubPanel";
@@ -53,6 +54,23 @@ export const useTerminalStore = createSharedRoot(() => {
     activeSubTab: subPanel.paneChrome(tile).activeSubTab,
   });
 
+  /** THE LIVE TILES — every top-level tile holding an active arm, in
+   *  `terminalIds()` order. One row memo per tile ({@link foldEach}), so the
+   *  joined list is `1 + ⌈N / 128⌉` sources rather than the two store leaves
+   *  per tile a single fold would carry: `getMetadata` is a slot leaf plus the
+   *  projected record, which put any scope that asked "which tiles are alive"
+   *  past Solid's 200-source `WIDE_SCOPE_DEPS` judge at about 66 tiles.
+   *
+   *  Published, because "is this tile alive" has two readers — the WebGL budget
+   *  below and the dock's rehome tip — and a second fold of the same question
+   *  is a second N-wide scope. */
+  const liveTileIds = foldEach(
+    "useTerminalStore.liveTile",
+    metadata.terminalIds,
+    (id) =>
+      activeArm(metadata.getMetadata(id)) !== undefined ? id : undefined,
+  );
+
   /** The tiles entitled to a WebGL context: the most-recently-active *live*
    *  tiles that fit under `WEBGL_CONTEXT_CAP`. Derived from the tile MRU
    *  (`mruOrder`) intersected with the live top-level tiles, so a closed tile is
@@ -62,38 +80,42 @@ export const useTerminalStore = createSharedRoot(() => {
    *  churn nothing (the #1399 fix). */
   const webglTileBudget = createMemo(
     () => {
-      // `terminalIds()` includes sleeping tiles (they are full canvas citizens —
-      // they render, drag, and sit in the MRU), but a sleeping terminal holds NO
-      // live resource, so it must never claim a WebGL context. Narrowing the budget
-      // input to the active arm is the single gate that keeps the budget on the
-      // active arm; `holdsWebgl` inherits it via `budget.includes`.
-      const live = new Set(
-        metadata
-          .terminalIds()
-          .filter((id) => activeArm(metadata.getMetadata(id)) !== undefined),
-      );
+      // `liveTileIds()` narrows `terminalIds()` to the active arm — a sleeping
+      // tile is a full canvas citizen (it renders, drags, sits in the MRU) but
+      // holds NO live resource, so it must never claim a WebGL context. That
+      // narrowing is the single gate keeping the budget on the active arm;
+      // `holdsWebgl` inherits it via `budget.includes`.
+      const live = new Set(liveTileIds());
       const ordered = view.mruOrder().filter((id) => live.has(id));
       // `tileWebglCost` is the one home for a tile's context cost (main pane + an
       // expanded, active split), so the running count is the true number of live
       // WebGL contexts — admitting the full working set churn-free (#1399) while
       // staying under Chrome's per-tab limit (#575). `holdsWebgl` below maps the
       // same split rule down to individual terminals via `isActiveSplit`.
+      // `admitWebglTiles` stops at the cap, so the per-tile chrome leaves
+      // `panelOf` reads are paid for at most `WEBGL_CONTEXT_CAP` tiles.
       return admitWebglTiles(
         ordered,
         (id) => tileWebglCost(panelOf(id)),
         WEBGL_CONTEXT_CAP,
       );
     },
-    undefined,
     {
+      name: "useTerminalStore.webglTileBudget",
       equals: (a, b) =>
         a.length === b.length && a.every((id) => b.includes(id)),
     },
   );
-  const budgetContains = createSelector(
-    webglTileBudget,
-    (id: TerminalId, budget) => budget.includes(id),
-  );
+  // A per-key projection of the budget's membership: each run states the whole
+  // set, and the reconcile lights the ids that joined, clears the ones that
+  // fell out and leaves the rest alone — so a budget change wakes only the
+  // tiles that crossed the line, not every tile that reads the gate.
+  const inBudget = createProjection<Record<string, boolean>>(() => {
+    const next: Record<string, boolean> = {};
+    for (const id of webglTileBudget()) next[id] = true;
+    return next;
+  });
+  const budgetContains = (id: TerminalId): boolean => inBudget[id] === true;
 
   /** Whether `id` should hold a WebGL renderer under the budget. A budgeted
    *  tile's slot covers its main pane AND its active split — the split inherits
@@ -172,11 +194,20 @@ export const useTerminalStore = createSharedRoot(() => {
     return metadata.containingTile(id) === id;
   }
 
-  function setActiveSilently(id: TerminalId | null): void {
-    if (id === null) {
-      subPanel.clearFocus();
-      return;
-    }
+  /** THE LANDING VERBS COME IN PAIRS. Each one's reads — is this id a tile,
+   *  which tile contains it, what chrome that tile holds — are done by the
+   *  `plan…` half, which hands back the writes; the eager half beside it is
+   *  that plan, run. The split exists for the callers that live inside a Solid
+   *  effect (the canvas's placement pass, the dock's re-home landing, the
+   *  eviction reconcile, a deep link's settle): an effect callback is a
+   *  strict-read window, so those run the plan in their COMPUTE and the actor
+   *  in the effect. An event handler may read freely and calls the eager verb.
+   *
+   *  An invariant breach (a split handed to a tile-only verb) therefore throws
+   *  from the PLAN — the compute — rather than from the write. Same breach,
+   *  same loudness, one phase earlier. */
+  function planSetActiveSilently(id: TerminalId | null): () => void {
+    if (id === null) return subPanel.planClearFocus();
     // Creation returns the new top-level id before its streamed metadata can
     // arrive. The caller already names a tile; write its id as the gap hint and
     // let live metadata supersede that hint as soon as it is present.
@@ -185,24 +216,43 @@ export const useTerminalStore = createSharedRoot(() => {
         `setActiveSilently: ${id} is a split; use focusTerminal instead`,
       );
     }
-    subPanel.focusVisiblePane(id);
+    return subPanel.planFocusVisiblePane(id);
+  }
+
+  function setActiveSilently(id: TerminalId | null): void {
+    planSetActiveSilently(id)();
   }
 
   /** Select a top-level tile and ask the canvas to center it. */
+  function planActivate(id: TerminalId | null): () => void {
+    const land = planSetActiveSilently(id);
+    if (id === null) return land;
+    return () => {
+      land();
+      view.requestCenterActive(id);
+    };
+  }
+
   function activate(id: TerminalId | null): void {
-    setActiveSilently(id);
-    if (id !== null) view.requestCenterActive();
+    planActivate(id)();
   }
 
   /** Explicitly land on a top-level terminal's main pane and center its tile.
    *  The tile registry can name a newly-created tile before metadata arrives, so
    *  absence is accepted; a live split record is a caller error. */
-  function focusMainTerminal(id: TerminalId): void {
+  function planFocusMainTerminal(id: TerminalId): () => void {
     if (!isCanvasTile(id) && metadata.getMetadata(id) !== undefined) {
       throw new Error(`focusMainTerminal: ${id} is a split`);
     }
-    subPanel.focusMainPane(id);
-    view.requestCenterActive();
+    const land = subPanel.planFocusMainPane(id);
+    return () => {
+      land();
+      view.requestCenterActive(id);
+    };
+  }
+
+  function focusMainTerminal(id: TerminalId): void {
+    planFocusMainTerminal(id)();
   }
 
   /** Land on any terminal without asking a canvas to pan. A top-level landing
@@ -210,7 +260,11 @@ export const useTerminalStore = createSharedRoot(() => {
    *  remembered tab. This is the explicit row/terminal verb: its target id fully
    *  determines the pane, with no remembered-pane lookup. Touch layouts use it
    *  because they own no canvas, while desktop composes centering below. */
-  function focusTerminalSilently(id: TerminalId): void {
+  function planFocusTerminalSilently(id: TerminalId): {
+    /** The tile the landing lands IN — what a centering request names. */
+    readonly tile: TerminalId;
+    readonly land: () => void;
+  } {
     const record = metadata.getMetadata(id);
     if (!record)
       throw new Error(`focusTerminalSilently: no terminal metadata for ${id}`);
@@ -220,17 +274,30 @@ export const useTerminalStore = createSharedRoot(() => {
     // way), so it lands on the main pane — falling back to its true parent
     // used to key the tab strip on a node that owns no panel at all.
     const tile = metadata.containingTile(id);
-    if (tile === id) {
-      subPanel.focusMainPane(id);
-      return;
-    }
-    subPanel.focusSubTab(tile, id);
+    return {
+      tile,
+      land:
+        tile === id
+          ? subPanel.planFocusMainPane(id)
+          : subPanel.planFocusSubTab(tile, id),
+    };
+  }
+
+  function focusTerminalSilently(id: TerminalId): void {
+    planFocusTerminalSilently(id).land();
   }
 
   /** Land on any terminal and ask the desktop canvas to center its tile. */
+  function planFocusTerminal(id: TerminalId): () => void {
+    const { tile, land } = planFocusTerminalSilently(id);
+    return () => {
+      land();
+      view.requestCenterActive(tile);
+    };
+  }
+
   function focusTerminal(id: TerminalId): void {
-    focusTerminalSilently(id);
-    view.requestCenterActive();
+    planFocusTerminal(id)();
   }
 
   return {
@@ -248,8 +315,12 @@ export const useTerminalStore = createSharedRoot(() => {
     ...metadata,
     // Public top-level selection resolves remembered pane chrome before writing
     // the one focus fact; the raw view writers stay internal to this composer.
+    // A landing verb's `plan…` reader half is published where a caller outside
+    // this composer needs the two phases (see the pairs above).
     activate,
+    planActivate,
     setActiveSilently,
+    planSetActiveSilently,
     // The input-routing target (tile root, or its focused split).
     focusedId,
     // Landing verbs for either a top-level terminal or a split: touch-safe
@@ -257,6 +328,10 @@ export const useTerminalStore = createSharedRoot(() => {
     focusTerminalSilently,
     focusTerminal,
     focusMainTerminal,
+    planFocusMainTerminal,
+    // The tiles holding a live arm — the one fold of that question, read by
+    // the WebGL budget here and by the dock's rehome tip.
+    liveTileIds,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
     holdsWebgl,
     // Lifecycle (view-state only — list is server-driven)

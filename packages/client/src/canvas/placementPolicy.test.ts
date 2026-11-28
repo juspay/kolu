@@ -12,6 +12,7 @@ import type { TerminalId } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import { buildTerminalDisplayInfos } from "../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalStore } from "../terminal/useTerminalStore";
 import { resolvePlacementBucket } from "./placementPolicy";
 
@@ -54,9 +55,7 @@ function stubStore(
   const byId = new Map(entries.map((e) => [e.id, e.meta]));
   const ids = entries.map((e) => e.id);
   const displayInfos = buildTerminalDisplayInfos(
-    ids,
-    (id) => byId.get(id),
-    () => [],
+    entries.map(({ id, meta }) => ({ id, ...terminalKey(meta), subCount: 0 })),
   );
   return {
     getMetadata: (id: TerminalId) => byId.get(id),

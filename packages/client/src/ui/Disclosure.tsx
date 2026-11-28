@@ -9,7 +9,8 @@
  *  fact changes again. Native `<details>` carries the keyboard/ARIA behavior,
  *  so there is no toggle state to hand-roll. */
 
-import { type Component, createEffect, createMemo, type JSX } from "solid-js";
+import { type Component, createEffect, createMemo } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { SUMMARY_RESET } from "./disclosureChrome";
 import { ChevronRightIcon } from "./Icons";
 
@@ -23,8 +24,9 @@ const Disclosure: Component<{
   let el!: HTMLDetailsElement;
   /** The docstring's promise — a manual toggle survives until the FACT changes
    *  — is a promise about the VALUE, not about how often the expression behind
-   *  it recomputes. A bare `createEffect(() => { el.open = props.open })` honors
-   *  it only for callers that happen to pass a narrow leaf read: it re-asserts
+   *  it recomputes. Reading the prop straight in the effect's compute
+   *  (`createEffect(() => props.open, (v) => { el.open = v })`) honors it only
+   *  for callers that happen to pass a narrow leaf read: it re-asserts
    *  on every DEPENDENCY tick, so a caller passing `open={bundle().hasException}`
    *  (one memo carrying several PR fields) slams the list shut on an unrelated
    *  title or check-run update — mid-CI-run, which is exactly when the user has
@@ -32,8 +34,8 @@ const Disclosure: Component<{
    *  boolean, so the effect fires only on a genuine flip and no caller can
    *  express the bug. */
   const open = createMemo(() => props.open ?? false);
-  createEffect(() => {
-    el.open = open();
+  createEffect(open, (v) => {
+    el.open = v;
   });
   return (
     <details ref={el} class="group/disc" data-testid={props["data-testid"]}>

@@ -20,12 +20,11 @@ import {
   type Component,
   createContext,
   createSignal,
-  type JSX,
   onCleanup,
   Show,
   useContext,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { type JSX, Portal } from "@solidjs/web";
 import {
   DragTracker,
   type DragTrackerOptions,
@@ -90,13 +89,11 @@ export type DragDropScope = {
 
 const DragDropContext = createContext<DragDropScope>();
 
-/** The nearest scope, or a loud failure naming the caller: a draggable outside
- *  every scope is a wiring bug, never a drag that quietly does nothing. */
-export function requireDragDropScope(caller: string): DragDropScope {
-  const scope = useContext(DragDropContext);
-  if (!scope)
-    throw new Error(`${caller}: no drag scope — wrap it in a DragDropProvider`);
-  return scope;
+/** The nearest scope. The context has no default, so outside every scope
+ *  `useContext` throws (`ContextNotFoundError`): a draggable outside every
+ *  scope is a wiring bug, never a drag that quietly does nothing. */
+export function useDragDropScope(): DragDropScope {
+  return useContext(DragDropContext);
 }
 
 export const DragDropProvider: Component<{
@@ -201,7 +198,7 @@ export const DragDropProvider: Component<{
   };
 
   return (
-    <DragDropContext.Provider value={scope}>
+    <DragDropContext value={scope}>
       {props.children}
       <Show when={props.overlay}>
         {(overlay) => (
@@ -219,7 +216,7 @@ export const DragDropProvider: Component<{
           </Portal>
         )}
       </Show>
-    </DragDropContext.Provider>
+    </DragDropContext>
   );
 };
 

@@ -12,7 +12,8 @@ import {
   type ConductorState,
 } from "kolu-common/conductor";
 import { needsYou, type WorkRow } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The count is a CONTROL on a phone, and a plain readout on a desktop, where
@@ -24,6 +25,18 @@ vi.mock("../useMobile", () => ({ layoutMode: () => "phone" }));
 let works: WorkRow[] = [];
 vi.mock("./useWorks", () => ({
   useWorks: () => () => works,
+  // The board's two halves over the same fixture: every work here is open,
+  // so the running half is all of them and nothing is finished or watched.
+  useWorkSplit: () => ({
+    live: () => works.filter(([, one]) => one.state.kind === "open"),
+    done: () => works.filter(([, one]) => one.state.kind !== "open"),
+    watching: () =>
+      new Set(
+        works.flatMap(([id, one]) =>
+          one.state.kind === "open" && one.key.kind === "watch" ? [id] : [],
+        ),
+      ),
+  }),
   // The one needs-you reading, over the same works — as the real mirror
   // derives it.
   useNeedsYou: () => () => needsYou(works),
@@ -89,9 +102,9 @@ function mount(
       // The pane is a retained view; every part of it reads its visibility
       // from this context, so a status line mounted for a test says it is
       // being looked at.
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <ConductorStatus state={state} rows={rows} />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -141,6 +154,7 @@ describe("the status line", () => {
     expect(button?.dataset.waiting).toBeUndefined();
 
     button?.click();
+    flush();
     expect(phoneView()).toBe("work");
   });
 

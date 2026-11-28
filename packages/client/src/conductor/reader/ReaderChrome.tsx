@@ -37,7 +37,7 @@ const ReaderChrome: Component<{ target: ReaderTarget }> = (props) => (
       <button
         type="button"
         data-testid="reader-fill"
-        aria-pressed={readerFilled()}
+        aria-pressed={readerFilled() ? "true" : "false"}
         class={CONTROL}
         onClick={() => toggleReaderFill()}
       >

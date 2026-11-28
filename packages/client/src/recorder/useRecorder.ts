@@ -28,7 +28,7 @@
 
 import { Effect } from "effect";
 import fixWebmDuration from "fix-webm-duration";
-import { batch, createMemo, createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { runAction, type UiAction } from "../runAction";
@@ -285,12 +285,10 @@ function startRecording(): UiAction {
         tracks: [...displayTracks, ...preview.getTracks()],
       };
       openedWritable = null; // ownership transferred to `session`
-      batch(() => {
-        setAnchor(performance.now());
-        setPausedAt(null);
-        setNow(performance.now());
-        setPhase("recording");
-      });
+      setAnchor(performance.now());
+      setPausedAt(null);
+      setNow(performance.now());
+      setPhase("recording");
       startTicker();
       recorder.start(TIMESLICE_MS);
       toast.success("Recording started");
@@ -324,10 +322,8 @@ function togglePause(): void {
       }
       for (const t of s.tracks) t.enabled = false;
       stopTicker();
-      batch(() => {
-        setPausedAt(performance.now());
-        setPhase("paused");
-      });
+      setPausedAt(performance.now());
+      setPhase("paused");
     })
     .with("paused", () => {
       for (const t of s.tracks) t.enabled = true;
@@ -339,16 +335,14 @@ function togglePause(): void {
       }
       // Rewind anchor by the paused duration so the memo picks back up
       // from where it froze.
-      batch(() => {
-        const p = pausedAt();
-        const a = anchor();
-        if (p !== null && a !== null) {
-          setAnchor(performance.now() - (p - a));
-        }
-        setPausedAt(null);
-        setNow(performance.now());
-        setPhase("recording");
-      });
+      const p = pausedAt();
+      const a = anchor();
+      if (p !== null && a !== null) {
+        setAnchor(performance.now() - (p - a));
+      }
+      setPausedAt(null);
+      setNow(performance.now());
+      setPhase("recording");
       startTicker();
     })
     .with(P.union("idle", "setup"), () => {})
@@ -379,10 +373,8 @@ function stopRecording(): UiAction {
     // last cached value is up to 1s stale at a sub-second ticker).
     const durationMs =
       (pausedAt() ?? performance.now()) - (anchor() ?? performance.now());
-    batch(() => {
-      setAnchor(null);
-      setPausedAt(null);
-    });
+    setAnchor(null);
+    setPausedAt(null);
 
     // Race-safe recorder shutdown. If `state` is already "inactive" (e.g.
     // the display track ended and re-entered stopRecording after

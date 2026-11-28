@@ -32,13 +32,6 @@ import { gridForBox, sameGrid, type TerminalGrid } from "@kolu/xterm-kit/solid";
 import { fitFontSize, type PeekCell, type PeekPad } from "./peek/peekSize";
 
 export interface PaneSizeDeps {
-  /** The pane holds a read of its terminal's screen — it is on screen. */
-  readonly connected: () => boolean;
-  /** The desktop layout. A phone's or a tablet's pane follows. */
-  readonly desktop: () => boolean;
-  /** The grid the pane would ask for ({@link paneGrid}), `null` until it has
-   *  measured. */
-  readonly asked: () => TerminalGrid | null;
   /** State a grid to the terminal (`publishGrid.ts` owns when it lands). */
   readonly publish: (grid: TerminalGrid) => void;
   /** Drop a publish that has not landed yet. */
@@ -46,14 +39,33 @@ export interface PaneSizeDeps {
   /** Restate a grid a not-connected window dropped, if one is still owed
    *  (`publishGrid.ts`'s latch, which also checks the host). The same publish
    *  landing late, not a new reason to speak — restated only while the pane
-   *  is on screen, as the tile restates behind its own gate (`shownPane.ts`). */
-  readonly restateOwed: () => void;
+   *  is on screen, as the tile restates behind its own gate (`shownPane.ts`).
+   *  The host's state is HANDED IN: the latch is judged against it, and the
+   *  caller is an effect whose callback may not read it. */
+  readonly restateOwed: (hostState: string) => void;
+}
+
+/** THE FACTS A TICK IS ABOUT, handed in rather than read: the caller is the
+ *  pane's effect, whose imperative half reads no reactive state — its compute
+ *  has already read exactly these. */
+export interface PaneSizeNow {
+  /** The pane holds a read of its terminal's screen — it is on screen. */
+  readonly connected: boolean;
+  /** The desktop layout. A phone's or a tablet's pane follows. */
+  readonly desktop: boolean;
+  /** The grid the pane would ask for ({@link paneGrid}), `null` until it has
+   *  measured. */
+  readonly asked: TerminalGrid | null;
+  /** The host entry's state KIND as the pane's host map paints it right now —
+   *  carried because the restatement is judged against `"connected"` and the
+   *  effect that drives this tick may not read it itself. */
+  readonly hostState: string;
 }
 
 export interface PaneSize {
   /** Re-read the facts and speak on a CHANGE. Idempotent: safe on every tick
    *  of any of them, and of the host's state. */
-  observe(): void;
+  observe(now: PaneSizeNow): void;
 }
 
 export function createPaneSize(deps: PaneSizeDeps): PaneSize {
@@ -61,9 +73,9 @@ export function createPaneSize(deps: PaneSizeDeps): PaneSize {
    *  coming back on screen speaks once, and an unchanged grid never does. */
   let stated: TerminalGrid | null = null;
   return {
-    observe() {
-      if (deps.connected()) deps.restateOwed();
-      const grid = deps.connected() && deps.desktop() ? deps.asked() : null;
+    observe(now) {
+      if (now.connected) deps.restateOwed(now.hostState);
+      const grid = now.connected && now.desktop ? now.asked : null;
       if (!grid) {
         if (stated) deps.cancelPublish();
         stated = null;

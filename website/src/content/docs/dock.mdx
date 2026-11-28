@@ -126,8 +126,10 @@ The default order is structural, and you can override it by dragging:
   along, and nesting is allowed as deep as you like;
 - drag that grip onto the repo card's header: a split is handed back its own
   tile, placed on the canvas like any new one;
-- a sleeping terminal has no grip. Only a live terminal can be re-homed, and
-  only inside its own repo card.
+- a sleeping terminal has no grip, and nothing picks its row up: a press
+  anywhere on it starts no drag of its own, though the row still travels with
+  its cluster. Only a live terminal can be re-homed, and only inside its own
+  repo card.
 
 A drop that makes no sense refuses, and says so while you hover: the row itself,
 one of its descendants, the row it already hangs under, or the header of a

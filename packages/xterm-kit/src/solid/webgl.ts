@@ -16,7 +16,7 @@
  *  true, unload when false. Call synchronously within a reactive owner (the
  *  effect + cleanup register on it). */
 
-import { createEffect, createSignal, on, onCleanup } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { WebglAddon } from "@xterm/addon-webgl";
 import type { Terminal as XTerm } from "@xterm/xterm";
 
@@ -48,7 +48,13 @@ export function attachWebGL(
 ): WebglHandle {
   let webgl: WebglAddon | null = null;
   let webglCanvas: HTMLCanvasElement | null = null;
-  const [hasWebgl, setHasWebgl] = createSignal(false);
+  // `ownedWrite`: an internal signal whose writers are imperative by
+  // construction — the initial `load()` the caller drives at the bottom of this
+  // factory, which runs inside the caller's own owner (`<Xterm>`'s ready
+  // callback, re-entered with `runWithOwner`), plus xterm's context-loss
+  // listener and the disposal `unload`. The in-scope seed is the point: the
+  // handle this factory returns must already report the context it just took.
+  const [hasWebgl, setHasWebgl] = createSignal(false, { ownedWrite: true });
 
   function load() {
     if (webgl) return;
@@ -101,14 +107,12 @@ export function attachWebGL(
   // unload when it leaves. `defer: true` — the caller drives the initial load
   // once (below), since the effect can't run before the terminal is open.
   createEffect(
-    on(
-      should,
-      (want) => {
-        if (want) load();
-        else unload();
-      },
-      { defer: true },
-    ),
+    should,
+    (want) => {
+      if (want) load();
+      else unload();
+    },
+    { defer: true },
   );
   // Initial load, now that the terminal is open.
   if (should()) load();

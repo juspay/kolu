@@ -6,7 +6,7 @@ import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
 import { defineConfig, type PluginOption } from "vite";
 import { compression, defineAlgorithm } from "vite-plugin-compression2";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 
 const xtermVersion = xtermPackage.version;
 
@@ -48,7 +48,16 @@ if (!rhaiGrammarPath) {
   );
 }
 
-export default defineConfig({
+/** The Vite mode that builds the client against Solid's DEVELOPMENT runtime
+ *  (`@solidjs/vite-plugin`'s `dev: true`, which forces the dev builds into
+ *  `vite build`), so every Solid dev diagnostic is live in a built bundle.
+ *  Only the Nix derivation that builds the dev-mode client passes it
+ *  (`koluClientSolidDevBuild` in default.nix), for the e2e lane that fails on
+ *  any Solid diagnostic (`ci::e2e-solid-dev`). Every other build and `vite`
+ *  dev server keeps the plugin's default. */
+const SOLID_DEV_MODE = "solid-dev";
+
+export default defineConfig(({ mode }) => ({
   // No VitePWA / no *caching* service worker: kolu can't work offline and a
   // precaching worker only served stale builds across deploys (see
   // docs/cache-bug.md). Freshness is surface-app's contract: the server's
@@ -78,7 +87,7 @@ export default defineConfig({
   // would stay pinned on the old stamp forever (kolu#1319).
   plugins: [
     devNotificationSw,
-    solid(),
+    solid(mode === SOLID_DEV_MODE ? { dev: true } : {}),
     tailwindcss(),
     surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,
     // Emit `.br` + `.gz` siblings for the immutable hashed assets at BUILD time,
@@ -164,5 +173,11 @@ export default defineConfig({
   // `optimizeDeps.esbuildOptions` is deprecated in Vite 8.
   build: {
     target: "esnext",
+    // The dev-mode dist (`mode === SOLID_DEV_MODE`) also emits a sourcemap, so
+    // the `ci::e2e-solid-dev` lane's diagnostic stacks — minified `index-*.js`
+    // line:column pairs — resolve back to source. A map is a side channel: the
+    // only change to the emitted JS is the trailing `sourceMappingURL` comment,
+    // so bundle positions are unaffected. The production build is untouched.
+    ...(mode === SOLID_DEV_MODE && { sourcemap: true }),
   },
-});
+}));

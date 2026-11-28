@@ -10,7 +10,8 @@
  * if you want imperative lifetime (e.g. fire-and-forget per-entity subscriptions
  * whose lifetime tracks the entity, not a component). Either way the actual
  * teardown is a fiber interrupt, which the stream's own finalizers turn into a
- * wire unsubscribe.
+ * wire unsubscribe. With NEITHER an owner nor a signal the view has no lifetime
+ * at all and the call is refused, the same way `createSubscription` refuses it.
  *
  * No snapshot obligation: a late subscriber misses past occurrences by
  * design. Re-subscribe on transport drop is transparent (the retry fence) —
@@ -18,10 +19,11 @@
  * the fence's `shouldRetryStreamError` policy.
  */
 
-import { createEffect, on, onCleanup } from "solid-js";
+import { createEffect, getOwner, onCleanup } from "solid-js";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { Event } from "../index";
 import { runStreamScoped } from "../runStream";
+import { noLifetimeRefusal } from "./createSubscription";
 
 export interface UseEventOptions {
   /** Called when the subscription errors (a transport failure the fence can't
@@ -50,14 +52,26 @@ export function useEvent<Name extends string, I, T>(
   // The stopper for the ACTIVE subscription. Undefined while the input is `null`
   // (paused) — there is no fiber to interrupt then.
   let stopActive: (() => void) | undefined;
+  /** This hook's lifetime is OVER — set by {@link end} and read by {@link start},
+   *  so a view whose lifetime ended cannot be left holding a fiber. */
+  let ended = false;
 
+  /** Interrupt the running fiber, leaving the hook able to open another: this is
+   *  also the input-change teardown, which is why it does NOT latch. */
   function stop(): void {
     stopActive?.();
     stopActive = undefined;
   }
 
+  /** End the hook for good — the owner disposed, or the signal aborted. */
+  function end(): void {
+    ended = true;
+    stop();
+  }
+
   function start(input: I): void {
-    stopActive = runStreamScoped<T>(
+    if (ended) return;
+    const stopFiber = runStreamScoped<T>(
       unenrolledStreamCall(source, input, { label: eventDescriptor.name }),
       {
         onFrame: handler,
@@ -67,32 +81,60 @@ export function useEvent<Name extends string, I, T>(
         onFailure: options.onError,
       },
     );
+    // The lifetime can END from INSIDE the call above: a handler that aborts the
+    // signal on the first occurrence, or a source whose first step does, runs
+    // before the stopper exists, so that `end` found nothing to stop. Re-check
+    // and stop it here — otherwise the fiber and the wire subscription behind it
+    // outlive the view with no handle left. (`createStreamLifecycle` carries the
+    // same latch for the same reason.)
+    if (ended) stopFiber();
+    else stopActive = stopFiber;
   }
 
   // Single cleanup path: external signal OR `onCleanup`. Never both — avoids dual
-  // lifecycle braiding (the same shape `createSubscription` uses).
+  // lifecycle braiding (the same shape `createSubscription` uses). With NEITHER
+  // there is no cleanup path at all: `onCleanup` outside an owner never fires,
+  // the effect below would be one Solid only warns about (`NO_OWNER_EFFECT`),
+  // and the fiber — plus the wire subscription its finalizers close — would
+  // outlive the page with no handle left to stop it. Refused at birth, like
+  // every other view-opening primitive here.
   if (options.signal) {
     if (options.signal.aborted) return;
-    options.signal.addEventListener("abort", stop, { once: true });
+    options.signal.addEventListener("abort", end, { once: true });
   } else {
-    onCleanup(stop);
+    if (!getOwner())
+      throw noLifetimeRefusal({ name: "useEvent", acceptsSignal: true });
+    onCleanup(end);
   }
 
-  // Open the initial subscription synchronously so callers from async
-  // contexts (e.g. fire-and-forget after `await client.X.create`) don't
-  // race a not-yet-attached subscriber against the first server yield.
-  // `createEffect` with `defer` handles subsequent input changes only.
-  const initial = inputFn();
-  if (initial !== null) start(initial);
-
-  createEffect(
-    on(
-      inputFn,
-      (input) => {
-        stop();
-        if (input !== null) start(input);
-      },
-      { defer: true },
-    ),
-  );
+  // ONE effect opens every subscription, the first one included: the compute reads
+  // `inputFn` (so an input change re-runs it) and the effect phase does the
+  // imperative work — stop the previous fiber, open the next. NOT deferred: the
+  // first run IS the initial subscribe, so there is no second, body-level open to
+  // keep in step with this one (and no top-level `inputFn()` read in the caller's
+  // scope, which is a reactive read in a component body).
+  //
+  // The subscription therefore attaches on the first flush after this call rather
+  // than synchronously. That is the deliberate price of keeping delivery out of
+  // the creating scope: `handler` is consumer code that typically writes reactive
+  // state, and `Effect.runFork` runs a stream synchronously to its first async
+  // boundary, so an inline open would let an occurrence land in a component body.
+  // A caller that fired an event itself (the `await client.X.create` shape) is not
+  // racing the server: the member's own stream decides what a late subscriber
+  // sees, and an event stream promises nothing about occurrences before it.
+  //
+  // OWNERLESS (the signal arm): there is no effect phase to defer into and no
+  // owned scope for an occurrence to land in, so the subscribe is inline. An
+  // ownerless `createEffect` is itself a defect Solid names (`NO_OWNER_EFFECT`)
+  // — nothing would ever dispose it — and the input cannot change reactively
+  // with no owner to re-run anything, so the first read is the only one.
+  if (!getOwner()) {
+    const input = inputFn();
+    if (input !== null) start(input);
+    return;
+  }
+  createEffect(inputFn, (input) => {
+    stop();
+    if (input !== null) start(input);
+  });
 }

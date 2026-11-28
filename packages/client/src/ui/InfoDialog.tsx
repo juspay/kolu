@@ -5,9 +5,9 @@
  *  mark I just clicked (on this host chip)" is structural. Positioning,
  *  outside-click, and Escape dismiss ride {@link useAnchoredPopover}. */
 
-import type { Component, JSX } from "solid-js";
+import type { Component } from "solid-js";
 import { Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Portal, type JSX } from "@solidjs/web";
 import { CloseIcon } from "./Icons";
 import { surface } from "./Surface";
 import { useAnchoredPopover } from "./useAnchoredPopover";

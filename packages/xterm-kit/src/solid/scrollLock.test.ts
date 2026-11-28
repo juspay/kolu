@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, createSignal, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createScrollLock, SCROLL_INTENT_WINDOW_MS } from "./scrollLock";
 
@@ -234,18 +234,29 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     let runs = 0;
     // A consumer's effect that resets the terminal: xterm runs the lock's
     // scroll listener inside that call, so whatever the listener reads would
-    // otherwise subscribe the consumer's effect to it.
+    // otherwise subscribe the consumer's effect to it. The reset stays in the
+    // COMPUTE phase on purpose — that is the tracked scope where the stray
+    // subscription would form; an effect-phase call is untracked and would
+    // prove nothing.
     const disposeEffect = createRoot((d) => {
-      createEffect(() => {
-        runs += 1;
-        t.term.reset();
-      });
+      createEffect(
+        () => {
+          runs += 1;
+          t.term.reset();
+          return runs;
+        },
+        () => {},
+      );
       return d;
     });
     expect(runs).toBe(1);
     t.emitOutputAtBottom(100);
     t.lock.armUserScrollIntent("wheel");
     t.scrollUp(10);
+    // The flush is the assertion's subject: a stray subscription formed in the
+    // compute would re-run it HERE, on the lock's own write. Reading `runs`
+    // without it would pass whether or not one formed.
+    flush();
     expect({ runs, locked: t.lock.isLocked() }).toEqual({
       runs: 1,
       locked: true,
@@ -498,6 +509,130 @@ describe("createScrollLock — a resize keeps its place in the stream", () => {
     t.lock.reset();
     expect(t.trace).toEqual([]);
     expect(t.grid()).toEqual({ cols: 80, rows: 24 });
+    t.dispose();
+  });
+});
+
+describe("createScrollLock — the write door runs inside the effect phase", () => {
+  it("buffers a locked write made from an effect's apply arm", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    const [bytes, setBytes] = createSignal("");
+    // The production shape: terminal output arrives as a signal and reaches
+    // the write door from an effect's APPLY arm — a strict-read window, where
+    // a door that subscribed to the lock's reactive mirror raises
+    // STRICT_READ_UNTRACKED and the setup file's `afterEach` throws.
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => bytes(),
+        (data) => {
+          if (data.length > 0) t.lock.writeData(t.term, data);
+        },
+        { name: "scrollLockDoorFromApplyArm" },
+      );
+      return d;
+    });
+    flush();
+    setBytes("held");
+    flush();
+    // Held, not painted: the door asked the plain authority and got "locked".
+    expect(t.trace).toEqual([]);
+    expect(t.lock.hasNewOutput()).toBe(true);
+    t.lock.reset();
+    expect(t.trace).toEqual(["w:held"]);
+    disposeEffect();
+    t.dispose();
+  });
+
+  it("writes straight through from an effect's apply arm while unlocked", () => {
+    const t = setup();
+    const [bytes, setBytes] = createSignal("");
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => bytes(),
+        (data) => {
+          if (data.length > 0) t.lock.writeData(t.term, data);
+        },
+        { name: "scrollLockOpenDoorFromApplyArm" },
+      );
+      return d;
+    });
+    flush();
+    setBytes("live");
+    flush();
+    expect(t.trace).toEqual(["w:live"]);
+    disposeEffect();
+    t.dispose();
+  });
+
+  it("queues a resize from an effect's apply arm behind the held bytes", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    t.lock.writeData(t.term, "before");
+    const [cols, setCols] = createSignal(80);
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => cols(),
+        (c) => {
+          t.lock.resizeInOrder(c, 24);
+        },
+        { name: "scrollLockResizeFromApplyArm" },
+      );
+      return d;
+    });
+    flush();
+    setCols(100);
+    flush();
+    expect(t.trace).toEqual([]);
+    t.lock.reset();
+    expect(t.trace).toEqual(["w:before", "r:100x24"]);
+    disposeEffect();
+    t.dispose();
+  });
+
+  it("does not wake the disabled-setting effect for every buffered chunk", () => {
+    // The setting rides a signal the pane's own state moves — that is the
+    // ROOT write in the product: a sub-terminal list length the lock's
+    // `enabled` accessor transitively reads. Buffered output must not join it
+    // as a second dependency, or this effect runs twice for that one write:
+    // once in its flush, once when the door's mirror write lands in the effect
+    // phase (EFFECT_RELAY_TEAR, `warn` from the third sighting).
+    const [panes, setPanes] = createSignal(1);
+    const [setting, setSetting] = createSignal(true);
+    const t = setup(() => setting() && panes() > 0);
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    const disposeEffect = createRoot((d) => {
+      createEffect(
+        () => panes(),
+        (n) => {
+          // TWO door writes in the one flush: the second must not be a second
+          // wake-up either.
+          t.lock.writeData(t.term, `a${n}`);
+          t.lock.writeData(t.term, `b${n}`);
+        },
+        { name: "scrollLockOutputSink" },
+      );
+      return d;
+    });
+    flush();
+    // Past the escalation threshold, not at it.
+    for (const n of [2, 3, 4, 5]) {
+      setPanes(n);
+      flush();
+    }
+    expect(t.trace).toEqual([]);
+
+    // Turning the setting off drains everything the door accumulated — the
+    // apply arm reads the buffer at the moment it runs, not at the moment it
+    // subscribed.
+    setSetting(false);
+    flush();
+    expect(t.trace).toEqual(["w:a1b1a2b2a3b3a4b4a5b5"]);
+    expect(t.lock.isLocked()).toBe(false);
+    disposeEffect();
     t.dispose();
   });
 });

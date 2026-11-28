@@ -41,7 +41,16 @@
  * a blessed escape hatch that owns no `Subscription`).
  */
 
-import { type Accessor, createSignal, onCleanup } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createRoot,
+  createSignal,
+  getOwner,
+  onCleanup,
+  runWithOwner,
+} from "solid-js";
+import { joinChunks, sameMembers } from "./chunkedFold";
 
 /** One enrolled subscription's health, read straight off its own reactive,
  *  self-clearing accessors. */
@@ -149,15 +158,51 @@ export interface SurfaceHealthRegistry {
    *  often outside any root, and an undisposed memo there would warn/leak. Read
    *  it inside a tracking scope (a component memo, JSX, `<SurfaceGate>`) and it
    *  tracks membership, every enrolled sub's `error()`/`pending()`, AND every
-   *  readiness leg's predicate. */
+   *  readiness leg's predicate.
+   *
+   *  It costs the reading scope TWO sources however many subscriptions are
+   *  enrolled: the walk itself lives in this registry's own chunked fold (see
+   *  {@link createSurfaceHealthRegistry}), and the accessor reads only that
+   *  fold's two memos. A caller is therefore bounded by construction — it
+   *  cannot be made wide by a page that opens a row per document.
+   *
+   *  Because the fold is memoized, the fact it reports is the one as of the last
+   *  FLUSH — the same clock every other derived value in a Solid 2 graph is on,
+   *  since a signal write is held until the flush anyway. A reading COMPUTATION
+   *  is re-run by the same flush that lands an enrolment or a frame, so it never
+   *  sees the older roster. An IMPERATIVE reader (a test, an event handler
+   *  enrolling and asking in one breath) must ask after the flush. */
   health: Accessor<SurfaceHealth>;
 }
 
+/** Two readings of the same subscriptions. Compared by VALUE — each reading
+ *  allocates a fresh record per sub, so without this every re-fold would hand
+ *  every bound indicator a new array to re-render on. */
+const sameSubs = (
+  was: readonly SubHealth[],
+  now: readonly SubHealth[],
+): boolean =>
+  was.length === now.length &&
+  was.every((sub, at) => {
+    const other = now[at];
+    return (
+      other !== undefined &&
+      sub.name === other.name &&
+      sub.pending === other.pending &&
+      sub.error === other.error
+    );
+  });
+
 /** Build a per-client subscription-health registry over a transport-`live`
- *  accessor. One per `surfaceClient`; every `.use()` enrols into it. */
+ *  accessor. One per `surfaceClient`; every `.use()` enrols into it.
+ *
+ *  The extra `disposeFold` over {@link SurfaceHealthRegistry} is the lifetime of
+ *  the fold described below — internal, because the registry's PUBLIC contract
+ *  is the fact, and only the client that built this registry may end it
+ *  (`surfaceClient` hands it to its own `dispose`). */
 export function createSurfaceHealthRegistry(
   transportLive: Accessor<boolean>,
-): SurfaceHealthRegistry {
+): SurfaceHealthRegistry & { disposeFold: () => void } {
   // Id-keyed, NOT name-keyed: two `byKey` subs of one collection, or a
   // component that remounts before its predecessor's cleanup runs, share a name
   // but must each hold their own slot — a name-keyed map would clobber one.
@@ -171,7 +216,23 @@ export function createSurfaceHealthRegistry(
   // Bumped on every add/remove so `health` re-folds on membership change.
   // `equals: false` makes each bump a distinct notification even though the
   // value is constant.
-  const [membership, bumpMembership] = createSignal(0, { equals: false });
+  //
+  // `ownedWrite`, DELIBERATELY and permanently — the guide's own case, "an
+  // internal signal that intentionally accepts in-scope writes". Enrolment is not
+  // a delivery that could be moved to the effect phase the way a stream's frames
+  // were: `enroll` registers in the CALLER's owned scope because that owner is
+  // what retracts it (the `onCleanup` below), so the registration and this
+  // notification are one act performed from a component body. Deferring the bump
+  // would make `health()` describe a roster one flush older than the components
+  // currently mounted — a gate that renders ready over a sub nobody has counted
+  // yet — and splitting the bump from the `entries.set` would let the two
+  // disagree. The counter is internal (no consumer can write it), carries no
+  // value, and the matching DROP is already exempt (a write during disposal is
+  // not an owned-scope write).
+  const [membership, bumpMembership] = createSignal(0, {
+    equals: false,
+    ownedWrite: true,
+  });
   let nextId = 0;
 
   function enroll(name: string, source: HealthSource): () => void {
@@ -185,9 +246,11 @@ export function createSurfaceHealthRegistry(
       entries.delete(id);
       bumpMembership(0);
     };
-    // Rides the consumer's reactive owner — a no-op (with a dev warning) outside
-    // one, which is why imperative callers also get the returned disposer.
-    onCleanup(dispose);
+    // Rides the consumer's reactive owner when there is one — that owner is what
+    // retracts the enrolment. An IMPERATIVE caller has none, and retracts through
+    // the returned disposer instead: a cleanup registered with no owner would
+    // never run, which Solid 2 reports (NO_OWNER_CLEANUP) rather than swallow.
+    if (getOwner()) onCleanup(dispose);
     return dispose;
   }
 
@@ -202,28 +265,107 @@ export function createSurfaceHealthRegistry(
       readiness.delete(id);
       bumpMembership(0);
     };
-    onCleanup(dispose);
+    if (getOwner()) onCleanup(dispose); // see `enroll`: an ownerless caller uses the disposer
     return dispose;
   }
 
+  // THE FOLD, ONCE PER CLIENT AND IN CHUNKS — the reason `health()` costs its
+  // caller two sources rather than two per enrolled subscription.
+  //
+  // Reading each sub's `pending()`/`error()` from the CALLING scope subscribed
+  // that scope to every one of them, so the readout memo every indicator binds
+  // carried `2N` sources and crossed Solid's 200-source `WIDE_SCOPE_DEPS` judge
+  // at ~99 subscriptions — which per-key collection delivery reaches with ~95
+  // open rows. The walk lives here now, split so that no scope in it is wide:
+  //
+  //   - `slots` reads the membership counter and nothing else (1 source);
+  //   - the chunk memos and the join over them are `joinChunks`', the repo's
+  //     one chunked fold (`./chunkedFold`), sized at the call below for a row
+  //     that costs two sources;
+  //   - `live` is its own memo, so a transport flip re-folds no sub at all.
+  //
+  // This is NOT the per-subscription fold the readout's docstring rejects (a
+  // standing computation per enrolled sub, each writing into a shared set):
+  // there is one computation per 64 subs plus two, no sub owns one, and the
+  // pass still runs only when the fact changes.
+  let folded: Accessor<SurfaceHealth> | undefined;
+  let dropFold: (() => void) | undefined;
+
+  // DETACHED, and lazily: the first read of `health()` is usually inside some
+  // consumer's memo, and `createRoot` inherits the owner it is called under, so
+  // an attached fold would die with whichever indicator happened to read first.
+  // Lazy also keeps the registry's build-time promise — a client nobody asks
+  // about health allocates no computation at all.
+  const buildFold = (): Accessor<SurfaceHealth> =>
+    runWithOwner(null, () =>
+      createRoot((dispose) => {
+        dropFold = dispose;
+        const slots = createMemo(
+          () => {
+            membership(); // track add/remove (subs AND readiness legs)
+            return [...entries.values()];
+          },
+          { name: "surfaceHealth.slots", equals: sameMembers },
+        );
+        // 64 slots per chunk rather than the kernel's default 128, because a
+        // row here costs TWO sources (`pending()` and `error()`): a chunk holds
+        // `1 + 2·64 = 129`, under the 200-source judge, while the join over
+        // `⌈N / 64⌉` chunks stays under it below 12,700 enrolled subscriptions.
+        const subs = joinChunks<SubHealth>(
+          "surfaceHealth.subs",
+          () => slots().length,
+          (start, end) => {
+            const reading: SubHealth[] = [];
+            for (const { name, source } of slots().slice(start, end)) {
+              // Each read tracks that sub's self-clearing error()/pending(),
+              // so the fact re-folds the instant any enrolled sub errors OR
+              // recovers.
+              reading.push({
+                name,
+                pending: source.pending(),
+                error: source.error(),
+              });
+            }
+            return reading;
+          },
+          { chunk: 64, equals: sameSubs },
+        );
+        // `live` is the conjunction of the transport leg and every readiness
+        // leg. Reading each `leg()` tracks the cell value it closes over, so the
+        // fact re-folds the instant a readiness cell's state changes — by
+        // construction, never a hand-AND a consumer can forget. One leg per
+        // `liveWhen` cell the SURFACE DECLARES, so this count is the spec's and
+        // never a page's.
+        const live = createMemo(
+          () => {
+            membership();
+            let folding = transportLive();
+            for (const { live: leg } of readiness.values())
+              folding = folding && leg();
+            return folding;
+          },
+          { name: "surfaceHealth.live" },
+        );
+        return () => ({ live: live(), subs: subs() });
+      }),
+    ) as Accessor<SurfaceHealth>;
+
   const health: Accessor<SurfaceHealth> = () => {
-    membership(); // track add/remove (subs AND readiness legs)
-    // `live` is the conjunction of the transport leg and every readiness leg.
-    // Reading each `r.live()` tracks the cell value it closes over, so the fact
-    // re-folds the instant a readiness cell's state changes — by construction,
-    // never a hand-AND a consumer can forget.
-    let live = transportLive();
-    for (const { live: leg } of readiness.values()) live = live && leg();
-    const subs: SubHealth[] = [];
-    for (const { name, source } of entries.values()) {
-      // Each read tracks that sub's self-clearing error()/pending(), so the
-      // fact re-folds the instant any enrolled sub errors OR recovers.
-      subs.push({ name, pending: source.pending(), error: source.error() });
-    }
-    return { live, subs };
+    folded ??= buildFold();
+    return folded();
   };
 
-  return { enroll, enrollReadiness, health };
+  // Ends the fold's root. Idempotent, and it CLEARS the slot rather than
+  // latching a dead one: a read after disposal rebuilds, exactly as the first
+  // read did, over whatever is still enrolled (on the client teardown path,
+  // nothing).
+  const disposeFold = (): void => {
+    dropFold?.();
+    dropFold = undefined;
+    folded = undefined;
+  };
+
+  return { enroll, enrollReadiness, health, disposeFold };
 }
 
 /** Merge several clients' facts into one (the `surfaceClients` / multi-surface

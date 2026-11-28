@@ -21,7 +21,8 @@
  *  (a name, a count, its own attention capsules and their jump handlers), the
  *  repo hue, and its e2e handles. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   DOCK_NEEDS_YOU_STRIP_CLASS,
   DOCK_ROW_SURFACE,
@@ -131,8 +132,10 @@ export const DockNeedsYouStrip: Component<{
   <section
     data-testid={props.testId}
     aria-label="Agents waiting on you"
-    class={`${DOCK_NEEDS_YOU_STRIP_CLASS} shrink-0 flex flex-col gap-0.5 border-b border-edge/40 py-1`}
-    classList={{ "px-1": props.density === "full" }}
+    class={[
+      `${DOCK_NEEDS_YOU_STRIP_CLASS} shrink-0 flex flex-col gap-0.5 border-b border-edge/40 py-1`,
+      { "px-1": props.density === "full" },
+    ]}
   >
     <Show when={props.density === "full"}>
       <span class="px-1.5 font-mono text-[0.55rem] font-bold uppercase tracking-[0.12em] text-fg-3">

@@ -17,10 +17,17 @@
  *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
  *  the Dock drops them. */
 
-import { rosterHolds, type TerminalMetadata } from "@kolu/padi-client/surface";
+import {
+  type PadiRoster,
+  type PadiTerminal,
+  rosterHolds,
+  rosterIsEstablished,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
+  joinRows,
   type Subscription,
 } from "@kolu/surface/solid";
 import {
@@ -29,7 +36,7 @@ import {
   type HostKey,
 } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createComputed, createMemo, mapArray } from "solid-js";
+import { type Accessor, createEffect, createMemo, mapArray } from "solid-js";
 import { rowRecencyAt, tsRank } from "../canvas/dock/dockRowRanking";
 import { createSharedRoot } from "../createSharedRoot";
 import { readStoredActivityWindow } from "../hostScope/createHostPrefs";
@@ -49,20 +56,85 @@ export type FleetTerminalRow = {
   recencyAt: number | null;
 };
 
-/** Capture a value signature while reading the frame. Comparing a previous
- *  mutable metadata proxy later could hide a real metadata change. */
-export function createStableFleetRows(
-  read: Accessor<FleetTerminalRow[]>,
-): Accessor<FleetTerminalRow[]> {
-  const snapshot = createMemo(
-    () => {
-      const rows = read();
-      return { rows, signature: JSON.stringify(rows) };
-    },
-    undefined,
-    { equals: (a, b) => a.signature === b.signature },
+/** Whether two row lists hold the SAME rows in the same order. Rows carry
+ *  per-id identity ({@link createFleetHostRows}), so reference comparison is
+ *  the whole test — and the list only has to republish when a row did. */
+function sameRowList(
+  a: readonly FleetTerminalRow[],
+  b: readonly FleetTerminalRow[],
+): boolean {
+  return a.length === b.length && a.every((r, i) => r === b[i]);
+}
+
+/** ONE HOST'S SWITCHER ROWS, with PER-ID IDENTITY — the shape the active
+ *  host's records already have (`useTerminalMetadata`'s per-id projection).
+ *
+ *  One memo per terminal id, so a terminal whose record did not move keeps its
+ *  row object AND the clock-reprojected `meta` inside it while any other
+ *  terminal on the host changes. A single pass that rebuilt every row per
+ *  snapshot handed each row's downstream bindings — the pip, the lead subtree
+ *  — a new-but-equal object on every census tick, and the list memo above it
+ *  had to read every leaf of every record to tell the churn from a real move.
+ *
+ *  The activity window is a WHOLE-LIST gate, so the ticker and the threshold
+ *  are read here and not in the per-id memos, whose values must not churn
+ *  when only the clock advances.
+ *
+ *  The readers are injected so the rule is exercisable without a host pool:
+ *  `recordOf` is that id's record as its host publishes it, `project` is the
+ *  clock reprojection (a fresh object per call). */
+export function createFleetHostRows(opts: {
+  host: HostKey;
+  keys: Accessor<TerminalId[]>;
+  recordOf: (id: TerminalId) => PadiTerminal | undefined;
+  project: (record: TerminalMetadata) => TerminalMetadata;
+  now: Accessor<number>;
+  thresholdMs: Accessor<number | null>;
+}): Accessor<FleetTerminalRow[]> {
+  // Live parent edge over THIS host's census. A parked or not-yet-arrived
+  // record is `undefined` (absent), exactly as the active host's store reads
+  // it, so the shared walk answers the same question here.
+  const parentOf = (id: TerminalId): TerminalId | null | undefined => {
+    const record = opts.recordOf(id);
+    if (record === undefined || isParked(record)) return undefined;
+    return (record.parentId as TerminalId | undefined) ?? null;
+  };
+  const rowOf = mapArray(
+    opts.keys,
+    (id): Accessor<FleetTerminalRow | undefined> =>
+      createMemo(
+        (): FleetTerminalRow | undefined => {
+          const raw = opts.recordOf(id);
+          if (raw === undefined || isParked(raw)) return undefined;
+          // Match Dock / `terminalIds`: splits are not independent rows.
+          if (!isTileTerminal(id, parentOf)) return undefined;
+          const meta = opts.project(raw);
+          return { host: opts.host, id, meta, recencyAt: rowRecencyAt(meta) };
+        },
+        { name: "fleetRow" },
+      ),
+    { name: "fleetHostRows.byKey" },
   );
-  return () => snapshot().rows;
+  // The rows are joined a CHUNK at a time: reading every row memo on one scope
+  // put a source per terminal on it, so a host with a few hundred panes was
+  // past Solid's 200-source `WIDE_SCOPE_DEPS` judge. The `mapArray` above is a
+  // flat two sources at any fleet size (it reads the key array's container and
+  // walks its raw slots untracked), so the per-key memo is the affordable half
+  // already — {@link joinRows} is what makes the published list affordable too.
+  const present = joinRows("fleetHostRows.present", rowOf);
+  // The activity window is applied OFF the join, over the plain row list: the
+  // clock ticks on its own cadence, and folding it into each row memo would
+  // wake every row in the fleet on every tick. Three sources, any N.
+  return createMemo(
+    (): FleetTerminalRow[] => {
+      const now = opts.now();
+      const thresholdMs = opts.thresholdMs();
+      return present().filter(
+        (row) => !isStaleAt(row.recencyAt, now, thresholdMs),
+      );
+    },
+    { name: "fleetHostRows", equals: sameRowList },
+  );
 }
 
 /** Pure merge + rank — unit-tested without Solid. Higher recency first;
@@ -169,6 +241,59 @@ const GONE: FleetTerminalStanding = { kind: "gone" };
 const LOADING: FleetTerminalStanding = { kind: "loading" };
 const UNREACHABLE: FleetTerminalStanding = { kind: "unreachable" };
 
+/** The same census: the same arm, stamped at the same moment, over the same
+ *  id list — the list is the `mapArray` copy, which keeps its array while its
+ *  members do, so a roster frame that moved nothing wakes no standing. */
+const sameCensus = (
+  a: PadiRoster | undefined,
+  b: PadiRoster | undefined,
+): boolean => {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.kind !== "established" || b.kind !== "established")
+    return a.kind === b.kind;
+  return a.at === b.at && a.ids === b.ids;
+};
+
+/** HOW ONE TERMINAL STANDS, from the four reads that decide it — the rule
+ *  itself, so it can be driven over a real collection view without a host map
+ *  (`fleetStanding.test.ts`).
+ *
+ *  EVERY read but `connected` is a THUNK, read only on the branch that needs
+ *  it. The host entry's state publishes while it is connected (phase, log
+ *  tail, elapsed), so an eager `warming` read would make every one of those
+ *  publishes invalidate every terminal's standing — and each re-read mints a
+ *  fresh `{kind:"here"}`, which is a new object for every gate above it.
+ *
+ *  `census` is the host's own roster standing, which rides the same frame as
+ *  the list it qualifies. A padi still adopting (a fresh daemon, a kaval
+ *  recycle) has no census, and reading its silence as a death is what
+ *  recorded live terminals as gone on every redeploy (#2376) — as was reading
+ *  the `terminals` collection beside the standing, since the two are separate
+ *  members and this browser reads them through kolu-server's per-host mirror,
+ *  which can have folded one and not the other. */
+export function terminalStandingFrom(args: {
+  readonly id: TerminalId;
+  readonly connected: boolean;
+  /** The host entry's own word, READ ONLY while it is not connected. */
+  readonly warming: () => boolean;
+  /** The host's roster standing, READ ONLY once it is connected. */
+  readonly census: () => PadiRoster | undefined;
+  /** The terminal's record, READ ONLY once the census says the host holds it:
+   *  a record this host does not hold is not a dependency of its standing. */
+  readonly record: () => PadiTerminal | undefined;
+}): FleetTerminalStanding {
+  if (!args.connected) return args.warming() ? LOADING : UNREACHABLE;
+  const census = args.census();
+  if (census === undefined) return LOADING;
+  const held = rosterHolds(census, args.id);
+  if (held === null) return LOADING;
+  if (!held) return GONE;
+  const record = args.record();
+  if (record === undefined) return LOADING;
+  return isParked(record) ? GONE : { kind: "here", meta: record };
+}
+
 /** Per-host activity-window threshold for the fleet index — THIS host's
  *  preference. Prefer the live HostScope when born; otherwise the canonical
  *  non-reactive reader in createHostPrefs (same key + parse). */
@@ -222,72 +347,83 @@ const useFleetHosts = createSharedRoot(() => {
       // host beside the list it qualifies. A cheap value cell: one frame when
       // the host finishes adopting, one more if it recycles.
       const roster = entry.cells.roster.use();
+      // THE CENSUS AS A PLAIN VALUE, FOLDED ONCE FOR THE HOST. `rosterHolds`
+      // WALKS the roster's id list, and that list is a subscription's STORE
+      // array — so every reader of a standing paid its `length` leaf and an
+      // index leaf per terminal on the host, on the READER's own scope. A
+      // work with a few hundred members, or any fold asking a standing per
+      // row, was past Solid's 200-source `WIDE_SCOPE_DEPS` judge on that
+      // alone. The copy is a `mapArray` (two sources, flat, raw slots), and
+      // every standing below reads the copy — one source, any fleet size.
+      const censusIds = mapArray(
+        () => {
+          const now = roster.value();
+          return now !== undefined && rosterIsEstablished(now) ? now.ids : [];
+        },
+        (id) => id,
+        { name: "fleetCensusIds" },
+      );
+      const census = createMemo(
+        (): PadiRoster | undefined => {
+          const now = roster.value();
+          if (now === undefined) return undefined;
+          return rosterIsEstablished(now)
+            ? { kind: "established", at: now.at, ids: censusIds() }
+            : now;
+        },
+        { name: "fleetCensus", equals: sameCensus },
+      );
 
-      const rows = createStableFleetRows(() => {
-        if (!connected()) return [];
-        const now = getNowTicker()();
-        const thresholdMs = thresholdMsForHost(host);
-        const out: FleetTerminalRow[] = [];
-        // Live parent edge over THIS host's census. A parked or not-yet-arrived
-        // record is `undefined` (absent), exactly as the active host's store
-        // reads it, so the shared walk answers the same question here.
-        const parentOf = (id: TerminalId) => {
-          const record = terminals.byKey(id)?.();
-          if (record === undefined || isParked(record)) return undefined;
-          return (record.parentId as TerminalId | undefined) ?? null;
-        };
-        for (const id of keys()) {
-          // Bound collection: `byKey` is a method on the use() result (not a signal).
-          const raw = terminals.byKey(id)?.();
-          if (raw === undefined || isParked(raw)) continue;
-          // Match Dock / `terminalIds`: splits are not independent rows.
-          if (!isTileTerminal(id, parentOf)) continue;
-          const meta = reprojectOnHost(host, raw);
-          const recencyAt = rowRecencyAt(meta);
-          if (isStaleAt(recencyAt, now, thresholdMs)) continue;
-          out.push({ host, id, meta, recencyAt });
-        }
-        return out;
+      // `keys` is already empty while disconnected, so the row set empties
+      // with the host. `byKey` is a method on the use() result, not a signal.
+      const rows = createFleetHostRows({
+        host,
+        keys,
+        recordOf: (id) => terminals.byKey(id)?.(),
+        project: (record) => reprojectOnHost(host, record),
+        now: getNowTicker(),
+        thresholdMs: () => thresholdMsForHost(host),
       });
 
-      const standing = (id: TerminalId): FleetTerminalStanding => {
-        if (!connected()) {
-          return entry.state().kind === "warming" ? LOADING : UNREACHABLE;
-        }
-        // IS IT THERE? asked of the host's own CENSUS, which rides the same
-        // frame as the standing that says whether there is one. A padi still
-        // adopting (a fresh daemon, a kaval recycle) has no census, and
-        // reading its silence as a death is what recorded live terminals as
-        // gone on every redeploy (#2376) — as was reading the `terminals`
-        // collection beside the standing, since the two are separate members
-        // and this browser reads them through kolu-server's per-host mirror,
-        // which can have folded one and not the other.
-        const census = roster.value();
-        if (census === undefined) return LOADING;
-        const held = rosterHolds(census, id);
-        if (held === null) return LOADING;
-        if (!held) return GONE;
-        const record = terminals.byKey(id)?.();
-        if (record === undefined) return LOADING;
-        return isParked(record) ? GONE : { kind: "here", meta: record };
-      };
+      const standing = (id: TerminalId): FleetTerminalStanding =>
+        terminalStandingFrom({
+          id,
+          connected: connected(),
+          // THUNKS, so a branch that does not decide this standing is not a
+          // dependency of it: the entry's state publishes on every phase and
+          // log-tail move while connected, and the census is beside the
+          // record it qualifies (`terminalStandingFrom`).
+          warming: () => entry.state().kind === "warming",
+          census,
+          record: () => terminals.byKey(id)?.(),
+        });
 
       return { encHost, rows, standing };
     },
   );
-  // mapArray is lazy until read.
-  createComputed(() => void roots());
+  // mapArray is lazy until read — this pass keeps the per-host roots (and the
+  // subscriptions they hold) alive for the shared root's lifetime.
+  createEffect(
+    () => void roots(),
+    () => {},
+  );
   return roots;
 });
 
 /** App-lifetime fleet index — the switcher's ranked rows, over the shared
  *  per-host roots. */
-export const useFleetTerminalIndex = createSharedRoot(() => {
-  const hosts = useFleetHosts();
-  return createMemo((): FleetTerminalRow[] =>
-    rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
-  );
-});
+export const useFleetTerminalIndex = createSharedRoot(
+  // Handed out as a plain `Accessor`: a reader of the index ranks rows, it
+  // never refreshes the memo behind it.
+  (): Accessor<FleetTerminalRow[]> => {
+    const hosts = useFleetHosts();
+    return createMemo(
+      (): FleetTerminalRow[] =>
+        rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
+      { name: "fleetTerminalIndex" },
+    );
+  },
+);
 
 /** Where the terminal `id` on `host` (an ENCODED host key, the host half of a
  *  fleet ref) stands right now — reactive, and read off the same per-host

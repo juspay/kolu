@@ -2,7 +2,7 @@
 
 Renders a `Transcript` to one self-contained HTML file you can open or share.
 Styles and the one script are inlined, so the export is a single document with
-no assets beside it. One entry: `.` (`src/index.tsx`).
+no assets beside it. One entry: `.` (`src/index.ts`).
 
 ## What it exports
 

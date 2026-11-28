@@ -334,10 +334,12 @@ Then(
   },
 );
 
-/** THE PEEK'S SCREEN AND ITS HEAD'S READOUT, for the scroll-back steps. */
+/** THE PEEK'S SCREEN, ITS HEAD'S READOUT AND THE HEAD'S OWN WORDS, for the
+ *  scroll-back steps. */
 const SCROLLING: ConductorScreen = {
   screen: SCREEN,
   readout: `${PEEK} [data-testid="peek-live"]`,
+  status: `${PEEK} [data-testid="peek-status"]`,
   label: "the peek",
 };
 

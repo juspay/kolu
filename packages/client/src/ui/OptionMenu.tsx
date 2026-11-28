@@ -13,8 +13,8 @@
  *  not a popover, so it shares no chrome with this panel. The panel-chrome
  *  itself is shared via `surface()`. */
 
-import { createEffect, createUniqueId, For, type JSX, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createEffect, createUniqueId, For, Show, untrack } from "solid-js";
+import { Portal, type JSX } from "@solidjs/web";
 import { surface } from "./Surface";
 import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
 
@@ -75,18 +75,22 @@ export const OptionMenu = <T extends string>(props: {
    *  it whoever opened it; and when it closes with focus left nowhere (the
    *  panel it was in is gone), focus returns to the trigger, so a keyboard
    *  reader keeps their place. */
-  let wasOpen = false;
-  createEffect(() => {
-    const open = props.open();
-    if (wasOpen && !open) {
-      const trigger = props.triggerRef();
+  createEffect(
+    // The trigger is read UNTRACKED: the effect needs the element that is
+    // standing when the menu closes, and a later remount of the trigger is
+    // not a reason to re-run the focus hand-back.
+    () => ({
+      open: props.open(),
+      trigger: untrack(() => props.triggerRef()),
+    }),
+    (now, was) => {
+      if (was?.open !== true || now.open) return;
       const lost =
         document.activeElement === null ||
         document.activeElement === document.body;
-      if (trigger?.isConnected === true && lost) trigger.focus();
-    }
-    wasOpen = open;
-  });
+      if (now.trigger?.isConnected === true && lost) now.trigger.focus();
+    },
+  );
   /** THE KEYS A MENU PROMISES: ↑/↓ move between its items (wrapping),
    *  Home/End go to the ends. Escape and an outside press are the popover's
    *  own dismissal. */
@@ -123,9 +127,10 @@ export const OptionMenu = <T extends string>(props: {
   // When truncation is on, cap the panel width too — an ellipsised label needs
   // a bound to ellipsise against, or the row would still stretch to its full
   // single-line width. The dock/minimap leave this off and stay auto-width.
-  const widthClass = props.truncate
-    ? "min-w-[180px] max-w-[min(420px,90vw)]"
-    : "min-w-[180px]";
+  // A derivation, not a body read: `props.truncate` is read where it is used,
+  // in the JSX below.
+  const widthClass = () =>
+    props.truncate ? "min-w-[180px] max-w-[min(420px,90vw)]" : "min-w-[180px]";
   return (
     <Show when={props.open()}>
       <Portal>
@@ -140,7 +145,7 @@ export const OptionMenu = <T extends string>(props: {
             );
           }}
           data-testid={`${props.testIdPrefix}-menu`}
-          class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
+          class={`fixed z-50 flex flex-col ${chrome.class} p-1 ${widthClass()} ${props.maxHeight !== undefined ? "overflow-y-auto" : ""}`}
           style={{
             ...panelStyle(),
             ...chrome.style,
@@ -206,7 +211,9 @@ export const OptionMenu = <T extends string>(props: {
                   >
                     <button
                       role="menuitemradio"
-                      aria-checked={props.value === opt.value}
+                      aria-checked={
+                        props.value === opt.value ? "true" : "false"
+                      }
                       {...item()}
                     >
                       {face()}

@@ -24,6 +24,9 @@ export interface ConductorScreen {
   screen: string;
   /** Selector of the head's live readout (`live-live` / `peek-live`). */
   readout: string;
+  /** Selector of the head's status words (`live-status` / `peek-status`) —
+   *  what the client says about the terminal itself. */
+  status: string;
   /** How the failure names it. */
   label: string;
 }
@@ -32,6 +35,42 @@ interface ScrollSample {
   /** Rows between the top of the view and the bottom of the buffer. */
   rowsBack: number | null;
   phase: string | null;
+  /** The head's STATE words alone (see {@link stateWords}), as rendered. */
+  status: string | null;
+}
+
+/** THE STANDINGS WITH NO LIVE SCREEN BEHIND THEM, in the client's own words
+ *  (`conductor/terminalStatus.ts:101-121`). A held gate keeps the screen and
+ *  the readout up across them, so a view that has not moved reads exactly
+ *  like a view that is held — which would pass a scroll-back scenario on a
+ *  terminal the index never vouched for. Any one of them inside the hold
+ *  window is a failure, not a hold. */
+const NO_SCREEN_WORDS = [
+  "finding the terminal…",
+  "its host is not connected",
+  "terminal gone",
+] as const;
+
+/** THE STATE WORD ALONE — the first span of the head's status line. That
+ *  line holds more than the state: `TerminalHead.tsx:160-181` draws the
+ *  state word (`StateFor.tsx:37`, the first span), then a SIBLING span with
+ *  the elapsed time (`StateFor.tsx:38-48`) whenever kolu's watch agrees with
+ *  the state, then a span with the task progress, and last the AGENT'S OWN
+ *  `doing` SUMMARY — free text. So `${at.status} > span` matches up to three
+ *  elements, which a strict Playwright read refuses outright, and reading
+ *  the whole line would let a summary that merely mentions "terminal gone"
+ *  turn a legitimate hold red. The word span carries no test id of its own,
+ *  so it is named by its place: the status element's first child. */
+const stateWords = (at: ConductorScreen): string =>
+  `${at.status} > span:first-child`;
+
+/** Which of {@link NO_SCREEN_WORDS} the head's STATE is, or `null` while it
+ *  speaks for a terminal the index vouches for. {@link stateWords} reads the
+ *  word span alone, and the elapsed time is a sibling span rather than part
+ *  of that word (`StateFor.tsx:38-48`), so the match is exact. */
+export function maskedStatus(text: string | null): string | null {
+  if (text === null) return null;
+  return NO_SCREEN_WORDS.find((words) => text === words) ?? null;
 }
 
 /** The screen's container, as the page holds it: the bridged terminal, and
@@ -53,20 +92,31 @@ function rowsBackOf(page: Page, at: ConductorScreen): Promise<number | null> {
   }, at.screen);
 }
 
-/** One look at the screen and its head. A readout that is not there fails the
- *  read; a wait that may begin before it is drawn reads that as
- *  {@link NOT_YET}. */
-async function sample(page: Page, at: ConductorScreen): Promise<ScrollSample> {
+/** One look at the screen and its head: where the view sits, what the readout
+ *  says, and what the head says about the terminal. A readout or status read
+ *  that fails is kept (it is WHY, and the failure prints it) but does NOT
+ *  discard the buffer reading that did answer: `{rowsBack:3, phase:null}`
+ *  says the view is scrolled back and the head is unreadable, which
+ *  `{null,null}` would have thrown away. */
+async function sample(
+  page: Page,
+  at: ConductorScreen,
+  failed: ReadFailure,
+): Promise<ScrollSample> {
+  const rowsBack = await rowsBackOf(page, at);
   return {
-    rowsBack: await rowsBackOf(page, at),
-    phase: await page
-      .locator(at.readout)
-      .getAttribute("data-phase", { timeout: 500 }),
+    rowsBack,
+    phase: await failed.orNull(() =>
+      page.locator(at.readout).getAttribute("data-phase", { timeout: 500 }),
+    ),
+    status: await failed.orNull(() =>
+      page.locator(stateWords(at)).textContent({ timeout: 500 }),
+    ),
   };
 }
 
 /** What a wait reads while the screen or its readout is not drawn yet. */
-const NOT_YET: ScrollSample = { rowsBack: null, phase: null };
+const NOT_YET: ScrollSample = { rowsBack: null, phase: null, status: null };
 
 const scrolledBack = (s: ScrollSample): boolean =>
   s.rowsBack !== null && s.rowsBack > 0 && s.phase === "held";
@@ -95,16 +145,91 @@ async function markMove(page: Page, at: ConductorScreen): Promise<void> {
   if (!armed) throw new Error(`${at.label} has no terminal to move`);
 }
 
-/** What the last move did, in words for a failure. */
-async function moveStory(page: Page, at: ConductorScreen): Promise<string> {
+/** What the last move did, in words for a failure: whether it ever left the
+ *  bottom, AND where the view sits now. "It was thrown to the bottom" is only
+ *  true when the view IS at the bottom — a view that left and is still rows
+ *  back was not thrown anywhere, and saying so sent review 27 looking for a
+ *  snap-back that had not happened. */
+export async function moveStory(
+  page: Page,
+  at: ConductorScreen,
+): Promise<string> {
   const left = await page.evaluate(
     (sel) => document.querySelector<ScreenEl>(sel)?.__leftBottom?.left,
     at.screen,
   );
   if (left === undefined) return "no move was recorded";
-  return left
-    ? "it scrolled back and was thrown to the bottom"
-    : "it never scrolled";
+  if (!left) return "it never scrolled";
+  const failed = lastReadFailure();
+  const now = await sample(page, at, failed);
+  // A read that failed here is the story's own, and the caller's message may
+  // already carry another one, so it is named apart from that.
+  const said = failed.words("the story's read");
+  if (now.rowsBack === null)
+    return `it scrolled back, and the screen cannot be read now${said}`;
+  if (now.rowsBack === 0)
+    return `it scrolled back and was thrown to the bottom${said}`;
+  return (
+    `it scrolled back and is still ${now.rowsBack} row(s) off the bottom, ` +
+    `with the head saying ${JSON.stringify(now.phase)}${said}`
+  );
+}
+
+/** WHAT THE PAGE HOLDS RIGHT NOW, by the three selectors the sample reads. A
+ *  readout or state word that is missing (`0`) and one the selector matches
+ *  TWICE (`2` — a Playwright locator refuses a strict read of either) fail
+ *  the same way from outside, and a failure that does not count them cannot
+ *  tell a pane that went away from a pane that was drawn twice. */
+async function pageHolds(page: Page, at: ConductorScreen): Promise<string> {
+  const [screens, readouts, words] = await Promise.all([
+    page.locator(at.screen).count(),
+    page.locator(at.readout).count(),
+    page.locator(stateWords(at)).count(),
+  ]);
+  return `the page holds ${screens} screen(s), ${readouts} readout(s) and ${words} state word(s)`;
+}
+
+/** The sample's own read failures, kept for the failure message. A read that
+ *  throws is WHY, and WHY is the whole difference between a screen that is
+ *  not there, a readout the selector matches twice, and a page that would not
+ *  answer at all. */
+interface ReadFailure {
+  /** Keep the error and read the sample as {@link NOT_YET}: for the ONE read
+   *  whose failure leaves the sample with nothing in it. */
+  keep(e: unknown): ScrollSample;
+  /** Keep the error and answer `null` for this field alone, so a sample's
+   *  other fields survive a head that will not answer. */
+  orNull(read: () => Promise<string | null>): Promise<string | null>;
+  /** The failure's words for the last error kept, or `""`. `what` names the
+   *  read, for a message that carries more than one failure's words. */
+  words(what?: string): string;
+}
+
+function lastReadFailure(): ReadFailure {
+  let last: unknown;
+  return {
+    keep: (e) => {
+      last = e;
+      return NOT_YET;
+    },
+    orNull: async (read) => {
+      try {
+        return await read();
+      } catch (e) {
+        last = e;
+        return null;
+      }
+    },
+    words: (what) =>
+      last === undefined
+        ? ""
+        : `; ${what ?? "the last read"} failed: ${String(
+            (last as Error).message ?? last,
+          )
+            .split("\n")
+            .slice(0, 3)
+            .join(" / ")}`,
+  };
 }
 
 /** A real mouse wheel over the middle of the screen. */
@@ -135,14 +260,22 @@ export async function pressOn(
  *  held for {@link STAYS_WINDOW_MS}, sampled every {@link STAYS_SAMPLE_MS}. A
  *  view that never scrolled back fails the first half, so the hold cannot pass
  *  on a screen that was never moved; that failure says whether the move
- *  scrolled at all. */
+ *  scrolled at all.
+ *
+ *  INSIDE THE HOLD WINDOW THE HEAD'S OWN WORDS ARE READ TOO. The scroll lock's
+ *  gate is held across a standing that answers no terminal, so the screen and
+ *  the readout stay up while the client itself says the terminal cannot be
+ *  found or its host is not connected. A view that never moved then reads
+ *  exactly like a held one — a pass for the wrong reason, which
+ *  {@link maskedStatus} turns red. */
 export async function expectStaysScrolledBack(
   page: Page,
   at: ConductorScreen,
 ): Promise<void> {
+  const failed = lastReadFailure();
   try {
     await pollFor({
-      observe: () => sample(page, at).catch(() => NOT_YET),
+      observe: () => sample(page, at, failed).catch(failed.keep),
       isDone: scrolledBack,
       timeoutMs: POLL_TIMEOUT,
       intervalMs: STAYS_SAMPLE_MS,
@@ -152,17 +285,29 @@ export async function expectStaysScrolledBack(
         ),
     });
   } catch (e) {
-    throw new Error(`${(e as Error).message} — ${await moveStory(page, at)}`);
+    throw new Error(
+      `${(e as Error).message} — ${await pageHolds(page, at)}; ${await moveStory(page, at)}${failed.words()}`,
+    );
   }
   const held = Date.now();
   while (Date.now() - held < STAYS_WINDOW_MS) {
     await page.waitForTimeout(STAYS_SAMPLE_MS);
     // The readout was there a moment ago: a read that fails now is its own
-    // failure, not a snap-back.
-    const now = await sample(page, at);
+    // failure, not a snap-back — and it is carried, with the counts, the same
+    // way the reach half carries them.
+    const now = await sample(page, at, failed).catch(failed.keep);
+    const since = Date.now() - held;
+    const masked = maskedStatus(now.status);
+    if (masked !== null)
+      throw new Error(
+        `${at.label} was held ${since}ms on a terminal the client does not vouch for: ` +
+          `the head says "${masked}" — it reads ${JSON.stringify(now)}; ` +
+          `${await pageHolds(page, at)}${failed.words()}`,
+      );
     if (!scrolledBack(now))
       throw new Error(
-        `${at.label} snapped back ${Date.now() - held}ms after it was scrolled back: it reads ${JSON.stringify(now)}`,
+        `${at.label} snapped back ${since}ms after it was scrolled back: ` +
+          `it reads ${JSON.stringify(now)}; ${await pageHolds(page, at)}${failed.words()}`,
       );
   }
 }
@@ -172,13 +317,20 @@ export async function expectLiveAtBottom(
   page: Page,
   at: ConductorScreen,
 ): Promise<void> {
-  await pollFor({
-    observe: () => sample(page, at).catch(() => NOT_YET),
-    isDone: (s) => s.rowsBack === 0 && s.phase === "live",
-    timeoutMs: POLL_TIMEOUT,
-    onTimeout: (last, ms) =>
-      new Error(
-        `${at.label} never came back to live at the bottom: after ${ms}ms it reads ${JSON.stringify(last)}`,
-      ),
-  });
+  const failed = lastReadFailure();
+  try {
+    await pollFor({
+      observe: () => sample(page, at, failed).catch(failed.keep),
+      isDone: (s) => s.rowsBack === 0 && s.phase === "live",
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `${at.label} never came back to live at the bottom: after ${ms}ms it reads ${JSON.stringify(last)}`,
+        ),
+    });
+  } catch (e) {
+    throw new Error(
+      `${(e as Error).message} — ${await pageHolds(page, at)}${failed.words()}`,
+    );
+  }
 }

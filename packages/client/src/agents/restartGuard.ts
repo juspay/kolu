@@ -10,13 +10,7 @@
  *
  *  Owned by the calling component: its timer is cleared on cleanup. */
 
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  on,
-  onCleanup,
-} from "solid-js";
+import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
 
 /** How long an armed guard waits for the confirming press. */
 export const RESTART_ARM_MS = 5000;
@@ -36,29 +30,41 @@ export function createRestartGuard(opts: {
   /** Runs the restart; settles when it has (never expected to reject). */
   readonly restart: () => Promise<unknown>;
 }): RestartGuard {
-  const [armed, setArmed] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+  /** The agent's liveness, equality-gated: the pill hands this primitive a
+   *  fresh `restart` object on every parent update, and only a real flip is a
+   *  change of liveness. */
+  const guarded = createMemo(() => opts.guarded());
+  /** One token per LIVE SPELL: a fresh identity each time the agent becomes
+   *  live again, and none while it is quiet. An arming press belongs to the
+   *  spell it landed in, so the agent going quiet disarms the guard — and
+   *  waking up again does not bring that press back. Deriving it this way
+   *  (rather than an effect writing `armed` when liveness drops) keeps the
+   *  pill's armed wash and its "Restart agent" wording in the SAME frame as
+   *  the liveness they belong to. */
+  const spell = createMemo<object | undefined>(() =>
+    guarded() ? {} : undefined,
+  );
+  const [armedSpell, setArmedSpell] = createSignal<object | undefined>(
+    undefined,
+  );
+  const armed = createMemo(() => {
+    const at = armedSpell();
+    return at !== undefined && at === spell();
+  });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const disarm = () => {
     clearTimeout(timer);
     timer = undefined;
-    setArmed(false);
+    setArmedSpell(undefined);
   };
   onCleanup(disarm);
-  // The agent went quiet while armed: there is nothing left to warn about.
-  createEffect(
-    on(
-      opts.guarded,
-      (guarded) => {
-        if (!guarded) disarm();
-      },
-      { defer: true },
-    ),
-  );
   const press = () => {
     if (busy()) return;
-    if (opts.guarded() && !armed()) {
-      setArmed(true);
+    if (guarded() && !armed()) {
+      // A press in an earlier spell can leave its window still running.
+      clearTimeout(timer);
+      setArmedSpell(spell());
       timer = setTimeout(disarm, RESTART_ARM_MS);
       return;
     }

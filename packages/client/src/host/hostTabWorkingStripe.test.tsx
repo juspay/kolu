@@ -14,8 +14,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { HostTabWorkingStripe, hostActiveLabel } from "./HostTabWorkingStripe";
 
@@ -45,6 +45,7 @@ function mountInTab(active: () => number) {
     ),
     host,
   );
+  flush();
   return {
     tab: host.querySelector('[data-testid="tab"]') as HTMLElement,
     stripe: () => host?.querySelector(STRIPE) ?? null,
@@ -72,9 +73,11 @@ describe("HostTabWorkingStripe", () => {
     const { stripe } = mountInTab(active);
     expect(stripe()).toBeNull();
     setActive(2);
+    flush();
     expect(stripe()).not.toBeNull();
     // Gone, not hidden: the DOM carries nothing once work stops.
     setActive(0);
+    flush();
     expect(stripe()).toBeNull();
   });
 
@@ -84,6 +87,7 @@ describe("HostTabWorkingStripe", () => {
     const idleWidth = tab.offsetWidth;
     const idleHeight = tab.offsetHeight;
     setActive(1);
+    flush();
     const classes = (stripe()?.className ?? "").split(/\s+/);
     // The positioning is what keeps the box still; happy-dom does no layout, so
     // these classes are the load-bearing assertion here, and the recorded

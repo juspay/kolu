@@ -87,8 +87,10 @@ const TerminalMeta: Component<{
             {/* Name row — T1: identity StatePip leads (app-icon position),
              *  then repo name / suffix / worktree / fg / progress. */}
             <div
-              class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0"
-              classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
+              class={[
+                "col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0",
+                { [SLEEPING_RECEDE_CLASS]: pip().sleeping },
+              ]}
               data-sleeping={pip().sleeping ? "" : undefined}
             >
               {/* Always mount the shared pip — binder handles sleeping
@@ -143,8 +145,10 @@ const TerminalMeta: Component<{
              *  (T1: brand mark appears once, on line 1). Sleeps with the name
              *  row so a dormant tile recedes on both chrome lines. */}
             <div
-              class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
-              classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
+              class={[
+                "col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs",
+                { [SLEEPING_RECEDE_CLASS]: pip().sleeping },
+              ]}
             >
               <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
                 <button

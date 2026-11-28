@@ -25,6 +25,22 @@ export type {
 // change (the switch-abort ordering). Pure solid-generic; `@kolu/surface-map`'s
 // `useEntry` builds on it.
 export { createKeyedRoot } from "./createKeyedRoot";
+// THE CHUNKED FOLD — one list out of more rows than a single memo may read
+// without Solid's development build judging it `WIDE_SCOPE_DEPS` (200 sources).
+// Exported because the bound is a property of the SHAPE, not of one package: a
+// roster, a membership keyset and an app's per-key rows all grow past 200 in
+// ordinary use, and a consumer that hand-rolls the two-level fold per site gets
+// a second convention and a second set of chunk-size mistakes. This package's
+// own `health()` fold and `@kolu/surface-map`'s membership keyset are built on
+// it, as are kolu's client folds.
+export {
+  CHUNK,
+  foldEach,
+  joinChunks,
+  type JoinChunksOptions,
+  joinRows,
+  sameMembers,
+} from "./chunkedFold";
 export {
   createReactiveSubscription,
   type ReactiveSubscriptionOptions,
@@ -33,6 +49,14 @@ export {
   type CellChange,
   createSubscription,
   type Dispose,
+  // The frame comparator the change-iff-fired law runs on — exported for the
+  // seam `writeWrappedValue` below serves: a hand-rolled `Subscription` that
+  // publishes a wire frame as a VALUE needs the same "is this the content I
+  // already published?" answer, and a second hand-rolled deep-equal per such
+  // consumer is what this one export prevents. Conservative by construction
+  // (it never claims an equality it cannot prove), so a false answer costs a
+  // spurious republish, never a dropped change.
+  framesEqual,
   type Subscription,
   type SubscriptionOptions,
   // The three lifecycle signals a stream-backed view carries, apart from its value
@@ -99,6 +123,11 @@ export {
 // re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
 // same fast resume path over its own watchdog; a no-op off-DOM.
 export { onWake } from "./onWake";
+// Solid 2's VALUE constraint (`Exclude<T, Function>`), defined once for the repo
+// because `solid-js` does not re-export `@solidjs/signals`' own `NoFn`. Any option
+// a caller hands to `createSignal` / `createStore` as a value is typed with it —
+// `useCell`'s `initial` here, the client's `persistedPref` fallback.
+export type { NoFn } from "./noFn";
 // NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
 // here. This barrel must stay free of JSX so a consumer that imports
 // `@kolu/surface/solid` for the hooks/registry (e.g. `@kolu/surface-app`, drishti)
@@ -168,9 +197,10 @@ export {
 export { type UseEventOptions, useEvent } from "./useEvent";
 export { useStream } from "./useStream";
 // The reconcile-or-assign write into a wrapped `{ v }` store — shared by
-// `createSubscription`/`createReactiveSubscription` internally and by
-// non-framework callers that stitch server data into the same wrapped-store
-// shape (e.g. `@kolu/client`'s `createPolledQuery`).
+// `createSubscription`/`createReactiveSubscription` internally and exported for
+// a non-framework caller that stitches server data into that same wrapped-store
+// shape. A caller that publishes its frame as a plain VALUE instead wants
+// `framesEqual` above, not this.
 export { writeWrappedValue } from "./writeValue";
 // The ONE Effect→Solid run edge (PLAN D10/#25). Exported so a consumer that drives
 // a raw stream OUTSIDE a `Subscription` — kolu's terminal attach, which owns its own

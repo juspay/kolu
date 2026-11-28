@@ -78,7 +78,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/client/src/runAction.ts",
     sites: 2,
-    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (Solid's `createResource` fetcher, xterm-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",
+    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (a Solid async memo's compute, xterm-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",
   },
   {
     path: "packages/kaval-tui/src/main.ts",
@@ -522,6 +522,14 @@ function scan(source: string, keepStrings: boolean): string {
 /** Comments and string literals blanked — what a `run*` CALL must survive. */
 export function blankNonCode(source: string): string {
   return scan(source, false);
+}
+
+/** Comments blanked, STRING LITERALS KEPT — for a check that must read a module
+ *  specifier, which is the one question about a source that a string literal is
+ *  the answer to rather than a hiding place. Offsets are preserved, so a
+ *  position found here lines up with `blankNonCode`'s view and the original. */
+export function blankComments(source: string): string {
+  return scan(source, true);
 }
 
 /** How many run calls `source` really makes. */

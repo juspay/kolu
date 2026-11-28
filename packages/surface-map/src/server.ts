@@ -217,7 +217,7 @@ export interface EntryFault<Failure = unknown> {
  *    departure BEFORE any re-add is reported. This is the law the per-add
  *    `membershipId` mint (a departed key's id is pruned on its departure notification,
  *    so the re-add mints a FRESH one) AND the client's per-key root lifecycle
- *    (`scoped.ts`'s `keyArray`, disposed on exit / rebuilt on entry) both rely on: a
+ *    (`scoped.ts`'s keyed `mapArray`, disposed on exit / rebuilt on entry) both rely on: a
  *    registry that atomically swaps a same-key session without an observable departure
  *    would reuse the stale id and strand the old subscription. The pool registries
  *    satisfy this by construction (each add/remove fires its own synchronous notify).
@@ -843,8 +843,9 @@ export function serveSurfaceMap<
     // membership edges into the tick-final set, which is safe for a collection
     // whose consumers only reconcile against whatever arrives — and NOT safe
     // here: CLAUSE 3 requires every membership transition to stay observable,
-    // because `scoped.ts`'s `keyArray` disposes and rebuilds a per-key reactive
-    // root on a departure, and a fresh `membershipId` is minted on the re-add.
+    // because `scoped.ts`'s keyed `mapArray` disposes and rebuilds a per-key
+    // reactive root on a departure, and a fresh `membershipId` is minted on
+    // the re-add.
     // A coalescer would hide a same-tick remove/re-add entirely, and the key
     // would keep a root and an id it is supposed to have lost. This map serves
     // its own `keysBus` (it never goes through `walkSurface`), so the two gates

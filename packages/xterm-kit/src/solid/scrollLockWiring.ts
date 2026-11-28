@@ -15,8 +15,11 @@
  * inside the touchmove bridge, and SearchBar navigation.
  */
 
-import { createEffect, createSignal } from "solid-js";
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { createSignal } from "solid-js";
+import {
+  createEventListener,
+  makeEventListener,
+} from "@solid-primitives/event-listener";
 
 /** The slice of the scroll-lock API the DOM wiring drives. Structural so the
  *  state machine stays unaware of this module. */
@@ -86,20 +89,17 @@ export function wireScrollIntent(
   );
   // Release on the document: a scrollbar/selection drag routinely ends with the
   // pointer outside the terminal, so a container-scoped pointerup would miss it
-  // and leave intent stuck open.
-  createEffect(() => {
-    if (!held()) return;
-    const release = () => {
+  // and leave intent stuck open. A held-only target means the listeners exist
+  // exactly while the hold does: they are added when the hold starts and removed
+  // when it ends or the owner disposes, so a hold that ends leaves nothing
+  // attached.
+  createEventListener(
+    () => (held() ? document : undefined),
+    ["pointerup", "pointercancel"],
+    () => {
       scrollLock.releaseUserScrollIntent();
       setHeld(false);
-    };
-    makeEventListener(document, "pointerup", release, {
-      capture: true,
-      passive: true,
-    });
-    makeEventListener(document, "pointercancel", release, {
-      capture: true,
-      passive: true,
-    });
-  });
+    },
+    { capture: true, passive: true },
+  );
 }

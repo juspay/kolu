@@ -56,11 +56,13 @@ const ConductorStrip: Component<{
               // facts under one test id is how a selector comes to mean
               // whichever one happens to be on screen.
               data-testid="conductor-out"
-              class="inline-flex items-center gap-1.5 rounded-full border px-2 py-px cursor-pointer"
-              classList={{
-                "border-busy/45 text-busy": out.kind === "task",
-                "border-edge-bright text-fg-2": out.kind === "agent",
-              }}
+              class={[
+                "inline-flex items-center gap-1.5 rounded-full border px-2 py-px cursor-pointer",
+                {
+                  "border-busy/45 text-busy": out.kind === "task",
+                  "border-edge-bright text-fg-2": out.kind === "agent",
+                },
+              ]}
               onClick={() => props.onReveal(out.row)}
             >
               <span>{out.kind === "task" ? "●" : "⤷"}</span>

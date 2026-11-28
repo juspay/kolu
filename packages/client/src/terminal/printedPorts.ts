@@ -51,8 +51,7 @@
 import { parseLoopbackUrl, WEB_URL_PATTERN } from "@kolu/url-shape";
 import { snapToWrapHead } from "@kolu/xterm-kit";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createRoot, createStore } from "solid-js";
 
 /** Rows read per turn before yielding. */
 export const SCAN_CHUNK_LINES = 2_000;
@@ -99,7 +98,10 @@ export function portsInText(text: string): number[] {
 }
 
 const [printed, setPrinted] = createRoot(() =>
-  createStore<Record<TerminalId, readonly number[]>>({}),
+  // The row is a MUTABLE array on purpose: a pass writes it leaf by leaf (see
+  // {@link record}), and the reader's `readonly` view is the one
+  // `printedPortsOf` publishes.
+  createStore<Record<TerminalId, number[]>>({}, { name: "printedPorts" }),
 );
 
 /** Distinct ports tracked per terminal, capped so a session that keeps a
@@ -132,11 +134,24 @@ function record(id: TerminalId, found: ReadonlySet<number>): void {
     merged.length > MAX_TRACKED_PORTS
       ? merged.slice(merged.length - MAX_TRACKED_PORTS)
       : merged;
-  setPrinted(
-    produce((index) => {
+  setPrinted((index) => {
+    const row = index[id];
+    // The first reading of a terminal has no row to write into.
+    if (row === undefined) {
       index[id] = capped;
-    }),
-  );
+      return;
+    }
+    // IN PLACE, index by index, never a fresh array over the row: the store
+    // already tracks each entry, so assigning a copy would wake every reader
+    // of this terminal's ports for the one port that moved (and Solid's
+    // development build judges exactly that, `IMMUTABLE_UPDATE_IN_STORE`).
+    // The common pass appends ONE port and touches ONE index.
+    for (const [at, port] of capped.entries()) {
+      if (row[at] !== port) row[at] = port;
+    }
+    // Shorter only when the cap evicted from the front.
+    if (row.length > capped.length) row.splice(capped.length);
+  });
 }
 
 /** What a tracked terminal's owner can tell the index. */
@@ -275,11 +290,9 @@ export function trackPrintedPorts(
       cancelPending = undefined;
       resume?.dispose();
       cont?.dispose();
-      setPrinted(
-        produce((index) => {
-          delete index[id];
-        }),
-      );
+      setPrinted((index) => {
+        delete index[id];
+      });
     },
   };
 }

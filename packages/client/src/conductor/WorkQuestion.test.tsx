@@ -36,8 +36,8 @@ import type {
   WorkMode,
 } from "kolu-work";
 import { WORK_MODES } from "kolu-work";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** What the work is told — the exact values one press of Answer sends. */
@@ -91,9 +91,19 @@ vi.mock("../agents/useAgentDistro", () => ({
 }));
 
 const [works, setWorks] = createSignal<ReadonlyMap<WorkId, Work>>(new Map());
-vi.mock("./useWorks", () => ({
-  useWorkMap: () => works,
-}));
+// `await import` and not a static one: a mock factory is hoisted above this
+// file's imports, so the reading it builds on has to be reached inside it.
+vi.mock("./useWorks", async () => {
+  // The answers the form's memory opens on, derived from the SAME mirror
+  // through the real per-work reading — so these works still drive what each
+  // setup question offers back.
+  const { setupAnswersOf } = await import("kolu-work");
+  return {
+    useWorkMap: () => works,
+    useSetupAnswers: () => () =>
+      [...works().values()].flatMap((record) => setupAnswersOf(record)),
+  };
+});
 
 import { Shown } from "../ui/shown";
 import { forgetAskDraft } from "./drafts";
@@ -239,18 +249,50 @@ function mount(work: Work): HTMLElement {
   root = el;
   dispose = render(
     () => (
-      <Shown.Provider value={() => true}>
+      <Shown value={() => true}>
         <WorkQuestion
           work={work}
           id="branch:local/src/now"
           ask={ASK}
           from="card"
         />
-      </Shown.Provider>
+      </Shown>
     ),
     el,
   );
   return el;
+}
+
+/** The form over a work that is READ AGAIN — a fresh record around the same
+ *  decision objects, which is what the collection hands a card per frame. */
+function mountLive(first: Work): {
+  readonly el: HTMLElement;
+  readonly reread: () => void;
+} {
+  const [work, setWork] = createSignal(first);
+  const el = document.createElement("div");
+  document.body.append(el);
+  root = el;
+  dispose = render(
+    () => (
+      <Shown value={() => true}>
+        <WorkQuestion
+          work={work()}
+          id="branch:local/src/now"
+          ask={ASK}
+          from="card"
+        />
+      </Shown>
+    ),
+    el,
+  );
+  return {
+    el,
+    reread: () => {
+      setWork((was) => ({ ...was, decisions: [...was.decisions] }));
+      flush();
+    },
+  };
 }
 
 /** Let the host's answer land and the form settle on it. */
@@ -308,15 +350,19 @@ const selected = (el: HTMLElement, field: string): string[] =>
     ),
   ].map((one) => one.getAttribute("data-value") ?? "");
 
+/** Type into a box as a person does — and let the form redraw on it, as it
+ *  does for them a frame later. */
 const typeInto = (box: HTMLInputElement, words: string): void => {
   box.value = words;
   box.dispatchEvent(new Event("input", { bubbles: true }));
+  flush();
 };
 
 const press = (el: HTMLElement, testid: string): void => {
   const button = el.querySelector(`[data-testid="${testid}"]`);
   if (button === null) throw new Error(`no ${testid}`);
   (button as HTMLElement).click();
+  flush();
 };
 
 /** THE ANSWER BUTTON ITSELF — what a person reads before pressing: it is
@@ -573,6 +619,7 @@ describe("the model question", () => {
     expect(options(el, "ask-model")).toEqual(["gpt-5-codex"]);
 
     chip(el, "ask-model", "gpt-5-codex").click();
+    flush();
     press(el, "conductor-ask-submit");
     expect(sent()).toEqual({
       "ask-harness": ["codex"],
@@ -602,6 +649,41 @@ describe("the model question", () => {
     // The model of the harness they left is not a model of this one.
     expect(options(el, "ask-model")).toEqual(["gpt-5-codex"]);
     expect(selected(el, "ask-model")).toEqual([]);
+  });
+
+  it("says it is asking the harness just picked, before the host answers", async () => {
+    const el = mount(
+      workOf("now", [
+        koluAsked("ask-harness", "planner.harness"),
+        koluAsked("ask-model", "planner.model"),
+      ]),
+    );
+    await settle();
+    chip(el, "ask-harness", "claude").click();
+    await settle();
+    expect(options(el, "ask-model")).toEqual(["sonnet-4", "opus-4.9"]);
+
+    // The second harness: the host is slow, so the press and the answer are
+    // separate frames — which is the frame this test is about.
+    const slow = Promise.withResolvers<unknown>();
+    host.reply = () => Effect.promise(() => slow.promise);
+    chip(el, "ask-harness", "codex").click();
+    flush();
+
+    // The press is on screen at once, and the model question says whose list
+    // it is waiting for — NOT the models of the harness they left.
+    expect(selected(el, "ask-harness")).toEqual(["codex"]);
+    expect(
+      el.querySelector('[data-testid="conductor-ask-waiting"]')?.textContent,
+    ).toContain("Asking what codex offers here…");
+    expect(options(el, "ask-model")).toEqual([]);
+
+    slow.resolve({
+      launch: { kind: "flag", flag: "--model" },
+      models: { kind: "listed", ids: ["gpt-5-codex"] },
+    });
+    await settle();
+    expect(options(el, "ask-model")).toEqual(["gpt-5-codex"]);
   });
 });
 
@@ -665,8 +747,10 @@ describe("a long list of models", () => {
     expect(selected(el, "ask-model")).toEqual(["model-10"]);
     // "show all" unfolds the whole list in place, and folds back.
     all().click();
+    flush();
     expect(options(el, "ask-model")).toHaveLength(12);
     all().click();
+    flush();
     expect(options(el, "ask-model")).toEqual(["model-10"]);
   });
 });
@@ -711,5 +795,25 @@ describe("a form answered in part", () => {
     await settle();
     submit(el).click();
     expect(sent()).toEqual({ "w-plan": ["Approve"] });
+  });
+});
+
+describe("a form over a work that is read again", () => {
+  it("keeps its questions, its chips and its Answer button across five reads", () => {
+    const { el, reread } = mountLive(
+      workOf("now", [
+        workSaid("w-done", { kind: "picked", picked: ["Approve"] }),
+        workAsked("w-plan", { question: "Approve the plan?" }),
+      ]),
+    );
+    const approve = chip(el, "w-plan", "Approve");
+    const button = submit(el);
+    const said = recorded(el);
+    // Five, not four: the diagnostic names a memo at four equal publishes.
+    for (let read = 1; read <= 5; read += 1) reread();
+    expect(chip(el, "w-plan", "Approve")).toBe(approve);
+    expect(submit(el)).toBe(button);
+    expect(recorded(el)).toEqual(said);
+    expect(options(el, "w-plan")).toEqual(["Approve", "Ask for changes"]);
   });
 });

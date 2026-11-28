@@ -1,16 +1,15 @@
 // @vitest-environment happy-dom
-import type { JSX } from "solid-js";
 import {
   MEMORY_CAP,
   type MemoryEntry,
   memoryUsed,
 } from "kolu-common/conductorMemory";
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemorySheet } from "./MemorySheet";
 
-vi.mock("@corvu/dialog", () => ({
+vi.mock("@corvu-next/dialog", () => ({
   default: {
     Content: (props: { children: JSX.Element }) => <div>{props.children}</div>,
     Label: (props: { children: JSX.Element }) => <h2>{props.children}</h2>,
@@ -100,6 +99,7 @@ describe("the Memory sheet", () => {
     document.body
       .querySelector<HTMLButtonElement>('[data-testid="memory-entry-delete"]')
       ?.click();
+    flush();
     expect(document.body.textContent).toContain(
       "Delete this memory? The Conductor is told with its next message. There is no undo.",
     );

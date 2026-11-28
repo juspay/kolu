@@ -31,21 +31,15 @@ export function createCommentView(): CommentViewState {
   return { composer: createComposer(), scroll: createScrollRequests() };
 }
 
-function useCommentView(): CommentViewState {
-  const view = useContext(CommentView);
-  if (!view)
-    throw new Error(
-      "A comment surface must be drawn inside the view that holds its draft (CommentView)",
-    );
-  return view;
-}
+// `CommentView` has no default, so a comment surface drawn outside the view
+// that holds its draft throws (`ContextNotFoundError`).
 
 /** The draft of the view this is drawn in. */
 export function useComposer(): Composer {
-  return useCommentView().composer;
+  return useContext(CommentView).composer;
 }
 
 /** The scroll request of the view this is drawn in. */
 export function useCommentScrollRequest(): ScrollRequests {
-  return useCommentView().scroll;
+  return useContext(CommentView).scroll;
 }

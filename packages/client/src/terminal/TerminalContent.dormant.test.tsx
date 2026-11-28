@@ -14,8 +14,8 @@
 
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import type { Component, JSX } from "solid-js";
-import { render } from "solid-js/web";
+import type { Component } from "solid-js";
+import { render, type JSX } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const MAIN = "dormant-main" as TerminalId;
@@ -25,7 +25,7 @@ const SUB = "dormant-sub" as TerminalId;
  *  mounts once (metas are plain objects, so there is no reactive source to nudge). */
 const h = vi.hoisted(() => ({ dormant: new Set<string>() }));
 
-vi.mock("@corvu/resizable", () => {
+vi.mock("@corvu-next/resizable", () => {
   type Bag = { children?: JSX.Element } & Record<string, unknown>;
   const Root: Component<Bag> = (props) => <div>{props.children}</div>;
   const Panel: Component<Bag> = (props) => <div>{props.children}</div>;

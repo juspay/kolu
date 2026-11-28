@@ -3,13 +3,19 @@
  *  `Edit…` all open it; saving a proposal remembers what you wrote. Mounted
  *  once; {@link editMemory} says what it edits. */
 
-import Dialog from "@corvu/dialog";
+import Dialog from "@corvu-next/dialog";
 import {
   MEMORY_BODY_CAP,
   type MemoryEntry,
   type MemoryText,
 } from "kolu-common/conductorMemory";
-import { type Component, createEffect, createSignal, on, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createSignal,
+  Show,
+  untrack,
+} from "solid-js";
 import MarkdownField from "../../ui/MarkdownField";
 import ModalDialog from "../../ui/ModalDialog";
 import { surface } from "../../ui/Surface";
@@ -62,15 +68,32 @@ const MemoryEditor: Component = () => {
   const [saving, setSaving] = createSignal(false);
   const [titleRef, setTitleRef] = createSignal<HTMLInputElement>();
 
+  /** WHAT THE BOX OPENS ON. The words are extracted in the COMPUTE, as plain
+   *  strings: a memory's text is a property of kolu-server's store, and an
+   *  effect's imperative half reads nothing reactive. `untrack`, because they
+   *  are READ ONCE and not depended on — the editor opens on the memory as it
+   *  stood when it was opened, and a later frame of that record must never
+   *  overwrite what the person is typing. */
   createEffect(
-    on(editing, (what) => {
-      if (what === null) return;
-      const text = textOf(what);
-      setTitle(text.title);
-      setAbout(text.about ?? "");
-      setBody(text.body);
+    () => {
+      const what = editing();
+      if (what === null) return null;
+      return untrack(() => {
+        const text = textOf(what);
+        return {
+          title: text.title,
+          about: text.about ?? "",
+          body: text.body,
+        };
+      });
+    },
+    (seed) => {
+      if (seed === null) return;
+      setTitle(seed.title);
+      setAbout(seed.about);
+      setBody(seed.body);
       setRefusal(null);
-    }),
+    },
   );
 
   const close = (): void => {
@@ -153,8 +176,10 @@ const MemoryEditor: Component = () => {
         </Show>
         <div class="mt-3 flex items-center justify-between gap-2">
           <span
-            class="font-mono text-[0.65rem] text-fg-3"
-            classList={{ "text-danger": body().length > MEMORY_BODY_CAP }}
+            class={[
+              "font-mono text-[0.65rem] text-fg-3",
+              { "text-danger": body().length > MEMORY_BODY_CAP },
+            ]}
           >
             {body().length.toLocaleString("en")} of{" "}
             {MEMORY_BODY_CAP.toLocaleString("en")} characters

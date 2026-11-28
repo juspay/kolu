@@ -1,5 +1,5 @@
-import { createSelector } from "solid-js";
 import { encodeHostKey } from "kolu-common/hostKey";
+import { createKeySelector } from "../createKeySelector";
 import { createSharedRoot } from "../createSharedRoot";
 import { conductorMode } from "../conductor/useConductorMode";
 import { activeHost } from "../wire";
@@ -19,7 +19,13 @@ import { activeHost } from "../wire";
  *  stripe and attention mark already reads, rather than at each of those call
  *  sites: a second place to remember this is a second place to forget it. The
  *  host a person left stays `activeHost`, so switching back lights exactly the
- *  tab they came from. */
+ *  tab they came from.
+ *
+ *  A per-key PROJECTION ({@link createKeySelector}), Solid 2's spelling of the
+ *  old selector: a switch wakes exactly the tab that lost the light and the
+ *  one that gained it. */
 export const useActiveHostSelector = createSharedRoot(() =>
-  createSelector(() => (conductorMode() ? null : encodeHostKey(activeHost()))),
+  createKeySelector(() =>
+    conductorMode() ? null : encodeHostKey(activeHost()),
+  ),
 );

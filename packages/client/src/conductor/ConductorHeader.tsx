@@ -52,11 +52,14 @@ const ConductorHeader: Component<{
   // bargain: everything IN the pane is kept, everything it put on top of the
   // page is taken back.
   const shown = useShown();
-  createEffect(() => {
-    if (shown()) return;
-    setSettingsOpen(false);
-    setMenuOpen(false);
-  });
+  createEffect(
+    () => shown(),
+    (isShown) => {
+      if (isShown) return;
+      setSettingsOpen(false);
+      setMenuOpen(false);
+    },
+  );
   const usage = () => props.state.usage;
   const identity = () => props.state.identity;
   /** KNOWN signed in — which only changes what the menu's door is CALLED. The
@@ -210,7 +213,7 @@ const ConductorHeader: Component<{
           ref={menuRef}
           data-testid="conductor-menu"
           aria-haspopup="menu"
-          aria-expanded={menuOpen()}
+          aria-expanded={menuOpen() ? "true" : "false"}
           class="text-fg-3 hover:text-fg cursor-pointer px-1 text-base/4"
           onClick={() => setMenuOpen(!menuOpen())}
         >

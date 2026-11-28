@@ -16,9 +16,10 @@
  *  browser's does, since an unclamped one sits past the end of a grown column
  *  and makes a broken follow rule look right. */
 
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { takeSolidDiagnostics } from "@kolu/solid-test-setup/setup";
 // A tool card's diffs block drags in the whole code viewer and its Nix-backed
 // grammar aliases; no row here is a tool call. Stub it so this file tests the
 // scroll container.
@@ -36,11 +37,12 @@ import { Shown } from "../ui/shown";
 import {
   applyTranscriptScroll,
   atEnd,
+  forgetTranscriptPlaces,
   pinTranscript,
   rememberTranscriptScroll,
   revealTranscriptRow,
-  showTranscriptDocument,
   transcriptPinned,
+  transcriptPlace,
   WHOLE_TRANSCRIPT,
 } from "./transcriptScroll";
 import { turnWorks } from "./turnWorks";
@@ -107,7 +109,7 @@ function mount(): HTMLDivElement {
   setRows = write;
   dispose = render(
     () => (
-      <Shown.Provider value={shown}>
+      <Shown value={shown}>
         <ConductorTranscript
           rows={rows()}
           turns={turnWorks(rows(), new Map(), new Map())}
@@ -118,7 +120,7 @@ function mount(): HTMLDivElement {
             scroller = el;
           }}
         />
-      </Shown.Provider>
+      </Shown>
     ),
     root,
   );
@@ -138,12 +140,15 @@ function unmount(): void {
 function append(): void {
   column += ROW_HEIGHT;
   setRows?.(makeRows(20 + (column - COLUMN) / ROW_HEIGHT));
+  // The rows land on the frame the arrival is drawn in.
+  flush();
 }
 
 /** What a reader's wheel does: move the view, and let the container say so. */
 function scrollTo(el: HTMLDivElement, top: number): void {
   el.scrollTop = top;
   el.dispatchEvent(new Event("scroll"));
+  flush();
 }
 
 /** The way back, as the reader meets it — the terminal's own pill. */
@@ -154,15 +159,13 @@ const pill = (): HTMLButtonElement | null =>
 beforeEach(() => {
   column = COLUMN;
   setShown(true);
-  showTranscriptDocument(WHOLE_TRANSCRIPT);
-  pinTranscript();
+  pinTranscript(WHOLE_TRANSCRIPT);
 });
 afterEach(() => {
   unmount();
   column = COLUMN;
   setWorks(new Map());
-  showTranscriptDocument(WHOLE_TRANSCRIPT);
-  pinTranscript();
+  pinTranscript(WHOLE_TRANSCRIPT);
 });
 
 describe("the transcript's scroll position", () => {
@@ -221,11 +224,17 @@ describe("the transcript's follow rule", () => {
   it("leaves a reader who scrolled up exactly where they are", () => {
     const scroller = mount();
     scrollTo(scroller, 300);
+    // The mount's own frame is not the subject.
+    takeSolidDiagnostics();
 
     append();
     append();
     expect(scroller.scrollTop).toBe(300);
     expect(pill()).not.toBeNull();
+    // The ring is written from the follow effect's APPLY ARM, and the pill
+    // reads it: EMPTY, advisories included, so a tear fails at its first
+    // sighting rather than at the judge's third.
+    expect(takeSolidDiagnostics()).toEqual([]);
   });
 
   it("re-pins on the pill, and follows again from there", () => {
@@ -234,6 +243,7 @@ describe("the transcript's follow rule", () => {
     append();
 
     pill()?.click();
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
     expect(pill()).toBeNull();
 
@@ -268,8 +278,10 @@ describe("the transcript's follow rule", () => {
       );
     column += ROW_HEIGHT;
     setRows?.(replying("The first half,"));
+    flush();
     column += ROW_HEIGHT;
     setRows?.(replying("The first half, and the second half."));
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
   });
 
@@ -283,6 +295,7 @@ describe("the transcript's follow rule", () => {
     append();
     column += 162;
     scroller.dispatchEvent(new Event("scroll"));
+    flush();
     expect(pill()).toBeNull();
 
     append();
@@ -296,6 +309,7 @@ describe("the transcript's follow rule", () => {
     const scroller = mount();
     column += 162;
     setWorks(new Map());
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
   });
 
@@ -311,6 +325,7 @@ describe("the transcript's follow rule", () => {
           : one,
       ),
     );
+    flush();
     expect(pill()).not.toBeNull();
     expect(pill()?.hasAttribute("data-active")).toBe(false);
   });
@@ -324,59 +339,84 @@ describe("the transcript's follow rule", () => {
     const wasAt = scroller.scrollTop;
 
     setShown(false);
+    flush();
     append();
     append();
     expect(scroller.scrollTop).toBe(wasAt);
 
     setShown(true);
+    flush();
     expect(scroller.scrollTop).toBe(endOf(column));
     expect(pill()).toBeNull();
   });
 });
 
 describe("each document's own place", () => {
-  it("keeps a scrolled-up reader's place when a work's chat is shown and left", () => {
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    rememberTranscriptScroll({
-      scrollTop: 300,
-      scrollHeight: 1000,
-      clientHeight: VIEWPORT,
-    });
+  /** A work's chat, by the key the scope gives it. */
+  const ONE = "branch:local/%2Fr/one";
+  const TWO = "branch:local/%2Fr/two";
 
-    showTranscriptDocument("branch:local/%2Fr/one");
+  it("keeps a scrolled-up reader's place when a work's chat is shown and left", () => {
+    rememberTranscriptScroll(
+      { scrollTop: 300, scrollHeight: 1000, clientHeight: VIEWPORT },
+      WHOLE_TRANSCRIPT,
+    );
+    flush();
+
     // The browser clamps the SHORTER document to its end and fires `scroll`:
     // a movement the reader did not make, but one that is true of the work's
     // chat, not of the whole conversation.
-    rememberTranscriptScroll({
-      scrollTop: 0,
-      scrollHeight: VIEWPORT,
-      clientHeight: VIEWPORT,
-    });
+    rememberTranscriptScroll(
+      { scrollTop: 0, scrollHeight: VIEWPORT, clientHeight: VIEWPORT },
+      ONE,
+    );
+    flush();
 
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    expect(transcriptPinned()).toBe(false);
+    expect(transcriptPinned(WHOLE_TRANSCRIPT)).toBe(false);
     const el = { scrollTop: 0, scrollHeight: 1000, clientHeight: VIEWPORT };
-    applyTranscriptScroll(el);
+    applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(300);
   });
 
   it("keeps a follower of the whole conversation following after reading a work", () => {
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    expect(transcriptPinned()).toBe(true);
+    expect(transcriptPinned(WHOLE_TRANSCRIPT)).toBe(true);
 
-    showTranscriptDocument("branch:local/%2Fr/two");
-    rememberTranscriptScroll({
-      scrollTop: 400,
-      scrollHeight: 1200,
-      clientHeight: VIEWPORT,
-    });
-    expect(transcriptPinned()).toBe(false);
+    rememberTranscriptScroll(
+      { scrollTop: 400, scrollHeight: 1200, clientHeight: VIEWPORT },
+      TWO,
+    );
+    flush();
+    expect(transcriptPinned(TWO)).toBe(false);
 
-    showTranscriptDocument(WHOLE_TRANSCRIPT);
-    expect(transcriptPinned()).toBe(true);
+    expect(transcriptPinned(WHOLE_TRANSCRIPT)).toBe(true);
     const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
-    applyTranscriptScroll(el);
+    applyTranscriptScroll(el, transcriptPlace(WHOLE_TRANSCRIPT));
     expect(el.scrollTop).toBe(5000);
+  });
+
+  it("drops every document's place when the conversation is replaced", () => {
+    // A NEW SESSION, A CLEARED ONE, A RECOVERED STORE: every remembered pixel
+    // describes turns that are gone — including the works' chats nobody is
+    // looking at right now, which a pin of the shown document alone would
+    // leave pointing into a conversation that no longer exists.
+    for (const key of [WHOLE_TRANSCRIPT, ONE, TWO])
+      rememberTranscriptScroll(
+        { scrollTop: 300, scrollHeight: 1000, clientHeight: VIEWPORT },
+        key,
+      );
+    flush();
+    expect(transcriptPinned(ONE)).toBe(false);
+    expect(transcriptPinned(TWO)).toBe(false);
+
+    forgetTranscriptPlaces();
+    flush();
+
+    for (const key of [WHOLE_TRANSCRIPT, ONE, TWO]) {
+      expect(transcriptPinned(key)).toBe(true);
+      const el = { scrollTop: 0, scrollHeight: 5000, clientHeight: VIEWPORT };
+      applyTranscriptScroll(el, transcriptPlace(key));
+      expect(el.scrollTop).toBe(5000);
+    }
   });
 });
 
@@ -398,7 +438,7 @@ describe("the strip's reveal", () => {
     ];
     dispose = render(
       () => (
-        <Shown.Provider value={() => true}>
+        <Shown value={() => true}>
           <ConductorTranscript
             rows={rows}
             turns={turnWorks(rows, new Map(), new Map())}
@@ -408,7 +448,7 @@ describe("the strip's reveal", () => {
               scroller = el;
             }}
           />
-        </Shown.Provider>
+        </Shown>
       ),
       root,
     );

@@ -50,7 +50,7 @@ const ReaderWindow: Component = () => {
   );
 
   return (
-    <Shown.Provider value={visible}>
+    <Shown value={visible}>
       <div
         data-testid="reader-window"
         class="flex h-dvh w-full flex-col bg-surface-0 text-chat"
@@ -96,7 +96,7 @@ const ReaderWindow: Component = () => {
           }}
         />
       </div>
-    </Shown.Provider>
+    </Shown>
   );
 };
 

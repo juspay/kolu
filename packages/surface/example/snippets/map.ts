@@ -361,7 +361,7 @@ export function ownedState(transport: WireTransport) {
   // its key leaves `entries` (a removed-then-re-added host is a FRESH member).
   const scopes = scopedByEntry(app, activeHost, (host, ctx) => ({
     tiles: new Map<number, string>(), // this host's OWN state — plain, per-host
-    focusedPid: createSignal<number | null>(null),
+    focusedPid: createSignal<number | null>(null, { name: "focusedPid" }),
     isFocused: ctx.isActive, // active-only discipline lives INSIDE the owner
     label: host, // the key is in scope for whatever the owner builds
   }));

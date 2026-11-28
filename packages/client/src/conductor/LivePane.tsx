@@ -28,15 +28,15 @@ import type { WorkRole } from "kolu-work";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import type { JSX } from "@solidjs/web";
 import {
   type Component,
   createMemo,
   createSignal,
-  type JSX,
-  on,
   createEffect,
   onCleanup,
   Show,
+  untrack,
 } from "solid-js";
 import { DEFAULT_FONT_SIZE, getThemeByName } from "terminal-themes";
 import MobileKeyBar from "../MobileKeyBar";
@@ -50,7 +50,7 @@ import { useMemberName } from "./memberNames";
 import { inputAllowedAt } from "./personInput";
 import { fitWidth, setFitWidth } from "./fitWidth";
 import { createPaneSize, paneGrid } from "./paneSize";
-import { createResizeOffer } from "./resizeOffer";
+import { createResizeOffer, plainGrid } from "./resizeOffer";
 import PeekTerminal, { type PeekTerminalHandle } from "./peek/PeekTerminal";
 import {
   type PeekCell,
@@ -67,6 +67,7 @@ import {
 import { peekTarget } from "./peek/usePeek";
 import { inspectMember } from "./workListing";
 import { liveArm, terminalStatus } from "./terminalStatus";
+import { createLookable } from "./peek/lookable";
 import { useOpenTile } from "./useOpenTile";
 import { useMembership } from "./useWorks";
 import WorkLock from "./WorkLock";
@@ -90,20 +91,34 @@ const LivePane: Component<{
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
-  const lookable = () => liveArm(standing()) !== undefined;
+  const lookable = createLookable(standing);
   const driver = () => membership().get(ref())?.driver ?? "nobody";
   const mayType = () => inputAllowedAt(ref());
 
+  const openingGrid = untrack(() => liveArm(standing())?.grid ?? null);
   const [grid, setGrid] = createSignal<TerminalGrid | null>(
-    liveArm(standing())?.grid ?? null,
+    // READ ONCE: the pane opens on the size the terminal has now, and every
+    // size after this one arrives through `onGrid`.
+    openingGrid,
   );
   const [cell, setCell] = createSignal<PeekCell | null>(null);
+  /** THE CELL ONE CHARACTER TAKES AT THE BASE FONT — a measurement KEPT past
+   *  the dispatch it arrived in, and the only such capture the pane holds.
+   *  It is keyed to the screen that produced it by this component: a pane is
+   *  this terminal's for its whole life (`WorkLive.tsx` draws one per member
+   *  ref), so there is no second screen whose measurement could land here. */
   const [baseCell, setBaseCell] = createSignal<PeekCell | null>(null);
   const [pad, setPad] = createSignal<PeekPad | null>(null);
   const [phase, setPhase] = createSignal<ScreenPhase>("reading");
   const [held, setHeld] = createSignal(false);
+  /** The screen's keyboard door, handed up by `PeekTerminal`'s `onReady`.
+   *  `ownedWrite`: this is the pane's OWN internal signal, and `onReady` runs
+   *  under the pane's owner (the kit re-enters it with `runWithOwner` once the
+   *  font has loaded, `xterm-kit/solid/xtermLifecycle.ts`) — so the one write
+   *  it ever takes is, by construction, a write in an owned scope. */
   const [handle, setHandle] = createSignal<PeekTerminalHandle | undefined>(
     undefined,
+    { ownedWrite: true },
   );
 
   /** TAKEN OVER, THE KEYBOARD GOES TO IT — the moment the terminal becomes
@@ -111,10 +126,22 @@ const LivePane: Component<{
    *  the peek is in front of the pane, and it puts the keys in its own
    *  screen. */
   createEffect(
-    on(driver, (now, before) => {
-      if (now === "you" && before === "conductor" && peekTarget() === null)
-        handle()?.focus();
+    () => ({
+      driver: driver(),
+      // READ ONCE, not depended on: the keyboard follows the DRIVER
+      // changing — a peek opening, or the screen's handle arriving, is not a
+      // reason to take the keys.
+      peeking: untrack(() => peekTarget() !== null),
+      handle: untrack(handle),
     }),
+    (now, before) => {
+      if (
+        now.driver === "you" &&
+        before?.driver === "conductor" &&
+        !now.peeking
+      )
+        now.handle?.focus();
+    },
   );
 
   const [body, setBody] = createSignal<HTMLDivElement>();
@@ -134,6 +161,11 @@ const LivePane: Component<{
       ? peekPans(peekNatural(g, c, p).width, availWidth())
       : false;
   };
+  /** THE FONT THE SCREEN DRAWS AT — Fit width's answer at the pane's base
+   *  cell, else the base font. Read where it is bound, in the screen's
+   *  `fontSize` prop: the base cell is latched from the font the screen
+   *  reports WITH its measurement, so nothing re-derives this inside a
+   *  render callback. */
   const fontSize = () => {
     const g = grid();
     const c = baseCell();
@@ -170,7 +202,6 @@ const LivePane: Component<{
         fontSize: DEFAULT_FONT_SIZE,
         fit: fitWidth(),
       }),
-    null,
     { equals: (a, b) => (a && b ? sameGrid(a, b) : a === b) },
   );
   const hostState = () => padiMap.entry(decodeHostKey(props.host)).state().kind;
@@ -179,7 +210,12 @@ const LivePane: Component<{
   const publisher = createGridPublisher({
     terminalId: props.id,
     hostState,
-    ptyLive: lookable,
+    // THE INSTANTANEOUS ARM, never the held gate: this guard exists for the
+    // exit race (`publishGrid.ts`) — a `loading` frame between the record
+    // leaving and the roster folding — and a gate that holds through
+    // `loading` would vouch for a PTY that has gone, raising the false
+    // resize toast the guard is there to suppress.
+    ptyLive: () => liveArm(standing()) !== undefined,
     resize: (g) =>
       padiRpcOf(decodeHostKey(props.host)).lifecycle.resize({
         id: props.id,
@@ -193,15 +229,22 @@ const LivePane: Component<{
   onCleanup(publisher.cancel);
   const onScreen = () => props.connected && lookable();
   const paneSize = createPaneSize({
-    connected: onScreen,
-    desktop: isDesktop,
-    asked,
     publish: publisher.publish,
     cancelPublish: publisher.cancel,
     restateOwed: publisher.republishSuppressed,
   });
   createEffect(
-    on([onScreen, isDesktop, asked, hostState], () => paneSize.observe()),
+    () => ({
+      connected: onScreen(),
+      desktop: isDesktop(),
+      asked: asked(),
+      // The host coming back is what makes a suppressed publish worth
+      // restating, and the gate is judged against this word.
+      hostState: hostState(),
+    }),
+    ({ connected, desktop, asked: grid, hostState: host }) => {
+      paneSize.observe({ connected, desktop, asked: grid, hostState: host });
+    },
   );
   /** THE ONE PRESS (the head's readout, offered once the terminal has stayed
    *  at a size this pane would not ask for — `resizeOffer.ts`): publish that
@@ -214,16 +257,22 @@ const LivePane: Component<{
   };
   const [resizeOffered, setResizeOffered] = createSignal(false);
   /** The terminal's REAL size: its record's, never the drawn screen's, which
-   *  lags behind the scroll lock. */
-  const realGrid = () => liveArm(standing())?.grid;
+   *  lags behind the scroll lock. Taken as a PLAIN pair (`plainGrid`): the
+   *  record is a subscription store, so this is where `cols` and `rows` are
+   *  read — the offer's comparison is then plain numbers, and a resize
+   *  merged into the record in place still wakes this effect. */
+  const realGrid = () => plainGrid(liveArm(standing())?.grid);
   const offer = createResizeOffer({
-    real: realGrid,
-    asked,
     settleMs: FOREIGN_GRID_SETTLE_MS,
     show: setResizeOffered,
   });
   onCleanup(offer.dispose);
-  createEffect(on([realGrid, asked], () => offer.observe()));
+  createEffect(
+    () => ({ real: realGrid(), asked: asked() }),
+    (now) => {
+      offer.observe(now);
+    },
+  );
 
   return (
     <section
@@ -264,6 +313,7 @@ const LivePane: Component<{
       </div>
       <TerminalStatusLine
         kind="live"
+        lookable={lookable()}
         host={props.host}
         id={props.id}
         terminal={ref()}
@@ -311,10 +361,13 @@ const LivePane: Component<{
                 fontSize={fontSize()}
                 mayType={mayType}
                 onGrid={setGrid}
-                onCell={(c, p) => {
+                onCell={(c, p, drawnFont) => {
                   setCell(c);
                   setPad(p);
-                  if (fontSize() === DEFAULT_FONT_SIZE) setBaseCell(c);
+                  // THE FONT THIS CELL WAS DRAWN AT, as the screen states
+                  // it: the base cell is the one measured at the base font,
+                  // and nothing here reads the pane's own staged state.
+                  if (drawnFont === DEFAULT_FONT_SIZE) setBaseCell(c);
                 }}
                 onPhase={setPhase}
                 onHeld={setHeld}

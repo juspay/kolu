@@ -25,14 +25,14 @@
 import { PrPip } from "@kolu/solid-dockrow";
 import { identityColor, recencyText } from "@kolu/solid-dockrow/rowValues";
 import { NeedsYouCapsule } from "@kolu/solid-statepip";
-import { Key } from "@solid-primitives/keyed";
 import { Option } from "effect";
 import type { Work, WorkId, WorkRow } from "kolu-work";
 import {
   type Component,
   createMemo,
   createSignal,
-  onMount,
+  For,
+  onSettled,
   Show,
 } from "solid-js";
 import RepoMonogram from "../ui/RepoMonogram";
@@ -40,6 +40,7 @@ import { resizableWidth } from "../ui/resizableWidth";
 import { useShownClock } from "../ui/shown";
 import { createWidthDrag, WidthResizeHandle } from "../ui/WidthResizeHandle";
 import MemberMarks from "./MemberMarks";
+import { sameFields } from "./sameItems";
 import { createWorkFacts } from "./workFacts";
 import { standingClock } from "./WorkStanding";
 import {
@@ -78,20 +79,30 @@ const Line: Component<{ id: WorkId; work: Work }> = (props) => {
     () => props.id,
     () => props.work,
   );
-  const where = () => {
-    const one = workWhere(props.work);
-    return one.kind === "branch" && one.repo !== "" ? one : undefined;
-  };
+  /** THE REPOSITORY THE WORK IS ON, when it is on one — gated, because the
+   *  reading mints a fresh `{ kind, repo, branch }` for a work that never
+   *  moved repository, and the `<Show>` under it would rebuild its arm. */
+  const where = createMemo(
+    () => {
+      const one = workWhere(props.work);
+      return one.kind === "branch" && one.repo !== "" ? one : undefined;
+    },
+    { equals: sameFields },
+  );
   /** HOW LONG IT HAS STOOD WHERE IT IS: while it waits on you, the Dock's
    *  violet capsule with the bare duration ("6m"); otherwise the card's own
-   *  clock (`standingClock`), so the two say one thing in one way. */
-  const since = createMemo(() =>
-    at().who === "you"
-      ? {
-          wait: true,
-          text: recencyText("wait-chip", Date.parse(at().since), now()),
-        }
-      : { wait: false, text: standingClock(at(), now()) },
+   *  clock (`standingClock`), so the two say one thing in one way. Gated on
+   *  what it says: the line above it is re-folded whenever the record moves,
+   *  and a clock that reads the same is not news. */
+  const since = createMemo(
+    () =>
+      at().who === "you"
+        ? {
+            wait: true,
+            text: recencyText("wait-chip", Date.parse(at().since), now()),
+          }
+        : { wait: false, text: standingClock(at(), now()) },
+    { equals: sameFields },
   );
   /** Where it stands, in words: the lead, then what is wanted. */
   const standing = () => [at().lead, ...Option.toArray(at().what)].join(" · ");
@@ -229,7 +240,7 @@ const Group: Component<{
         <button
           type="button"
           data-testid="works-rail-finished-toggle"
-          aria-expanded={isFinishedOpen()}
+          aria-expanded={isFinishedOpen() ? "true" : "false"}
           class="mb-1 w-full cursor-pointer px-2 text-start font-mono text-[0.55rem] uppercase tracking-[0.12em] text-fg-3 hover:text-fg-2"
           onClick={toggleFinished}
         >
@@ -241,9 +252,9 @@ const Group: Component<{
         </button>
       </Show>
       <Show when={!props.folds || isFinishedOpen()}>
-        <Key each={props.rows} by={([id]) => id}>
+        <For each={props.rows} keyed={([id]) => id}>
           {(row) => <Line id={row()[0]} work={row()[1]} />}
-        </Key>
+        </For>
       </Show>
     </section>
   </Show>
@@ -265,7 +276,9 @@ const WorkRail: Component<{ groups: RailGroups }> = (props) => {
   // read once it is in the page (a `ref` runs before it is inserted).
   let nav!: HTMLElement;
   const [host, setHost] = createSignal<HTMLElement | null>(null);
-  onMount(() => setHost(nav.parentElement));
+  onSettled(() => {
+    setHost(nav.parentElement);
+  });
   const resize = createWidthDrag(SIDEBAR_WIDTH, host);
   return (
     <nav

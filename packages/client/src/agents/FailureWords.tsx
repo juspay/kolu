@@ -32,23 +32,23 @@ const FailureWords: Component<{
     props.words.by === undefined
       ? props.words.headline
       : `${props.words.by}: ${props.words.headline}`;
-  const lines = createMemo(
-    () => props.words.detail.map((line) => ({ line })),
-    undefined,
-    { equals: sameLines },
-  );
-  const log = createMemo(() => [{ line: cause() }, ...lines()], undefined, {
+  const lines = createMemo(() => props.words.detail.map((line) => ({ line })), {
+    equals: sameLines,
+  });
+  const log = createMemo(() => [{ line: cause() }, ...lines()], {
     equals: sameLines,
   });
   return (
     <div data-testid={props.testid} class={props.class}>
       <p
         data-testid={`${props.testid}-text`}
-        class="wrap-anywhere"
-        classList={{
-          "text-warning": props.tone === "warn",
-          "text-danger": props.tone === "danger",
-        }}
+        class={[
+          "wrap-anywhere",
+          {
+            "text-warning": props.tone === "warn",
+            "text-danger": props.tone === "danger",
+          },
+        ]}
       >
         {cause()}
       </p>

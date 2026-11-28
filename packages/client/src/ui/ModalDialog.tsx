@@ -8,8 +8,9 @@
  * based on the open prop — forceMount only affects DOM presence.
  */
 
-import Dialog from "@corvu/dialog";
-import { type Component, createEffect, type JSX, onCleanup } from "solid-js";
+import Dialog from "@corvu-next/dialog";
+import { type Component, createEffect } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   getActiveTerminalNode,
   getFirstTerminalNode,
@@ -80,8 +81,6 @@ const ModalDialog: Component<{
   transparentOverlay?: boolean;
   /** Element to receive focus when the dialog opens (passed to Corvu's focus trap). */
   initialFocusEl?: HTMLElement;
-  /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
-  trapFocus?: boolean;
   /** Refocus the active terminal when the dialog closes. Off by default — the
    *  command palette runs its own guarded refocus, and CloseConfirm / the
    *  intent editor manage focus themselves. The simple dialogs (About, Welcome,
@@ -102,12 +101,14 @@ const ModalDialog: Component<{
   // self-healing "is any dialog open" signal — no enumeration of per-dialog
   // signals to keep in sync.
   const dialogStack = useDialogStack();
-  createEffect(() => {
-    if (props.open) {
+  createEffect(
+    () => props.open,
+    (open) => {
+      if (!open) return;
       dialogStack.increment();
-      onCleanup(() => dialogStack.decrement());
-    }
-  });
+      return () => dialogStack.decrement();
+    },
+  );
 
   const handleOpenChange = (open: boolean) => {
     props.onOpenChange(open);
@@ -133,11 +134,15 @@ const ModalDialog: Component<{
         if (props.placesOwnFocus) e.preventDefault();
       }}
       // terminal.focus() calls (visibility effects, click handlers) emit focusin
-      // events that solid-dismissible interprets as the user leaving the dialog.
+      // events that `@corvu-next/dismissible` interprets as the user leaving the dialog.
       closeOnOutsideFocus={false}
       closeOnOutsidePointer={props.dismissible ?? true}
       initialFocusEl={props.initialFocusEl}
-      trapFocus={props.trapFocus}
+      // `trapFocus` is Corvu's own `true` and is left unsaid: Solid 2's `merge`
+      // takes the LAST source that carries a key, `undefined` included, so a
+      // forwarded `trapFocus={undefined}` would read as "no trap" and leave
+      // focus wherever it was — on the terminal, which eats the Escape that
+      // should close this dialog.
       closeOnEscapeKeyDown={
         (props.escapeCloses ?? true) && (props.dismissible ?? true)
       }
@@ -149,15 +154,19 @@ const ModalDialog: Component<{
       <Dialog.Portal forceMount>
         <Dialog.Overlay
           forceMount
-          class="fixed inset-0 z-50 data-[closed]:hidden transition-colors"
-          classList={{
-            "bg-black/50": !props.transparentOverlay,
-            "bg-transparent": !!props.transparentOverlay,
-          }}
+          class={[
+            "fixed inset-0 z-50 data-[closed]:hidden transition-colors",
+            {
+              "bg-black/50": !props.transparentOverlay,
+              "bg-transparent": !!props.transparentOverlay,
+            },
+          ]}
         />
         <div
-          class={props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top}
-          classList={{ hidden: !props.open }}
+          class={[
+            props.size === "fit" ? FRAME_CLASS.fit : FRAME_CLASS.top,
+            { hidden: !props.open },
+          ]}
         >
           <div class={`pointer-events-auto ${SIZE_CLASS[props.size ?? "md"]}`}>
             {props.children}

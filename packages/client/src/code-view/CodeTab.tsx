@@ -34,7 +34,7 @@
 
 import { useShown } from "../ui/shown";
 
-import Resizable from "@corvu/resizable";
+import Resizable from "@corvu-next/resizable";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -43,24 +43,21 @@ import {
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { toError } from "@kolu/surface/run-stream";
-import { makeEventListener } from "@solid-primitives/event-listener";
+import type { JSX } from "@solidjs/web";
 import { Effect } from "effect";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl } from "kolu-common/preview";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
-  batch,
   type Component,
   createEffect,
   createMemo,
   createSignal,
   For,
-  type JSX,
   Match,
-  on,
-  onCleanup,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { CommentComposer } from "../comments/CommentComposer";
@@ -70,8 +67,12 @@ import { CommentView, createCommentView } from "../comments/commentView";
 import { triggerDownload } from "../download";
 import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
+import { trueWord } from "../ui/attrWord";
 import { filterChipAccent } from "../ui/filterChip";
-import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
+import {
+  mergeGitStatusEntries,
+  sameGitStatusEntries,
+} from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
   EyeIcon,
@@ -113,10 +114,13 @@ import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
   codeTabRepoSlotKey,
-  codeTabSelectionInventoryVerdict,
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import {
+  codeTabShownSelection,
+  createCodeTabSelect,
+} from "./codeTabSelectionReconcile";
 import type { BrowserLocation, CodeViewState } from "./codeViewState";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
@@ -131,6 +135,11 @@ const EMPTY_STATE: Record<GitDiffMode, string> = {
 };
 
 const NO_BRANCH_BASE = "No branch base to compare";
+
+/** The ONE empty lazy-level map: every slot that has opened no folder — and
+ *  every read of another slot's levels — returns this same reference, so the
+ *  merge memo and the tree below it stay silent (`UNSTABLE_MEMO_OUTPUT`). */
+const NO_LOADED_LEVELS: ReadonlyMap<string, readonly string[]> = new Map();
 
 /** The flag pair for leaving kolu in a new tab, fire-and-forget: `noopener`
  *  denies the new tab a handle on kolu's `window`, `noreferrer` keeps kolu's
@@ -161,7 +170,7 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
 // The Code-tab toolbar's icon button — ONE chrome for every toolbar affordance
 // (the nav arrows, the show-ignored eye), so the shared hit target and its
 // touch sizing (driven by the toolbar row's `data-touch` via the group variant)
-// live here rather than in hand-synced copies. `pressed` paints via `classList`
+// live here rather than in hand-synced copies. `pressed` paints via `class`
 // so the ARIA fact and the paint share one source, per the convention
 // `KavalAttachSection` documents.
 const ToolbarIconButton: Component<{
@@ -177,15 +186,19 @@ const ToolbarIconButton: Component<{
     type="button"
     data-testid={props.testId}
     aria-label={props.label}
-    aria-pressed={props.pressed}
+    aria-pressed={
+      props.pressed === undefined ? undefined : props.pressed ? "true" : "false"
+    }
     title={props.title}
     disabled={props.disabled}
     onClick={props.onClick}
-    class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
     // The repo's one accent-vs-neutral toggle grammar, shared with the dock's
     // activity-window and ☾ chips — so a change to what "actively filtering"
     // looks like is one edit, not three that drift apart.
-    classList={filterChipAccent(props.pressed === true)}
+    class={[
+      "grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 shrink-0 place-items-center rounded transition-colors hover:bg-surface-2/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent",
+      filterChipAccent(props.pressed === true),
+    ]}
   >
     {props.children}
   </button>
@@ -227,7 +240,11 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const shown = useShown();
   // The query set is the view's for its whole life: it leases its visibility
-  // on it once, here, and reads every query off that same set.
+  // on it once, here, and reads every query off that same set. Read ONCE, as
+  // a snapshot (`untrack`), because that is what "for its whole life" means —
+  // every mounting place hands the same set over for as long as the view
+  // lives, so a body-level read of `props.queries` can never go stale, and
+  // reading it untracked keeps a component body free of a reactive read.
   const {
     localStatus,
     branchStatus,
@@ -238,22 +255,15 @@ const CodeTab: Component<{
     diff,
     fileContent,
     lease,
-  } = props.queries;
-  lease(shown);
+  } = untrack(() => props.queries);
+  // The shown pick rides on the same lease, through a thunk because
+  // `shownFile` is derived further down: it is what pauses the file-content
+  // query once this view stops showing that file.
+  lease(shown, () => shownFile());
   // The tree's share is a preference per arrangement, not part of a view's
   // place.
   const split = createCodeSplit(() => props.arrangement);
   const terminalId = () => props.subject.terminalId;
-
-  // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
-  // size/fork axis): roomier rows are a tap-target affordance, so a
-  // coarse-pointer device wants them in every layout (phone, compact, and a
-  // touch desktop). The DOM sizing reads it reactively (`(pointer: coarse)` can flip
-  // mid-mount — a 2-in-1 docking/undocking — and `data-touch` should follow),
-  // while Pierre's tree density snapshots it (below) because Pierre captures
-  // `density` once at construction (like `initialExpansion`), so a reactive
-  // accessor there would read as live when it isn't.
-  const treeDensity = isTouch() ? "relaxed" : undefined;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -271,10 +281,11 @@ const CodeTab: Component<{
   // Pierre snapshots the menu config at mount. For a file row, navigation seeds
   // the destination view's selection slot *before* switching so the same file
   // lands selected there (a file absent from that view's changed set — e.g. an
-  // untracked file in Branch mode, or anything in a base-less Branch — falls
-  // out and the membership effect clears it; the view still switches, the
-  // asked-for behavior). For a directory row `path` is null (directories
-  // aren't selectable), so the target keeps its own last pick.
+  // untracked file in Branch mode, or anything in a base-less Branch — is
+  // written to a slot that is not the shown one, so the reconcile judges it on
+  // the frame the switch publishes and clears it there; the view still
+  // switches, the asked-for behavior). For a directory row `path` is null
+  // (directories aren't selectable), so the target keeps its own last pick.
   const renderTreeMenu = makeTreeContextMenu({
     view,
     navigate: (target, path) => {
@@ -376,12 +387,20 @@ const CodeTab: Component<{
   /** WHERE A FILE'S BYTES AND ITS COMMENTS BELONG — the subject's host and
    *  terminal, or `null` with no terminal: then a text file still draws and
    *  only commenting is off. */
-  const fileAt = createMemo(() => {
-    const id = terminalId();
-    return id === null
-      ? null
-      : { host: encodeHostKey(props.subject.host), terminalId: id };
-  });
+  const fileAt = createMemo(
+    () => {
+      const id = terminalId();
+      return id === null
+        ? null
+        : { host: encodeHostKey(props.subject.host), terminalId: id };
+    },
+    {
+      // Two strings rebuilt into a record on every subject tick: compare the
+      // strings, so a re-emitted subject naming the same terminal does not
+      // republish an equal location to the viewer and its comment plumbing.
+      equals: (a, b) => a?.host === b?.host && a?.terminalId === b?.terminalId,
+    },
+  );
   /** THE SELECTED FILE, as the viewer takes it — the query's wire variant
    *  projected onto `@kolu/solid-fileview`'s two shapes.
    *
@@ -423,58 +442,57 @@ const CodeTab: Component<{
       : undefined;
   });
   const selectedPath = (): string | null => props.state.selectedFile(view());
-  // The single selection funnel: set the shown file AND record it in history.
-  // Recording can never drift from selection because they are one call —
-  // routing every selection-mutation site through here replaces the old
-  // convention of placing a paired `recordNavigation` next to each write.
-  // Recording is skipped when `record === false` (mechanical clears, history
-  // replay) or when `path === null` (clearing the slot is not a navigation).
-  const select = (
-    mode: CodeTabView,
-    path: string | null,
-    opts?: {
-      ref?: { startLine: number; endLine: number };
-      record?: boolean;
+  // The single selection funnel, grounded in the standing inventory frame:
+  // see `createCodeTabSelect`. `treeInventory` is declared below, so it is
+  // reached through a thunk.
+  const select = createCodeTabSelect({
+    view,
+    inventory: () => {
+      const { paths, pending } = treeInventory();
+      return { paths, pending };
     },
-  ) => {
-    props.state.setSelectedFile(mode, path);
-    if (opts?.record === false || path === null) return;
-    props.state.recordNavigation({ mode, path, ref: opts?.ref });
-  };
+    setSelectedFile: (mode, path) => props.state.setSelectedFile(mode, path),
+    recordNavigation: (loc) => props.state.recordNavigation(loc),
+  });
   const repoSlotKey = createMemo(() => codeTabRepoSlotKey(currentScope()));
 
-  // Dismiss any open comment composer when the user navigates away from the
-  // terminal / file / mode / repo the draft was anchored to. Without this, the
-  // composer floats over different content and the user has to dismiss it
-  // manually; worse, a save would attach the stale draft to whatever terminal
-  // is now active. Draft body is lost, which matches every other
-  // modal-on-navigate behavior in kolu.
-  //
-  // Key on the VALUE string, not the raw signals: `on` fires on every
-  // INVALIDATION of its source, so an array source re-closes the composer on any
-  // incidental invalidation (a same-repo active-terminal *clock* tick
-  // re-evaluates `repoPath()` to the same string). A primitive-string memo (the
-  // `repoSlotKey` precedent above) notifies only on a real navigation. `terminalId`
-  // is in the key because a comment saves against the subject's terminal:
-  // switching to another terminal (or host — a terminal is host-bound) at the
-  // same file must drop the draft even when repo/file/mode coincide. `\0`
-  // separators keep the key collision-safe without embedding literal NUL bytes
-  // in the source.
-  //
-  // The draft is THIS view's own (`createCommentView`), provided to every
-  // surface drawn inside it — so this close drops this view's draft only, and
-  // another Code view or reader mounted at the same time keeps its own.
+  // This view's own comment draft and its composer (`createCommentView`),
+  // provided to every surface drawn inside it. The composer is dismissed on
+  // navigation, below — the anchor it keys on reads the SHOWN file, which is
+  // derived further down.
   const comments = createCommentView();
   const composer = comments.composer;
-  const composerAnchor = createMemo(
-    () =>
-      `${terminalId() ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
-  );
-  createEffect(on(composerAnchor, () => composer.close(), { defer: true }));
 
-  // Filename filter — drives Pierre's tree filter externally. Reset on
-  // mode switch so a stale needle doesn't hide the wrong file set.
-  const [searchQuery, setSearchQuery] = createSignal("");
+  // Filename filter — drives Pierre's tree filter externally. STAMPED with the
+  // repo slot it was typed for, and read back only for that slot: the needle
+  // was scoped to the previous file set, so another slot reads the default
+  // instead of an effect clearing it one flush after the switch (which
+  // published a tree filtered by the previous repo's needle for that frame).
+  // Written `untrack`ed — `finishOpenRequest` writes it from the effect phase.
+  const [searchState, setSearchState] = createSignal<{
+    slot: string | null;
+    needle: string;
+  }>({ slot: null, needle: "" });
+  const searchQuery = (): string => {
+    const state = searchState();
+    return state.slot === repoSlotKey() ? state.needle : "";
+  };
+  const setSearchQuery = (needle: string): void => {
+    const slot = untrack(repoSlotKey);
+    // A write of the needle this slot already READS is not a change: retyping
+    // the same text, or the folder reveal below clearing a filter that is
+    // already clear, would otherwise mint a fresh state object and wake every
+    // reader of the projected tree. Hand back the held object instead, so the
+    // signal's identity check keeps them all silent. The comparison is the
+    // one `searchQuery` makes — a stamp from another slot reads as the empty
+    // default, so re-stamping it with that same empty needle changes nothing
+    // on screen either.
+    setSearchState((prev) =>
+      (prev.slot === slot ? prev.needle : "") === needle
+        ? prev
+        : { slot, needle },
+    );
+  };
 
   // ── Selection-stability invariants ─────────────────────────────────
   // CodeTab survives right-panel tab toggles and panel collapse (#818)
@@ -515,52 +533,31 @@ const CodeTab: Component<{
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  // Clear the filename filter when the REPO SLOT changes — the search needle
-  // was scoped to the previous file set and rarely makes sense post-switch.
-  // Selection itself is per owner (read/written via
-  // `props.state.selectedFile(mode)` → the owner's per-mode record) so the
-  // new view automatically surfaces its own
-  // pick without a clear here. The key deliberately excludes the terminal: the
-  // filter, the reveal, the lazy folder levels and the tree's expansion are all
-  // facts about the REPO, so moving focus between two panes of one repo keeps
-  // them (and does not re-dispatch `fs.listAll`). `repoSlotKey` is memoized, so
-  // this fires only when the tuple genuinely changes — without the memo,
-  // `on(...)` would re-run its callback on every incidental tick of `repoPath()`
-  // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
-  // the filter spuriously after #818 made CodeTab survive right-panel
-  // tab toggles.
+  // RETIRE THE READS STILL IN FLIGHT when the REPO SLOT changes. That is all
+  // this effect does: the slot-scoped STATE — the filename filter, the standing
+  // folder reveal and the lazily-loaded folder levels — is stamped with the
+  // slot it was written for and reads the default under any other slot, so
+  // none of it has to be cleared by a write one flush after the switch. (It
+  // used to be, and that frame published the NEW repo's paths with the OLD
+  // repo's loaded levels, needle and reveal.)
+  //
+  // A read of the previous repo resolving afterwards would otherwise write its
+  // listing under an identical folder name — repo-relative keys collide across
+  // repos (`out/` exists in both). Aborting is belt; the landing's own
+  // issued-slot check is braces. The tree's own record of which lazy
+  // directories are open is invalidated by the same key, via `lazyEpoch` below.
+  //
+  // `repoSlotKey` is memoized, so this fires only when the tuple genuinely
+  // changes — a compute that rebuilt the tuple inline would re-run on every
+  // incidental tick of `repoPath()` (metadata cell) or `view()` (per-terminal
+  // in-memory store).
   createEffect(
-    on(
-      repoSlotKey,
-      (key, previous) => {
-        // Only a change BETWEEN two repos invalidates the slot's state. A `null`
-        // key means "no repo to scope to" — the shown pane's git is still
-        // unresolved, or the terminal sits outside a repo. Either way there is
-        // nothing to reset: an unresolved split may be in the very same repo,
-        // and a terminal outside a repo has no slot state to keep. Resetting on
-        // it would drop the filter and the open folders whenever focus lands on
-        // a just-created split whose git has not answered yet.
-        if (key === null || previous === null) return;
-        setSearchQuery("");
-        // Retire any standing folder reveal too — it was scoped to the previous
-        // repo/view. Clearing here can't clobber a folder click that *causes*
-        // the view switch: that switch fires this effect while fsListAll is
-        // still loading, before the gated resolution effect sets `revealDir`.
-        setRevealDir(null);
-        // The loaded levels were read out of the PREVIOUS repo, and repo-
-        // relative keys collide across repos (`out/` exists in both), so
-        // keeping them would paint one repo's build output inside another's.
-        // Aborting first covers the reads still in flight, which would
-        // otherwise resolve afterwards and write the previous repo's listing
-        // into the new repo's map under an identical folder name. The tree's
-        // own record of which lazy directories are open is invalidated by the
-        // same signal, via `lazyEpoch` below.
-        for (const ctl of inFlight.values()) ctl.abort();
-        inFlight.clear();
-        setLoadedChildren(new Map());
-      },
-      { defer: true },
-    ),
+    repoSlotKey,
+    () => {
+      for (const ctl of inFlight.values()) ctl.abort();
+      inFlight.clear();
+    },
+    { defer: true, name: "retireSlotReads" },
   );
 
   // Highlight-session record for the latest handled door request. Holds
@@ -587,11 +584,21 @@ const CodeTab: Component<{
   // remount: the live `fsListAll` stream resubscribes under load and briefly
   // unmounts/remounts the tree, and a consume-once reveal was lost in that
   // window (the folder came back collapsed — a darwin-CI flake). It is cleared
-  // on the next real navigation instead — a file pick (`handleSelect`) or a
-  // repo/view switch (the `repoSlotKey` effect) — so it never re-scrolls to a stale
-  // folder forever. A fresh object per request re-fires the reveal on a repeat
-  // click of the same folder.
-  const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
+  // on the next real navigation instead — a file pick (`handleSelect`) — and a
+  // reveal asked for one repo slot is simply not read under another, so it
+  // never re-scrolls to a stale folder. A fresh object per request re-fires the
+  // reveal on a repeat click of the same folder.
+  const [revealState, setRevealState] = createSignal<{
+    slot: string | null;
+    dir: { path: string } | null;
+  }>({ slot: null, dir: null });
+  const revealDir = (): { path: string } | null => {
+    const state = revealState();
+    return state.slot === repoSlotKey() ? state.dir : null;
+  };
+  const setRevealDir = (dir: { path: string } | null): void => {
+    setRevealState({ slot: untrack(repoSlotKey), dir });
+  };
 
   // One level of contents per lazy directory the user has opened, keyed by
   // Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
@@ -599,6 +606,13 @@ const CodeTab: Component<{
   // — which left those rows expandable but empty (#2091); this holds what an
   // expand read back so the merge can substitute it for the collapsed key. On a
   // folder git cannot list, every folder is such a directory.
+  //
+  // STAMPED with the repo slot the levels were read under, because those keys
+  // are repo-relative and collide across repos (`out/` exists in both): reading
+  // them back only under their own slot is what keeps one repo's build output
+  // out of another's tree — including in the frame the slot itself moves, which
+  // a clearing write could only reach one flush later. A landing re-checks the
+  // slot it was ISSUED under, so a read that outlives its repo writes nothing.
   //
   // Deliberately NOT a `createPolledQuery` beside the two listings in the
   // query set: those are keyed by REPO and refreshed by the repo-change
@@ -609,9 +623,30 @@ const CodeTab: Component<{
   // ignore set exists to keep out. Re-expanding a folder is the refresh
   // instead: the wrapper reports every expansion, so a collapse-and-reopen
   // re-reads the level.
-  const [loadedChildren, setLoadedChildren] = createSignal<
-    ReadonlyMap<string, readonly string[]>
-  >(new Map());
+  const [loadedState, setLoadedState] = createSignal<{
+    slot: string | null;
+    levels: ReadonlyMap<string, readonly string[]>;
+  }>({ slot: null, levels: NO_LOADED_LEVELS });
+  const loadedChildren = (): ReadonlyMap<string, readonly string[]> => {
+    const state = loadedState();
+    return state.slot === repoSlotKey() ? state.levels : NO_LOADED_LEVELS;
+  };
+  /** Record one lazy level under the slot the read was ISSUED for. A fresh Map
+   *  per write: the merge memo reads this by reference, and an in-place `set`
+   *  would leave the tree painting the previous level. */
+  const recordLoadedLevel = (
+    slot: string | null,
+    dirPath: string,
+    paths: readonly string[],
+  ): void => {
+    if (slot !== untrack(repoSlotKey)) return;
+    setLoadedState((previous) => ({
+      slot,
+      levels: new Map(
+        previous.slot === slot ? previous.levels : NO_LOADED_LEVELS,
+      ).set(dirPath, paths),
+    }));
+  };
 
   // The newest read per directory, as a controller rather than a bookkeeping
   // pair. A rapid expand → collapse → expand is three store ticks, so the
@@ -641,8 +676,11 @@ const CodeTab: Component<{
   const inFlight = new Map<string, AbortController>();
 
   const loadLazyDirectory = (dirPath: string): Promise<void> => {
-    const p = repoPath();
+    const p = untrack(repoPath);
     if (!p) return Promise.resolve();
+    // The slot this read is issued under: its answer belongs to that slot and
+    // to no other.
+    const slot = untrack(repoSlotKey);
     inFlight.get(dirPath)?.abort();
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
@@ -653,11 +691,7 @@ const CodeTab: Component<{
           Effect.tap((result) =>
             Effect.sync(() => {
               if (ctl.signal.aborted) return;
-              // A fresh Map per write: the merge memo reads this by reference, and
-              // an in-place `set` would leave the tree painting the previous level.
-              setLoadedChildren((prev) =>
-                new Map(prev).set(dirPath, result.paths),
-              );
+              recordLoadedLevel(slot, dirPath, result.paths);
             }),
           ),
           Effect.tapError((err) =>
@@ -725,72 +759,21 @@ const CodeTab: Component<{
     // #1841 provenance gate drops any selection no user gesture caused — so
     // this ref is safe; only a later USER re-click of the same file reaches
     // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
-    batch(() => {
-      setFreshSelection(
-        source === "fresh" ? { request: req, path: rel } : null,
-      );
-      select(req.scope.mode, rel, {
-        ref:
-          req.ref.startLine !== null && req.ref.endLine !== null
-            ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
-            : undefined,
-      });
-      setHandled({ request: req, resolvedPath: rel });
+    // The writes share one microtask flush, so downstream readers see them
+    // together — and that is why the fresh read's proof is handed to `select`
+    // directly: the pin minted on the line above is not yet readable, and the
+    // grounded write would judge a just-proved path against a retained
+    // inventory that has not published it.
+    setFreshSelection(source === "fresh" ? { request: req, path: rel } : null);
+    select(req.scope.mode, rel, {
+      proven: source === "fresh",
+      ref:
+        req.ref.startLine !== null && req.ref.endLine !== null
+          ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+          : undefined,
     });
+    setHandled({ request: req, resolvedPath: rel });
   };
-
-  // The controller owns the volatile open lifecycle. This presenter exposes
-  // current facts and atomic UI outcomes; it does not carry request/controller
-  // slots or reconstruct supersession in promise callbacks.
-  createCodeTabOpenController({
-    snapshot: () => ({
-      request: props.door.pending(),
-      scope: currentScope(),
-      inventoryScope: treeInventory().scope,
-      paths: treePaths(),
-      inventoryPending: treeInventory().pending,
-      includeIgnored: showIgnoredFiles(),
-    }),
-    resolve: (request, paths) =>
-      resolveRef({
-        rawPath: request.ref.path,
-        repoRoot: request.scope.repoRoot,
-        cwd: request.cwd,
-        repoPaths: paths,
-        allowBasenameFallback: request.allowBasenameFallback,
-        // A `:N` line suffix means the user pointed at a *file* line — a
-        // directory match would wrongly reveal the folder and drop the line.
-        hasLine: request.ref.startLine !== null,
-      }),
-    readFresh: (request, includeIgnored) => {
-      // The request only reaches here while its scope is the one shown, so
-      // the shown root's lister is the request's.
-      const by = lister();
-      return by === null
-        ? Effect.fail(new Error("No repository to read"))
-        : readFreshCodePaths(
-            request.scope.host,
-            request.scope.repoRoot,
-            by,
-            includeIgnored,
-          );
-    },
-    onResolved: finishOpenRequest,
-    onNotFound: (request) => {
-      toast.error(`File reference not found: ${request.ref.path}`);
-      batch(() => {
-        setFreshSelection(null);
-        setHandled({ request, resolvedPath: null });
-      });
-    },
-    onError: (request, error) => {
-      toast.error(`File list refresh: ${error.message}`);
-      batch(() => {
-        setFreshSelection(null);
-        setHandled({ request, resolvedPath: null });
-      });
-    },
-  });
 
   // Highlight range derives from the consume-once record: if the
   // request we last handled matches the latest pending one AND its
@@ -835,17 +818,20 @@ const CodeTab: Component<{
    *  Adding a third source later changes this memo and nothing else.
    *
    *  The overlay's `pending` leg is gated on the toggle because an idle query
-   *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
-   *  input) — with the toggle off it is idle by design, not loading. */
+   *  reports `pending` forever (`createPolledQuery`'s faces answer nothing and
+   *  stay pending while the input key is `null`) — with the toggle off it is
+   *  idle by design, not loading. */
   const treeInventory = createMemo<
     BrowseInventory & { scope: CodeTabScope | null }
   >(() => {
     // The slot a listing may be stamped with: the one we are showing, and only
-    // when the listing really was read for that slot's repo. The queries blank on
-    // a key change, but the blank and this read are separate reactive runs — so
-    // the listing's OWN repo is what refuses a value produced for the repo we
-    // left. (Both listings are keyed on the same repo, so in the steady state
-    // either both stamp or neither does.)
+    // when the listing really was read for that slot's repo. An ACTIVE query
+    // re-keys and this read happen in the same flush now, so the live instance
+    // needs no such guard; a PAUSED one does — it answers off the stamp its own
+    // store still carries (`createPolledQuery`'s `shownKey`), which is the whole
+    // point of the pause, so the listing's OWN repo is what refuses a value
+    // produced for the repo we left. (Both listings are keyed on the same repo,
+    // so in the steady state either both stamp or neither does.)
     const stampOf = (
       listing: ScopedCodePaths | undefined,
     ): CodeTabScope | null => {
@@ -854,17 +840,18 @@ const CodeTab: Component<{
         ? current
         : null;
     };
-    // Copy `paths` out rather than returning the store proxy directly:
-    // `fsListAll` lands in a reconciled store whose `paths` array is
-    // mutated in place, so the proxy's reference is stable across an
-    // in-place add/remove. Returning it bare means this memo never reads
-    // the contents (so an in-place add doesn't re-run it) and, even when it
-    // does re-run, the stable reference defeats the downstream
-    // reference-equality memos/effects that feed Pierre — a file created in
-    // a hand-expanded folder would never surface. Spreading tracks every
-    // element + length and mints a fresh reference, matching the diff
-    // branch's `.map()` below. See `createReactiveSubscription` /
-    // `writeValue.ts` for the reconcile strategy.
+    // Copy `paths` out rather than handing a listing's own array on:
+    // everything downstream of this memo — the search projection, the frozen
+    // tree frame, Pierre's own expansion reconcile — decides whether anything
+    // moved by REFERENCE, so each published inventory must be its own array.
+    // `mergeBrowseInventory` spreads for exactly that reason (its own note
+    // says so), matching the diff branch's `.map()` below.
+    //
+    // One source per listing, and a listing that re-read the same content
+    // keeps its reference: `createPolledQuery` publishes the whole answer as a
+    // VALUE gated on `framesEqual`, so this memo tracks one source per query
+    // however many thousand paths a repository has, and a watcher pulse that
+    // changed nothing never re-runs it at all.
     //
     // The gitignored overlay rides its own idle-unless-toggled query, so its
     // entries join here: collapsed paths whose trailing slash marks a
@@ -921,10 +908,60 @@ const CodeTab: Component<{
 
   const treePaths = () => treeInventory().paths;
 
+  // The controller owns the volatile open lifecycle. This presenter exposes
+  // current facts and atomic UI outcomes; it does not carry request/controller
+  // slots or reconstruct supersession in promise callbacks.
+  createCodeTabOpenController({
+    snapshot: () => ({
+      request: props.door.pending(),
+      scope: currentScope(),
+      inventoryScope: treeInventory().scope,
+      paths: treePaths(),
+      inventoryPending: treeInventory().pending,
+      includeIgnored: showIgnoredFiles(),
+      lister: lister(),
+    }),
+    resolve: (request, paths) =>
+      resolveRef({
+        rawPath: request.ref.path,
+        repoRoot: request.scope.repoRoot,
+        cwd: request.cwd,
+        repoPaths: paths,
+        allowBasenameFallback: request.allowBasenameFallback,
+        // A `:N` line suffix means the user pointed at a *file* line — a
+        // directory match would wrongly reveal the folder and drop the line.
+        hasLine: request.ref.startLine !== null,
+      }),
+    readFresh: (request, from) =>
+      // Every fact comes from the snapshot: the read is issued in the effect
+      // phase, where reading `lister()` or the toggle would be a reactive read
+      // (STRICT_READ_UNTRACKED). The request only reaches here while its scope
+      // is the one shown, so that snapshot's lister is the request's.
+      from.lister === null
+        ? Effect.fail(new Error("No repository to read"))
+        : readFreshCodePaths(
+            request.scope.host,
+            request.scope.repoRoot,
+            from.lister,
+            from.includeIgnored,
+          ),
+    onResolved: finishOpenRequest,
+    onNotFound: (request) => {
+      toast.error(`File reference not found: ${request.ref.path}`);
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
+    },
+    onError: (request, error) => {
+      toast.error(`File list refresh: ${error.message}`);
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
+    },
+  });
+
   const treeSearch = createMemo(
     () => projectFileTreeSearch(treePaths(), searchQuery()),
-    undefined,
     {
+      name: "codeTabTreeSearch",
       // Equal inventories are not fresh reveal requests. A status refresh must
       // not reopen a folder the user collapsed while the filter stays active.
       equals: (a, b) =>
@@ -962,75 +999,80 @@ const CodeTab: Component<{
     return `${pierreTreesShadowCss}\n${rowPathsCss(ignored, pierreTreesIgnoredRowDecl)}`;
   });
 
-  // Track membership rather than the treePaths array identity: browse paths
-  // come from a reconciled store array whose contents can change in place.
-  // Gate on the inventory's OWN readiness — taken from the same value as the
-  // paths, so the guard can never check a half-loaded tree against a settled
-  // flag. When a stream resubscribes (e.g. on right-panel tab switch, since its
-  // inputFn returns a fresh object literal), the value briefly resets to
-  // undefined and the inventory collapses to `[]`. Treating that transient empty as
-  // "selected file is missing" would null `selectedPath` on every
-  // resubscribe and lose the selection across tab toggles. Once the stream
-  // has delivered (`!pending()`), an empty paths set IS authoritative —
-  // the file truly went away (commit cleared local diff, rm deleted it) —
-  // except for a path a direct fresh read just proved exists. That result can
-  // beat the retained stream's repo-change pulse, so `freshSelection` pins the
-  // path until the retained inventory first contains it. From that point the
-  // normal removal rule is authoritative again.
+  /** THE SHOWN FILE — the stored pick of the shown mode, judged against the
+   *  retained inventory in the same pass that publishes it
+   *  (`codeTabShownSelection`). Everything that PAINTS the selection reads
+   *  this; `selectedPath` above is the stored slot, which keeps its pick. */
+  const shownFile = codeTabShownSelection({
+    selectedPath,
+    repoSlotKey,
+    inventory: () => {
+      const { paths, pending } = treeInventory();
+      return { paths, pending };
+    },
+    freshSelection,
+    pendingRequest: () => props.door.pending(),
+  });
+
+  // Dismiss any open comment composer when the user navigates away from the
+  // terminal / file / mode / repo the draft was anchored to. Without this, the
+  // composer floats over different content and the user has to dismiss it
+  // manually; worse, a save would attach the stale draft to whatever terminal
+  // is now active. Draft body is lost, which matches every other
+  // modal-on-navigate behavior in kolu.
   //
-  // Bail on the tick where `repoSlotKey` itself just changed: the shared
-  // `treePaths()` / `pending()` signals can momentarily expose the
-  // previous repo's snapshot before the query blanks for the new input, so the
-  // new slot's selection would be checked
-  // against the previous repo's tree and falsely cleared. The next tick
-  // (after the reset effect runs) re-evaluates with the authoritative
-  // values for the new slot. (A pane switch inside one repo does not move this
-  // key — the inventory is the same repo's — so no bail is needed there.)
+  // Key on the VALUE string, not the raw signals: an effect re-runs on every
+  // INVALIDATION of what its compute read, so a compute returning an array
+  // (a fresh reference each run) re-closes the composer on any incidental
+  // invalidation (a same-repo active-terminal *clock* tick re-evaluates
+  // `repoPath()` to the same string). A primitive-string memo (the
+  // `repoSlotKey` precedent above) notifies only on a real navigation.
+  // `terminalId` is in the key because a comment saves against the subject's
+  // terminal: switching to another terminal (or host — a terminal is
+  // host-bound) at the same file must drop the draft even when repo/file/mode
+  // coincide. The file is the SHOWN one, so a draft over a file the tree has
+  // just dropped is dismissed with it. `\0` separators keep the key
+  // collision-safe without embedding literal NUL bytes in the source.
+  //
+  // The draft is THIS view's own (`createCommentView`), provided to every
+  // surface drawn inside it — so this close drops this view's draft only, and
+  // another Code view or reader mounted at the same time keeps its own.
+  const composerAnchor = createMemo(
+    () =>
+      `${terminalId() ?? ""}\0${shownFile() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
+  );
   createEffect(
-    on(
-      () => {
-        const s = selectedPath();
-        const sk = repoSlotKey();
-        const { paths, pending: isPending } = treeInventory();
-        const fresh = freshSelection();
-        const freshPath =
-          fresh !== null && fresh.request === props.door.pending()
-            ? fresh.path
-            : null;
-        return {
-          s,
-          sk,
-          verdict: codeTabSelectionInventoryVerdict(
-            s,
-            isPending,
-            paths,
-            freshPath,
-          ),
-        };
-      },
-      (cur, prev) => {
-        if (prev && prev.sk !== cur.sk) return;
-        if (cur.verdict === "confirm-fresh") {
-          setFreshSelection(null);
-        } else if (cur.s && cur.verdict === "clear") {
-          select(view(), null, { record: false });
-        }
-      },
-      { defer: true },
-    ),
+    composerAnchor,
+    () => {
+      composer.close();
+    },
+    { defer: true, name: "closeComposerOnNavigate" },
   );
 
-  const treeGitStatus = createMemo(() => {
-    // Browse overlays both layers (local primary, branch fallback). Outside
-    // browse, decoration comes straight off the active mode's `status` stream.
-    if (view() === "browse") {
-      const local = localStatus()?.files ?? [];
-      const branch = branchStatus()?.files ?? [];
-      return mergeGitStatusEntries(local, branch);
-    }
-    const s = status();
-    return s ? mergeGitStatusEntries(s.files, []) : undefined;
-  });
+  const treeGitStatus = createMemo(
+    () => {
+      // Browse overlays both layers (local primary, branch fallback). Outside
+      // browse, decoration comes straight off the active mode's `status` stream.
+      if (view() === "browse") {
+        const local = localStatus()?.files ?? [];
+        const branch = branchStatus()?.files ?? [];
+        return mergeGitStatusEntries(local, branch);
+      }
+      const s = status();
+      return s ? mergeGitStatusEntries(s.files, []) : undefined;
+    },
+    {
+      // The merge mints a fresh array per status pulse, and a watcher pulses
+      // whether or not anything changed. Pierre itself absorbs the equal set —
+      // it returns the PREVIOUS state on a matching `getGitStatusSignature`,
+      // before any ancestor roll-up — so what this gate saves is everything on
+      // THIS side of that cache key: the memo's re-notification, the tree
+      // wrapper's `setGitStatus` effect run, the array spread, the signature
+      // build, and the `UNSTABLE_MEMO_OUTPUT` a fourth equal republish raises
+      // (`sameGitStatusEntries` carries the reference).
+      equals: sameGitStatusEntries,
+    },
+  );
 
   const handleSelect = (path: string | null) => {
     // Pierre fires null in many situations beyond user intent — including
@@ -1109,10 +1151,17 @@ const CodeTab: Component<{
   //     preventDefault-on-both protocol so the buttons drive the Code tab, not
   //     the SPA.
   // Both bubble through Pierre's shadow root, so an event over a tree row or the
-  // preview reaches here. `makeEventListener` auto-cleans on unmount; the
-  // mouse binder's disposer is tied to the component owner via `onCleanup`.
-  const attachBackForwardInputs = (el: HTMLDivElement) => {
-    makeEventListener(el, "keydown", (e) => {
+  // preview reaches here.
+  //
+  // The ref only RECORDS the element; both channels are bound in the effect
+  // phase, which returns the one disposer that unbinds them. A `ref` callback
+  // can register no cleanup of its own (CLEANUP_IN_FORBIDDEN_SCOPE), and the
+  // disposer belongs to the element it was bound to, not to the whole
+  // component's life: a re-bound element unbinds the previous one.
+  const [navInputsEl, setNavInputsEl] = createSignal<HTMLDivElement>();
+  createEffect(navInputsEl, (el) => {
+    if (!el) return;
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && e.key === "ArrowLeft") {
         e.preventDefault();
         goBack();
@@ -1120,11 +1169,17 @@ const CodeTab: Component<{
         e.preventDefault();
         goForward();
       }
+    };
+    el.addEventListener("keydown", onKeyDown);
+    const detachMouse = attachBackForwardMouse(el, {
+      onBack: goBack,
+      onForward: goForward,
     });
-    onCleanup(
-      attachBackForwardMouse(el, { onBack: goBack, onForward: goForward }),
-    );
-  };
+    return () => {
+      el.removeEventListener("keydown", onKeyDown);
+      detachMouse();
+    };
+  });
 
   // The browse tree's own listing: git's, or the root level read from disk.
   const browseListing = () => (readsFromDisk() ? diskRootLevel : allPaths);
@@ -1231,7 +1286,7 @@ const CodeTab: Component<{
   });
 
   return (
-    <CommentView.Provider value={comments}>
+    <CommentView value={comments}>
       <Show
         when={repoPath()}
         fallback={
@@ -1254,7 +1309,7 @@ const CodeTab: Component<{
         <div
           class="flex flex-col h-full min-h-0 text-[11px]"
           data-testid="diff-tab"
-          ref={attachBackForwardInputs}
+          ref={setNavInputsEl}
         >
           {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
            *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
@@ -1263,7 +1318,7 @@ const CodeTab: Component<{
            *  given (a phone's drawer, a picked work on a phone). */}
           <div
             data-testid="code-tab-toolbar"
-            data-touch={isTouch() || undefined}
+            data-touch={trueWord(isTouch())}
             class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
           >
             <div class="flex items-center gap-0.5 shrink-0">
@@ -1416,13 +1471,61 @@ const CodeTab: Component<{
                               paths: treeSearch().projectedPaths,
                               expanded: treeSearch().expandedAncestors,
                               gitStatus: treeGitStatus(),
-                              selected: selectedPath(),
+                              selected: shownFile(),
                               reveal: revealDir(),
                               lazy: treeInventory().lazyDirs,
                               epoch: repoSlotKey(),
                               css: treeShadowCss(),
                             }
                           : previous,
+                      {
+                        name: "codeTreeFrame",
+                        // THE FROZEN FRAME IS A VALUE, so equal facts are the
+                        // same frame. The one input that moves without its
+                        // leaves is `treeInventory` — ungated by design, since
+                        // its `paths` spread is what makes an in-place add
+                        // surface — and this memo reads just its `lazyDirs`,
+                        // a shared frozen empty whenever nothing is lazy.
+                        // Ungated, every equal listing pulse published a
+                        // new-but-equivalent frame (`UNSTABLE_MEMO_OUTPUT` on
+                        // the fourth, here and again on the `<Show>` condition
+                        // that carries it) and re-drove every `FileTree` prop
+                        // effect for facts that did not move.
+                        equals: (a, b) =>
+                          a === b ||
+                          (a !== undefined &&
+                            b !== undefined &&
+                            a.paths === b.paths &&
+                            a.expanded === b.expanded &&
+                            a.gitStatus === b.gitStatus &&
+                            a.selected === b.selected &&
+                            a.reveal === b.reveal &&
+                            a.lazy === b.lazy &&
+                            a.epoch === b.epoch &&
+                            a.css === b.css),
+                      },
+                    );
+                    // The host element of this mode's tree, recorded by its
+                    // `ref` and driven from the effect phase below: the manual
+                    // touch-scroll driver hands its disposer back, and a `ref`
+                    // callback can neither register a cleanup nor read
+                    // `isDesktop()` (both are forbidden there). Reading the
+                    // modality in the compute also means a 2-in-1 that docks
+                    // mid-mount unwires the driver, and one that undocks wires
+                    // it, instead of both following whatever was true when the
+                    // tree first mounted.
+                    const [treeHost, setTreeHost] =
+                      createSignal<HTMLDivElement>();
+                    createEffect(
+                      () => ({ el: treeHost(), desktop: isDesktop() }),
+                      ({ el, desktop }) => {
+                        // A cleanup ON PURPOSE: the detach the touch-scroll
+                        // driver hands back, which Solid calls before the next
+                        // run and at dispose.
+                        return el && !desktop
+                          ? attachPierreTouchScroll(el)
+                          : undefined;
+                      },
                     );
                     return (
                       <Show when={frame()}>
@@ -1438,9 +1541,7 @@ const CodeTab: Component<{
                             inert={
                               view() !== mode || !!treeError() || !treeReady()
                             }
-                            ref={(el) => {
-                              if (!isDesktop()) attachPierreTouchScroll(el);
-                            }}
+                            ref={setTreeHost}
                           >
                             <FileTree
                               paths={current().paths}
@@ -1468,7 +1569,21 @@ const CodeTab: Component<{
                                   `File tree render failed: ${err.message}`,
                                 )
                               }
-                              density={treeDensity}
+                              density={
+                                // Coarse-pointer modality (`isTouch`, the
+                                // input axis — not the `layoutMode` size/fork
+                                // axis): roomier rows are a tap-target
+                                // affordance, so a coarse-pointer device
+                                // wants them in every layout (phone, compact,
+                                // and a touch desktop). Read HERE, where it
+                                // is handed over: Pierre captures `density`
+                                // once at construction (like
+                                // `initialExpansion`), so this is a snapshot
+                                // however it is written — and reading it in
+                                // the component body would be a reactive read
+                                // there.
+                                isTouch() ? "relaxed" : undefined
+                              }
                               class="h-full w-full"
                               style={pierreTreesStyle}
                             />
@@ -1487,12 +1602,11 @@ const CodeTab: Component<{
               // Disable startIntersection (the handle's leading end): Corvu's
               // registerHandle keeps a *module-level* handles[] and pairs
               // handles whose orientations differ and rects touch at the
-              // corner (see @corvu/resizable/dist/index.js:201–222). Without
-              // this opt-out, a stacked view's left edge equals the outer
-              // handle's (in `App.tsx`) right edge → the two are coupled,
-              // and clicks on the outer handle near the file-tree row land
-              // on the inner handle instead. The outer handle carries the
-              // symmetric `startIntersection={false}` so both sides are
+              // corner. Without this opt-out, a stacked view's left edge
+              // equals the outer handle's (in `App.tsx`) right edge → the two
+              // are coupled, and clicks on the outer handle near the file-tree
+              // row land on the inner handle instead. The outer handle carries
+              // the symmetric `startIntersection={false}` so both sides are
               // defended.
               startIntersection={false}
               onHandleDrag={split.onHandleDrag}
@@ -1526,7 +1640,7 @@ const CodeTab: Component<{
               minSize={MIN_CODE_PANE_SHARE}
             >
               <Show
-                when={selectedPath()}
+                when={shownFile()}
                 keyed
                 fallback={
                   <FileSelectHint
@@ -1747,7 +1861,7 @@ const CodeTab: Component<{
           </Show>
         </div>
       </Show>
-    </CommentView.Provider>
+    </CommentView>
   );
 };
 

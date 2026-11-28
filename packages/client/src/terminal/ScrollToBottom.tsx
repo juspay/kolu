@@ -16,13 +16,15 @@ const ScrollToBottom: Component<{
         type="button"
         data-testid="scroll-to-bottom"
         data-active={props.active ? "" : undefined}
-        class="absolute bottom-6 right-6 z-10 rounded-full shadow-lg p-3 transition-colors cursor-pointer"
-        classList={{
-          // Active: accent border + accent text for high contrast
-          "bg-surface-1 border-2 border-accent text-accent": props.active,
-          "bg-surface-1 border border-edge-bright text-fg-3 hover:text-fg":
-            !props.active,
-        }}
+        class={[
+          "absolute bottom-6 right-6 z-10 rounded-full shadow-lg p-3 transition-colors cursor-pointer",
+          {
+            // Active: accent border + accent text for high contrast
+            "bg-surface-1 border-2 border-accent text-accent": props.active,
+            "bg-surface-1 border border-edge-bright text-fg-3 hover:text-fg":
+              !props.active,
+          },
+        ]}
         onClick={props.onClick}
         aria-label="Scroll to bottom"
       >

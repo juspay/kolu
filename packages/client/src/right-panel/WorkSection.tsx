@@ -38,10 +38,13 @@ import {
 } from "@odu/service-client/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { type PrResult, prUnavailableSource } from "kolu-common/surface";
-import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
+import { sameEach, sameFields, sameItems } from "../conductor/sameItems";
+import { foldEach } from "@kolu/surface/solid";
 import { getClockNow } from "../time/clock";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
@@ -115,6 +118,44 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
   TRIAGE.filter((o) => counts[o] > 0)
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
+
+/** TWO READINGS OF THE SECTION'S PR FACTS. The subscription hands a fresh PR
+ *  subtree on every frame and the fold mints its three derived fields on every
+ *  run, so the bundle is never the object it was — and without this gate the
+ *  whole section (its chip, its summary, every check row) is rebuilt per
+ *  frame. The checks are compared by what each one SAYS, because a re-minted
+ *  frame gives them new records for an unchanged list. */
+const sameWork = (a: object | null, b: object | null): boolean => {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  const left = a as {
+    readonly unavailable: unknown;
+    readonly pr: Readonly<Record<string, unknown>> | null;
+  };
+  const right = b as typeof left;
+  if (left.unavailable !== right.unavailable) return false;
+  const one = left.pr;
+  const other = right.pr;
+  if (one === null || other === null) return one === other;
+  const keys = Object.keys(one);
+  if (keys.length !== Object.keys(other).length) return false;
+  return keys.every((key) => {
+    const mine = one[key];
+    const theirs = other[key];
+    if (key === "checkRuns")
+      return sameEach(sameFields)(
+        mine as ReadonlyArray<object>,
+        theirs as ReadonlyArray<object>,
+      );
+    if (mine === theirs) return true;
+    // `summary` and `rollup`: records of leaves, rebuilt per run.
+    return (
+      typeof mine === "object" &&
+      typeof theirs === "object" &&
+      sameFields(mine, theirs)
+    );
+  });
+};
 
 /** Where a LANE lives in odu web: its own attempt's log, or — for a lane that
  *  never started — the run page.
@@ -248,8 +289,10 @@ const LaneRow: Component<{
         {status().glyph}
       </span>
       <span
-        class={`min-w-0 truncate font-mono group-hover/lane:underline ${hue()}`}
-        classList={{ "font-semibold": status().isRed }}
+        class={[
+          `min-w-0 truncate font-mono group-hover/lane:underline ${hue()}`,
+          { "font-semibold": status().isRed },
+        ]}
       >
         {props.lane.id}
       </span>
@@ -277,12 +320,14 @@ const LaneRow: Component<{
           {(span) => (
             <span
               data-testid="inspector-odu-lane-bar"
-              class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
-              classList={{
-                "bg-current": span().kind === "settled",
-                "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
-                  span().kind === "running",
-              }}
+              class={[
+                `absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`,
+                {
+                  "bg-current": span().kind === "settled",
+                  "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
+                    span().kind === "running",
+                },
+              ]}
               style={{
                 left: `${span().left * 100}%`,
                 width: `${span().width * 100}%`,
@@ -511,6 +556,40 @@ const WorkSection: Component<{
     }
     return { git, repoColor, annotationColor };
   });
+  /** THE PR ITSELF, as the record last resolved it — its own fields only. The
+   *  value is the record's, so reading a field of it below is one node; the
+   *  CHECKS are read run by run ({@link checkRuns}), never here. */
+  const resolved = createMemo(
+    () => {
+      const reading = props.subject.pr;
+      return reading === null ? null : prValue(reading);
+    },
+    { name: "workSection.pr" },
+  );
+  /** ONE MEMO PER CHECK RUN, joined in chunks ({@link foldEach}).
+   *
+   *  The subject is a mirrored record, so tallying and sorting the list in
+   *  the bundle below would subscribe that one memo to the list, an index and
+   *  an outcome per lane — a PR of two hundred lanes is past the width the
+   *  development build judges. Each lane is its own row here, so the bundle
+   *  carries ONE dependency and a lane going red re-runs its own row, its
+   *  chunk and the join. */
+  const runIds = createMemo(
+    () =>
+      Array.from({ length: resolved()?.checkRuns.length ?? 0 }, (_, at) => at),
+    { name: "workSection.checkRunIds", equals: sameItems },
+  );
+  const checkRuns = foldEach(
+    "workSection.checkRuns",
+    runIds,
+    (at): PrInfo["checkRuns"][number] | undefined => {
+      const one = resolved()?.checkRuns[at];
+      return one === undefined
+        ? undefined
+        : { name: one.name, outcome: one.outcome };
+    },
+    sameFields,
+  );
   /** The PR facts AND everything folded off them, as ONE value — same reason
    *  `identity()` bundles git with its paint. The rollup's verdict and its
    *  tally now come out of a single read, so they cannot describe two
@@ -519,38 +598,49 @@ const WorkSection: Component<{
    *
    *  PR facts are live only on a live record; a sleeping terminal has no PR
    *  resolution (same gate the old Pull Request section used). */
-  const work = createMemo(() => {
-    const reading = props.subject.pr;
-    if (reading === null) return null;
-    const unavailable = prUnavailableSource(reading);
-    const pr = prValue(reading);
-    if (!pr) return { unavailable, pr: null };
-    const counts = countChecks(pr.checkRuns);
-    return {
-      unavailable,
-      pr: {
-        ...pr,
-        // Overrides the spread: ONE name for this list, already sorted. Keeping
-        // both `checkRuns` and a sorted `runs` twin let the JSX gate on one and
-        // render the other, and nothing stopped a later edit from rendering the
-        // unsorted one — which type-checks and silently drops the triage order.
-        checkRuns: [...pr.checkRuns].sort(
-          (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
-        ),
-        summary: checksSummary(counts),
-        // The rollup is FOLDED HERE rather than published as a `counts` field
-        // for the view to re-derive: it is the whole reason the memo bundles,
-        // so finishing it here makes "verdict and tally describe one PR"
-        // structural instead of a convention the JSX has to keep.
-        rollup: pr.checks ? ciRollup(pr.checks, counts) : null,
-        /** Anything but a clean pass is an exception, and an exception
-         *  opens the list on its own. Read off the server's fold — the
-         *  same verdict the chip wears. `null` is "no checks
-         *  configured", which is not an exception (and renders no list
-         *  at all), so it is not read as not-pass. */
-        hasException: pr.checks !== null && pr.checks !== "pass",
-      },
-    };
+  const work = createMemo(
+    () => {
+      const reading = props.subject.pr;
+      if (reading === null) return null;
+      const unavailable = prUnavailableSource(reading);
+      const pr = resolved();
+      if (!pr) return { unavailable, pr: null };
+      const all = checkRuns();
+      const counts = countChecks(all);
+      return {
+        unavailable,
+        pr: {
+          ...pr,
+          // Overrides the spread: ONE name for this list, already sorted. Keeping
+          // both `checkRuns` and a sorted `runs` twin let the JSX gate on one and
+          // render the other, and nothing stopped a later edit from rendering the
+          // unsorted one — which type-checks and silently drops the triage order.
+          checkRuns: [...all].sort(
+            (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
+          ),
+          summary: checksSummary(counts),
+          // The rollup is FOLDED HERE rather than published as a `counts` field
+          // for the view to re-derive: it is the whole reason the memo bundles,
+          // so finishing it here makes "verdict and tally describe one PR"
+          // structural instead of a convention the JSX has to keep.
+          rollup: pr.checks ? ciRollup(pr.checks, counts) : null,
+          /** Anything but a clean pass is an exception, and an exception
+           *  opens the list on its own. Read off the server's fold — the
+           *  same verdict the chip wears. `null` is "no checks
+           *  configured", which is not an exception (and renders no list
+           *  at all), so it is not read as not-pass. */
+          hasException: pr.checks !== null && pr.checks !== "pass",
+        },
+      };
+    },
+    { equals: sameWork },
+  );
+  /** THE CI CHIP'S OWN TWO WORDS, taken off the bundle and gated on them: the
+   *  bundle publishes whenever ANYTHING about the PR moves — its title, a
+   *  review, a check — and mints a fresh rollup record each time, while the
+   *  chip says "✓ 2 passed" throughout. */
+  const rollup = createMemo(() => work()?.pr?.rollup ?? null, {
+    equals: sameFields,
   });
   const shown = useShown();
   /** This checkout's CI, read from ODU ITSELF: padi carries odu's own surface as
@@ -689,10 +779,10 @@ const WorkSection: Component<{
                     <span class="text-accent">#{p().number}</span>
                   </Chip>
                 </a>
-                <Show when={p().rollup}>
-                  {(rollup) => (
-                    <Chip tone={rollup().tone} data-testid="inspector-ci">
-                      {rollup().label}
+                <Show when={rollup()}>
+                  {(said) => (
+                    <Chip tone={said().tone} data-testid="inspector-ci">
+                      {said().label}
                     </Chip>
                   )}
                 </Show>
@@ -747,17 +837,24 @@ const WorkSection: Component<{
                   data-testid="inspector-pr-checks"
                   class="flex flex-col gap-0.5 text-[11px]"
                 >
-                  <For each={p().checkRuns}>
+                  {/* KEYED ON THE CHECK'S NAME, which is its identity: a PR
+                      frame that moved one field mints every check record
+                      afresh, and the rows a reader is looking at survive it
+                      rather than being torn down and rebuilt. */}
+                  <For each={p().checkRuns} keyed={(one) => one.name}>
                     {(c) => (
                       <li class="flex min-w-0 items-center gap-1.5">
-                        <ChecksIndicator status={c.outcome} />
+                        <ChecksIndicator status={c().outcome} />
                         <span
-                          class="min-w-0 truncate font-mono"
-                          classList={{
-                            "text-danger font-semibold": c.outcome === "fail",
-                          }}
+                          class={[
+                            "min-w-0 truncate font-mono",
+                            {
+                              "text-danger font-semibold":
+                                c().outcome === "fail",
+                            },
+                          ]}
                         >
-                          {c.name}
+                          {c().name}
                         </span>
                       </li>
                     )}
@@ -837,47 +934,64 @@ const WorkSection: Component<{
                     aria-hidden="true"
                     class="relative col-start-4 h-3 text-[10px] text-fg-3"
                   >
-                    <For each={timelineTicks(ci().run, now())}>
+                    {/* KEYED BY THE TICK'S OWN POSITION. The marks are minted
+                     *  fresh on every clock tick — four new objects a second,
+                     *  saying the same thing about a settled run — so identity
+                     *  keying would tear the axis down and rebuild it once a
+                     *  second for the life of the panel. A tick IS its
+                     *  position; the number over it is what moves. */}
+                    <For
+                      each={timelineTicks(ci().run, now())}
+                      keyed={(tick) => tick.at}
+                    >
                       {(tick) => (
                         <span
-                          class="absolute top-0 border-l border-edge pl-0.5"
-                          classList={{
-                            // The last mark sits ON the track's right edge, so
-                            // it hangs its rule and its label inward; asked by
-                            // POSITION rather than by an index, which would be
-                            // this file holding an opinion about how many marks
-                            // odu mints.
-                            "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
-                              tick.at === 1,
-                          }}
-                          style={{ left: `${tick.at * 100}%` }}
+                          class={[
+                            "absolute top-0 border-l border-edge pl-0.5",
+                            {
+                              // The last mark sits ON the track's right edge, so
+                              // it hangs its rule and its label inward; asked by
+                              // POSITION rather than by an index, which would be
+                              // this file holding an opinion about how many marks
+                              // odu mints.
+                              "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
+                                tick().at === 1,
+                            },
+                          ]}
+                          style={{ left: `${tick().at * 100}%` }}
                         >
                           {/* kolu's OWN ladder, the one every duration in this
                            *  section already prints — odu's tick carries a
                            *  position and a number, never a spelling, so an
                            *  axis never reads `55.4s` over a cell that reads
                            *  `55s`. */}
-                          {tick.at === 0 || tick.at === 1
-                            ? compactPhrase(tick.ms)
+                          {tick().at === 0 || tick().at === 1
+                            ? compactPhrase(tick().ms)
                             : ""}
                         </span>
                       )}
                     </For>
                   </li>
-                  <For each={ci().lanes}>
+                  {/* KEYED BY THE LANE'S OWN NAME, for the reason the axis is
+                   *  keyed by position: odu pushes a WHOLE frame whenever any
+                   *  one lane moves, so every row here is a fresh object for a
+                   *  record that mostly did not change. Keyed by identity, one
+                   *  lane's duration landing would rebuild every other lane's
+                   *  row — and the link a reader is hovering with it. */}
+                  <For each={ci().lanes} keyed={(lane) => lane.id}>
                     {(lane) => (
                       <li class={ROW}>
                         <OduLink
-                          act={() => props.odu?.act(laneHash(ci().run, lane))}
+                          act={() => props.odu?.act(laneHash(ci().run, lane()))}
                           onOpen={() =>
-                            props.odu?.open(laneHash(ci().run, lane))
+                            props.odu?.open(laneHash(ci().run, lane()))
                           }
                           testid="inspector-odu-lane-link"
                           class={ROW}
                         >
                           <LaneRow
-                            lane={lane}
-                            span={laneSpan(lane, ci().run, now())}
+                            lane={lane()}
+                            span={laneSpan(lane(), ci().run, now())}
                           />
                         </OduLink>
                       </li>
@@ -887,20 +1001,23 @@ const WorkSection: Component<{
               </Show>
               <div class={SUBHEAD}>Recent runs</div>
               <ul data-testid="inspector-odu-recent" class={RECENT_GRID}>
-                <For each={ci().recent}>
+                {/* KEYED BY THE RUN'S OWN ID: the recent list is re-sent whole
+                 *  with every frame, and a run that has not moved must keep
+                 *  the row it already has. */}
+                <For each={ci().recent} keyed={(run) => run.runId}>
                   {(run, index) => (
                     <li class={ROW}>
                       <OduLink
-                        act={() => props.odu?.act(runHash(run.runId))}
-                        onOpen={() => props.odu?.open(runHash(run.runId))}
+                        act={() => props.odu?.act(runHash(run().runId))}
+                        onOpen={() => props.odu?.open(runHash(run().runId))}
                         testid="inspector-odu-run-link"
                         class={ROW}
                       >
                         <span class="min-w-0 truncate font-mono group-hover/lane:underline">
-                          {oduRef(run)}
+                          {oduRef(run())}
                         </span>
-                        <span class={ODU_HUE[runStatus(run).hue].text}>
-                          {runStatus(run).label}
+                        <span class={ODU_HUE[runStatus(run()).hue].text}>
+                          {runStatus(run()).label}
                         </span>
                         {/* How long the run TOOK — odu's own rule, which stops
                          *  at the run's verdict, so a settled row holds still
@@ -909,7 +1026,7 @@ const WorkSection: Component<{
                           data-testid="inspector-odu-run-took"
                           class="text-right tabular-nums text-fg-3"
                         >
-                          {compactPhrase(runElapsedMs(run, now()))}
+                          {compactPhrase(runElapsedMs(run(), now()))}
                         </span>
                         {/* The same compact qualifier the summary carries, and
                          *  only when the run was scoped: a row whose run covered
@@ -918,9 +1035,9 @@ const WorkSection: Component<{
                          *  are measured down the whole list. */}
                         <span
                           class="min-w-0 truncate text-fg-3"
-                          title={scopeSuffix(run.scope) ?? undefined}
+                          title={scopeSuffix(run().scope) ?? undefined}
                         >
-                          {scopeSuffix(run.scope) ?? ""}
+                          {scopeSuffix(run().scope) ?? ""}
                         </span>
                         {/* The head of this list IS the run the chip above is
                          *  about — said, rather than left to be inferred from an
@@ -929,7 +1046,7 @@ const WorkSection: Component<{
                           {index() === 0 ? "current" : ""}
                         </span>
                         <span class="text-right text-fg-3">
-                          {agoPhrase(run.createdAt, now())}
+                          {agoPhrase(run().createdAt, now())}
                         </span>
                       </OduLink>
                     </li>

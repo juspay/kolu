@@ -393,6 +393,12 @@ and `anyforge` (the PR badge's vocabulary) is already inside that manifest
 closure. What it does NOT depend on is `@kolu/padi`, the daemon: the arrow
 points at the *client* face, never at the PTY host.
 
+It also depends on `@kolu/surface` directly, for one thing: `<PrPip>` folds a
+PR's check runs into its tooltip through `@kolu/surface/solid`'s `foldEach`,
+the repo's one chunked fold, so a PR with hundreds of lanes keeps every memo
+under Solid's 200-source judge. That adds nothing to the install:
+`@kolu/padi-client` already depends on `@kolu/surface` and on `effect`.
+
 One consequence to know before you compile it: `@kolu/padi-client/surface`
 declares the whole `padiSurface` spec, whose types reach `@kolu/surface`'s
 server-side modules, and those name `node:` builtins. This package's own

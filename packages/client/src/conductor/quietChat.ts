@@ -20,7 +20,7 @@
  *  boundary the chips are drawn by. */
 
 import type { ConductorRow } from "kolu-common/conductor";
-import type { Work, WorkId } from "kolu-work";
+import type { Work } from "kolu-work";
 import { chatTurns } from "./turnWorks";
 
 /** A RUN OF CHARACTERS A FULL STOP INSIDE CANNOT END A SENTENCE: a code span
@@ -153,16 +153,25 @@ export interface WorkNote {
   readonly text: string;
 }
 
-/** EVERY NOTE THE CONDUCTOR WROTE, oldest first, off the works' own
- *  timelines — a turn in which it wrote no reply still said something, and
- *  it said it there. The human's own notes are not news from a turn, so only
- *  the agent's are read. */
-export function agentNotes(works: ReadonlyMap<WorkId, Work>): WorkNote[] {
+/** ONE WORK'S OWN NOTES, in the order its timeline carries them — the
+ *  per-work half of the shared reading (`useAgentNotes`), so a mirror of many
+ *  works is read work by work rather than walked again whenever any timeline
+ *  moves. The human's own notes are not news from a turn, so only the
+ *  agent's are read. */
+export function notesOfWork(work: Work): ReadonlyArray<WorkNote> {
   const out: WorkNote[] = [];
-  for (const work of works.values())
-    for (const event of work.events)
-      if (event.kind === "note" && event.by === "agent")
-        out.push({ at: Date.parse(event.at), text: event.text });
+  for (const event of work.events)
+    if (event.kind === "note" && event.by === "agent")
+      out.push({ at: Date.parse(event.at), text: event.text });
+  return out;
+}
+
+/** EVERY NOTE OF EVERY WORK, oldest first — from readings already taken. */
+export function mergeNotes(
+  works: Iterable<ReadonlyArray<WorkNote>>,
+): WorkNote[] {
+  const out: WorkNote[] = [];
+  for (const one of works) out.push(...one);
   return out.sort((one, other) => one.at - other.at);
 }
 
@@ -215,7 +224,7 @@ const prose = (
 /** THE FOLD, READ OFF THE CHAT: which turns are one line, what the line says,
  *  and which of them is open before anybody presses anything.
  *
- *  `notes` is every note the Conductor wrote on any work ({@link agentNotes}),
+ *  `notes` is every note the Conductor wrote on any work (`useAgentNotes`),
  *  because a turn is a window of time and a note is an event in one. A turn
  *  with no prose shows the LAST note written inside its window: the Conductor
  *  writing twice in one turn has said the newer thing. */

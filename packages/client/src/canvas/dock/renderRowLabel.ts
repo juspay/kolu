@@ -10,7 +10,7 @@
  *  of as the same three-line closure at every call site, where "identically"
  *  would have been a thing to keep true rather than a thing that is. */
 
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 
 export const renderRowLabel = (markdown: string): JSX.Element =>

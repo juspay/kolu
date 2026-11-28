@@ -12,8 +12,8 @@
  *    quiet; a restart in flight disables the pill, so a double click is one.
  */
 
-import { createSignal } from "solid-js";
-import { render } from "solid-js/web";
+import { createSignal, flush } from "solid-js";
+import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentChipLabel,
@@ -28,7 +28,9 @@ const bag = vi.hoisted(() => ({ tips: [] as string[] }));
 
 vi.mock("../settings/useTips", () => ({
   useTips: () => ({
-    showTipOnce: (tip: { id: string }) => bag.tips.push(tip.id),
+    showTipOnce: (tip: { id: string }) => {
+      bag.tips.push(tip.id);
+    },
   }),
 }));
 
@@ -202,6 +204,7 @@ describe("AgentProfileChip — stale", () => {
     const { chip, action } = mount({ onClick, staleness: STALE, restart });
     expect(action()).toBe("↻ Restart");
     chip.click();
+    flush();
     expect(run).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -214,10 +217,12 @@ describe("AgentProfileChip — stale", () => {
       guarded: true,
     });
     chip.click();
+    flush();
     expect(run).not.toHaveBeenCalled();
     expect(action()).toBe("↻ Restart agent");
     expect(chip.hasAttribute("data-armed")).toBe(true);
     chip.click();
+    flush();
     expect(run).toHaveBeenCalledTimes(1);
   });
 
@@ -229,11 +234,15 @@ describe("AgentProfileChip — stale", () => {
       guarded: true,
     });
     chip.click();
+    flush();
     vi.advanceTimersByTime(RESTART_ARM_MS - 1);
+    flush();
     expect(action()).toBe("↻ Restart agent");
     vi.advanceTimersByTime(1);
+    flush();
     expect(action()).toBe("↻ Restart");
     chip.click();
+    flush();
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -245,7 +254,9 @@ describe("AgentProfileChip — stale", () => {
       guarded: true,
     });
     chip.click();
+    flush();
     setGuarded(false);
+    flush();
     expect(action()).toBe("↻ Restart");
     expect(chip.hasAttribute("data-armed")).toBe(false);
   });
@@ -263,7 +274,9 @@ describe("AgentProfileChip — stale", () => {
       restart: { guarded: false, action: RESTART_AGENT, run },
     });
     chip.click();
+    flush();
     chip.click();
+    flush();
     expect(run).toHaveBeenCalledTimes(1);
     expect(chip.disabled).toBe(true);
     expect(chip.className).toContain("opacity-50");

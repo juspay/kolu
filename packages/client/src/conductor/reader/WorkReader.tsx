@@ -35,36 +35,41 @@
  *  in either place are seen by both. */
 
 import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
+import { toError } from "@kolu/surface/run-stream";
+import type { JSX } from "@solidjs/web";
 import { type AnsweredFromFace, openAsks, type Work } from "kolu-work";
 import {
   type Component,
   createMemo,
-  createResource,
+  Errored,
   For,
-  type JSX,
+  latest,
   Show,
 } from "solid-js";
+import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { CommentComposer } from "../../comments/CommentComposer";
 import { CommentView, createCommentView } from "../../comments/commentView";
 import { formatMarkdown } from "../../comments/formatMarkdown";
 import { commentsFor } from "../../comments/useComments";
-import BrowseFileDispatcher from "../../code-view/BrowseFileDispatcher";
 import { rightPanelCodeDoor } from "../../right-panel/openInCodeTab";
 import { useColorScheme } from "../../settings/useColorScheme";
-import { useWorkMap, useWorkMembers } from "../useWorks";
+import { useWorkAt, useWorkMembers } from "../useWorks";
+import { createWorkRecord } from "../workRecord";
 import WorkChip from "../WorkChip";
 import WorkChipFace from "../WorkChipFace";
-import WorkQuestion from "../WorkQuestion";
-import {
-  createWorkFiles,
-  workFileName,
-  type WorkFileSource,
-  workFileSource,
-} from "../workFile";
-import { readWorkFacts } from "../workFacts";
 import WorkFileList from "../WorkFileList";
+import WorkQuestion from "../WorkQuestion";
+import { readWorkFacts } from "../workFacts";
+import { createWorkFiles, workFileName, workFileSource } from "../workFile";
 import { membersIn } from "../workReadings";
 import type { ReaderTarget } from "./useReader";
+
+/** The vault a face with no listing to resolve against gets: no paths, and
+ *  nothing still coming. */
+const NO_VAULT: { paths: readonly string[]; pending: boolean } = {
+  paths: [],
+  pending: false,
+};
 
 const WorkReader: Component<{
   target: ReaderTarget;
@@ -88,7 +93,6 @@ const WorkReader: Component<{
   class?: string;
 }> = (props) => {
   const { themeTypeLiteral: theme } = useColorScheme();
-  const works = useWorkMap();
   const allMembers = useWorkMembers();
   /** The work's members, each with its standing read once — what the one
    *  "which member stands in the worktree" rule reads. */
@@ -96,13 +100,18 @@ const WorkReader: Component<{
     membersIn(allMembers(), props.target.work),
   );
 
-  /** THE WORK, from the one mirror every surface reads, by the id it is filed
-   *  under. A work that is not in it is one this browser has not been told
-   *  about — which a popped-out window says in a line rather than drawing an
-   *  empty document. */
-  const work = createMemo((): Work | undefined =>
-    works().get(props.target.work),
-  );
+  /** THE WORK, from the one mirror every surface reads, BY THE ID it is
+   *  filed under — one source, so a reader window does not wake for every
+   *  other work's frame. A work that is not in the mirror is one this
+   *  browser has not been told about, which a popped-out window says in a
+   *  line rather than drawing an empty document. */
+  const work = createMemo((): Work | undefined => useWorkAt(props.target.work));
+
+  /** THE SAME WORK AS A SNAPSHOT — what the questions below fold. A form
+   *  handed the mirror's own record walks its decisions and events off the
+   *  store, a source per one of them on that form's scope; the shared
+   *  record is ONE dependency however long the timeline is. */
+  const record = createWorkRecord(work);
 
   /** WHERE THE BYTES COME FROM — the member's worktree while the work runs,
    *  kolu's own copy once it has ended. The SAME derivation the card's list
@@ -128,17 +137,55 @@ const WorkReader: Component<{
    *  derivation, shared with the card. */
   const files = createWorkFiles(source);
 
+  /** WHICH FILE THE READER IS OF, read AHEAD of the bytes it asks for.
+   *
+   *  A tab press writes a path onto a file that is not here yet, so the
+   *  runtime holds that write — and everything derived from it — until the
+   *  read lands: a press that moved nothing on screen reads as a dead one.
+   *  `latest` is the display-ahead read of exactly that held write, so the
+   *  name at the head, the tab that is marked open and the document's own
+   *  waiting line are the NEW file's the moment it is pressed, while its
+   *  bytes catch up. The read itself ({@link bytes}) takes the written path,
+   *  not this one: this is what the screen says, not what is being fetched. */
+  const openPath = createMemo(() => latest(() => props.target.path));
+
   /** THE OPEN FILE'S BYTES, keyed on the path AND the source — so a tab press
    *  reads the new file, and a work that ends while the reader is open falls
-   *  back to the kept copy without the reader doing anything. */
-  const [bytes] = createResource(
-    (): { path: string; source: WorkFileSource } | null => {
+   *  back to the kept copy without the reader doing anything. `null` only for
+   *  a work this browser has no record of, whose document is never drawn.
+   *
+   *  THE READ IS DECLARED WITH A LOADING VALUE, exactly as the tabs beside it
+   *  are (`createWorkFiles`): nothing in this frame is held waiting on a file,
+   *  so the header, the tabs and the questions draw while the bytes are in the
+   *  air, and the document says for itself that it is being read. A `Loading`
+   *  boundary over the viewer would say the same line through a fallback that
+   *  appears and vanishes for a read answering in milliseconds (Solid 2
+   *  FALLBACK_FLASH) — and the line it would draw is the viewer's OWN
+   *  pre-bytes line, restated. A FAILED read is still thrown at whoever reads
+   *  it, and the `Errored` boundary below draws the viewer's error face. */
+  const bytes = createMemo<FileWithSource | FileWithUrl | null>(
+    () => {
       const from = source();
-      return from === null ? null : { path: props.target.path, source: from };
+      return from === null ? null : from.read(props.target.path);
     },
-    (target): Promise<FileWithSource | FileWithUrl> =>
-      target.source.read(target.path),
+    { loadingValue: null },
   );
+
+  /** WHAT THE VIEWER IS GIVEN: the bytes of the path that is OPEN, and
+   *  nothing while another path's are still being read.
+   *
+   *  A read in the air keeps serving the file it served before, and that is
+   *  the whole of "the same path keeps its document": a work ending under an
+   *  open reader re-reads the same file from kolu's kept copy, and the text
+   *  stays on screen until the new bytes land. Under a NEW path that same
+   *  held file is the WRONG document — the file that was open sitting under
+   *  the new tab's name — so it is withheld, and the viewer draws its waiting
+   *  line instead. The file carries the path it was read for, so the two are
+   *  compared rather than tracked in a second signal. */
+  const shown = createMemo<FileWithSource | FileWithUrl | null>(() => {
+    const file = bytes();
+    return file !== null && file.path === openPath() ? file : null;
+  });
 
   /** WHOSE COMMENTS this file's are: the work's own queue for its live
    *  folder, whichever member is up — or none for a kept file, which has
@@ -148,7 +195,7 @@ const WorkReader: Component<{
    *  that queue, and none without one. */
   const commentsAt = commentsFor(queue);
   const comments = createMemo(
-    () => commentsAt()?.commentsForPath(props.target.path) ?? [],
+    () => commentsAt()?.commentsForPath(openPath()) ?? [],
   );
 
   /** THE OPEN QUESTIONS ABOUT THIS WORK — every ask the record still has
@@ -165,12 +212,33 @@ const WorkReader: Component<{
    *  Conductor). */
   const commentView = createCommentView();
 
+  /** THE DOCUMENT, in the one viewer every other file face uses — stated once
+   *  because the frame below draws it twice: with the bytes once they land,
+   *  and with the failure the read threw instead (the `Errored` fallback),
+   *  which is the viewer's own error face over no file. */
+  const Viewer: Component<{
+    file: FileWithSource | FileWithUrl | null;
+    error: Error | undefined;
+    vault: { paths: readonly string[]; pending: boolean };
+  }> = (shown) => (
+    <BrowseFileDispatcher
+      at={at()}
+      comments={queue()}
+      open={at() === null ? null : door.open}
+      filePath={openPath()}
+      file={shown.file}
+      error={shown.error}
+      repoVault={shown.vault}
+      theme={theme()}
+    />
+  );
+
   return (
-    <CommentView.Provider value={commentView}>
+    <CommentView value={commentView}>
       <section
         data-testid="conductor-reader"
         data-work={props.target.work}
-        data-path={props.target.path}
+        data-path={openPath()}
         // WHICH FACE THIS IS — the fact an answer from here is recorded under,
         // and the one a test asks about.
         data-from={props.from}
@@ -181,7 +249,7 @@ const WorkReader: Component<{
           class="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-4 py-2"
         >
           <span class="min-w-0 truncate text-[0.82rem] font-semibold text-fg">
-            {workFileName(props.target.path)}
+            {workFileName(openPath())}
           </span>
           <Show when={work()}>
             {(one) => (
@@ -200,24 +268,40 @@ const WorkReader: Component<{
           </Show>
           {props.chrome}
           {/* THE WORK'S OTHER FILES, as tabs: the notes beside a plan are read
-            in the same place as the plan, one press away — on a line of their
-            own, under the title and the chrome. */}
+          in the same place as the plan, one press away — on a line of their
+          own, under the title and the chrome. */}
           <div data-testid="reader-files" class="min-w-0 basis-full">
-            <WorkFileList
-              rows={files.rows()}
-              more={files.more()}
-              openTo={props.target.path}
-              layout="line"
-              onOpen={(path) => props.onOpen({ work: props.target.work, path })}
-            />
+            {/* A LISTING THAT FAILED is not a missing tab strip: the rows
+                throw their failure here, and the strip says so in its own
+                line — the open document below is drawn either way. */}
+            <Errored
+              fallback={(why) => (
+                <span
+                  data-testid="reader-files-unread"
+                  class="font-mono text-[0.62rem] text-fg-3"
+                >
+                  Could not read this work's files — {toError(why()).message}
+                </span>
+              )}
+            >
+              <WorkFileList
+                rows={files.rows()}
+                more={files.more()}
+                openTo={openPath()}
+                layout="line"
+                onOpen={(path) =>
+                  props.onOpen({ work: props.target.work, path })
+                }
+              />
+            </Errored>
           </div>
         </header>
 
         {/* THE QUESTIONS, PINNED ABOVE THE DOCUMENT — their buttons, and the
-          count of comments that will go with the answer. The same asks as on
-          the card and in the chat: this is where they are answered by whoever
-          is reading the thing they are about. */}
-        <Show when={work()}>
+        count of comments that will go with the answer. The same asks as on
+        the card and in the chat: this is where they are answered by whoever
+        is reading the thing they are about. */}
+        <Show when={record()}>
           {(one) => (
             <For each={asks()}>
               {(id) => (
@@ -253,43 +337,55 @@ const WorkReader: Component<{
           }
         >
           {/* `reader-doc` is the reading frame's one hook: the column's measure,
-            the 16px body, and the full-width tables and code blocks are stated
-            once, in `index.css`, over the viewer's own DOM. */}
+          the 16px body, and the full-width tables and code blocks are stated
+          once, in `index.css`, over the viewer's own DOM. */}
           <div
             data-testid="reader-doc"
             class="reader-doc flex min-h-0 flex-1 flex-col"
           >
-            <BrowseFileDispatcher
-              at={at()}
-              comments={queue()}
-              open={at() === null ? null : door.open}
-              filePath={props.target.path}
-              // A resource RE-THROWS its failure at its reader, and `error`
-              // beside it is how the viewer is told — so the value is only read
-              // when there is one.
-              file={bytes.error === undefined ? (bytes() ?? null) : null}
-              error={bytes.error}
-              // The work's OWN files are the vault a `[[wikilink]]` in a plan
-              // resolves against — the list a plan's links actually point into.
-              repoVault={{
-                paths: files.rows().map((file) => file.path),
-                pending: files.pending(),
-              }}
-              theme={theme()}
-            />
+            {/* THE BYTES THROW their failure at whoever reads them, as does
+                the vault listing beside them — a worktree kolu cannot read is
+                a worktree it cannot list — so the viewer's own error face is
+                this boundary's fallback. */}
+            <Errored
+              fallback={(why) => (
+                <Viewer file={null} error={toError(why())} vault={NO_VAULT} />
+              )}
+            >
+              {/* THE VIEWER STAYS MOUNTED and says for itself when it has no
+                  bytes yet. A `Loading` boundary here would draw that same
+                  line as a fallback — the viewer's own pre-bytes line,
+                  restated — and would put it up and take it down again for a
+                  read that answers in milliseconds.
+
+                  What it is handed is the file for the path that is OPEN: the
+                  document that was on screen is withheld under a NEW tab's
+                  name, and kept while the SAME path is read again. */}
+              <Viewer
+                file={shown()}
+                error={undefined}
+                // The work's OWN files are the vault a `[[wikilink]]` in a
+                // plan resolves against — the list a plan's links actually
+                // point into.
+                vault={{
+                  paths: files.rows().map((file) => file.path),
+                  pending: files.pending(),
+                }}
+              />
+            </Errored>
           </div>
           {/* SELECTING TEXT TAKES A COMMENT, as on the Code tab — the pill is
-            the surface's own, and this is the popover it opens. One per
-            reader, portalled, exactly as the Code tab mounts one per tab: a
-            surface that could capture a selection with nowhere to write it
-            would offer to comment and then swallow the comment. A kept file
-            has no queue to file one in, so it has no composer either. */}
+          the surface's own, and this is the popover it opens. One per
+          reader, portalled, exactly as the Code tab mounts one per tab: a
+          surface that could capture a selection with nowhere to write it
+          would offer to comment and then swallow the comment. A kept file
+          has no queue to file one in, so it has no composer either. */}
           <Show when={queue()}>
             {(one) => <CommentComposer queue={one()} />}
           </Show>
         </Show>
       </section>
-    </CommentView.Provider>
+    </CommentView>
   );
 };
 

@@ -6,6 +6,7 @@
  */
 
 import { setImmediate as settle } from "node:timers/promises";
+import { flush } from "solid-js";
 import { describe, expect, it } from "vitest";
 import type { CommentQueue } from "./types";
 import { commentStorageName, useComments } from "./useComments";
@@ -22,6 +23,8 @@ describe("comment queues", () => {
     const work: CommentQueue = { kind: "work", id: "same-id" };
     useComments(terminal).add(note("on the terminal"));
     useComments(work).add(note("on the work"));
+    // Solid 2 stages each write until the next flush.
+    flush();
     expect(
       useComments(terminal)
         .comments()

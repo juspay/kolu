@@ -11,9 +11,11 @@ import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { PrInfo } from "anyforge/schemas";
 import type { PrResult, TerminalId } from "kolu-common/surface";
 import { ABOUT_WORK, type Work } from "kolu-work";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { createSignal, flush } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildTerminalDisplayInfos } from "../terminal/terminalDisplay";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { workPrOf } from "./workPr";
 import WorkSubtitle from "./WorkSubtitle";
 
@@ -110,11 +112,9 @@ const part = (el: HTMLElement, id: string) =>
 describe("the line under a work's title", () => {
   it("paints the repository and branch in the hues the Dock gives them", () => {
     const id = "t" as TerminalId;
-    const dock = buildTerminalDisplayInfos(
-      [id],
-      () => DOCK_TERMINAL,
-      () => [id],
-    ).get(id);
+    const dock = buildTerminalDisplayInfos([
+      { id, ...terminalKey(DOCK_TERMINAL), subCount: 1 },
+    ]).get(id);
     const el = mount(BRANCH_WORK, undefined);
     expect(part(el, "work-branch")?.textContent).toBe("feat/csv-export");
     expect(
@@ -143,5 +143,28 @@ describe("the line under a work's title", () => {
     expect(part(el, "work-repo-monogram")).toBeNull();
     expect(part(el, "work-branch")).toBeNull();
     expect(part(el, "work-subtitle")?.textContent).toContain("watching");
+  });
+
+  it("keeps its parts and its PR words while the record is read again five times", () => {
+    // The same work, read again — a fresh record with a fresh key and a
+    // fresh timeline, which is what the collection hands a face per frame.
+    const reread = (): Work => ({ ...OPENED, events: [...OPENED.events] });
+    const [one, setOne] = createSignal<Work>(reread());
+    const host = document.createElement("div");
+    dispose = render(
+      () => <WorkSubtitle work={one()} pr={workPrOf(one(), undefined)} />,
+      host,
+    );
+    const branch = part(host, "work-branch");
+    const monogram = part(host, "work-repo-monogram");
+    const words = part(host, "work-subtitle")?.textContent;
+    // Five, not four: the diagnostic names a memo at four equal publishes.
+    for (let read = 1; read <= 5; read += 1) {
+      setOne(reread());
+      flush();
+    }
+    expect(part(host, "work-branch")).toBe(branch);
+    expect(part(host, "work-repo-monogram")).toBe(monogram);
+    expect(part(host, "work-subtitle")?.textContent).toBe(words);
   });
 });

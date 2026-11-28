@@ -95,7 +95,7 @@ function scriptedDispatch(
  *  `Schedule`, and the point of this test is that the REAL wiring reconnects — a
  *  fake clock would prove the schedule was configured, not that a frame arrived. */
 const waitPastRetry = () => new Promise((r) => setTimeout(r, 1400));
-const flush = () => new Promise((r) => setTimeout(r, 30));
+const settle = () => new Promise((r) => setTimeout(r, 30));
 
 describe("reconnect snapshot (#12) — a mid-stream drop is invisible to the subscription", () => {
   it("yields EXACTLY ONE fresh snapshot after a transport drop, with no error surfaced", async () => {
@@ -132,7 +132,7 @@ describe("reconnect snapshot (#12) — a mid-stream drop is invisible to the sub
           frames.push(change.next);
         });
 
-        await flush();
+        await settle();
         // The first snapshot is a value, not a change — so `frames` is still empty
         // and the accessor already reads it. CLONE it: the subscription writes
         // frames through Solid's `reconcile`, which ADOPTS a frame object and
@@ -381,7 +381,7 @@ describe("the per-subscription onRetry tap (#8)", () => {
       ),
       { onFrame: () => {}, onEnd: () => {}, onFailure: () => {} },
     );
-    await flush();
+    await settle();
     stop();
     // A declared error reaches the consumer; there is no re-subscribe to prepare
     // for, so clearing derived state here would blank a view nothing refills.

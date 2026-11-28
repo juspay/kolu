@@ -3,9 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "types": ["node"],
-    "jsx": "preserve",
-    "jsxImportSource": "solid-js"
+    "types": ["node"]
   },
   "include": ["src"]
 }

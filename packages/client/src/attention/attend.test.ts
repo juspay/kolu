@@ -23,7 +23,6 @@ function harness(alerts = true) {
   const popups: AttentionItem[] = [];
   let throwOnPopup = false;
   const channels: AttendChannels = {
-    alertsEnabled: () => alerts,
     sound: () => {
       sounds.push(sounds.length + 1);
     },
@@ -32,8 +31,13 @@ function harness(alerts = true) {
       popups.push(item);
     },
   };
+  const attend = createAttend(channels);
   return {
-    attend: createAttend(channels),
+    // The master switch is a FACT the source reads and hands over, so each
+    // case raises with the one it is about.
+    attend: {
+      raise: (items: readonly AttentionItem[]) => attend.raise(items, alerts),
+    },
     sounds,
     popups,
     setPopupThrows: (throws: boolean) => {

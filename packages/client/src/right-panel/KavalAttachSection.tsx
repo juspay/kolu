@@ -71,7 +71,7 @@ const PADI_REFERENCE: ReadonlyArray<readonly [string, string]> = [
   ["create", "spawn a terminal / split / worktree'd agent"],
 ];
 
-/** One segment of a picker — pressed state painted via `classList` (not an
+/** One segment of a picker — pressed state painted via `class` (not an
  *  `aria-pressed:` variant) so the ARIA fact and the paint share one source. */
 const SegButton: Component<{
   pressed: boolean;
@@ -82,15 +82,17 @@ const SegButton: Component<{
 }> = (props) => (
   <button
     type="button"
-    aria-pressed={props.pressed}
+    aria-pressed={props.pressed ? "true" : "false"}
     data-testid={props.testId}
     title={props.title}
     onClick={props.onClick}
-    class="cursor-pointer rounded px-2 py-0.5 font-mono text-[10px] transition-colors"
-    classList={{
-      "bg-surface-0 text-fg shadow-sm": props.pressed,
-      "text-fg-3 hover:text-fg": !props.pressed,
-    }}
+    class={[
+      "cursor-pointer rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+      {
+        "bg-surface-0 text-fg shadow-sm": props.pressed,
+        "text-fg-3 hover:text-fg": !props.pressed,
+      },
+    ]}
   >
     {props.children}
   </button>
