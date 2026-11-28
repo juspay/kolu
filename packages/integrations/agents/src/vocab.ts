@@ -32,6 +32,7 @@ import {
   type RestoreTarget,
 } from "anyagent/schemas";
 import { Schema } from "effect";
+import { antigravityVocab } from "kolu-antigravity/schemas";
 import { claudeCodeVocab } from "kolu-claude-code/schemas";
 import { codexVocab } from "kolu-codex/schemas";
 import { grokVocab } from "kolu-grok/schemas";
@@ -50,6 +51,7 @@ export const AGENT_VOCABS = {
   pi: piVocab,
   omp: ompVocab,
   xyne: xyneVocab,
+  antigravity: antigravityVocab,
 } as const satisfies Record<string, AnyAgentVocab>;
 
 /** The closed agent-kind union, derived from the registry — not a hand-copied
@@ -334,6 +336,7 @@ export {
 // The per-agent info types, re-exported so consumers that used to import them
 // from `@kolu/terminal-vocab/schema` (which no longer depends on the agent
 // packages) resolve them through the registry door.
+export type { AntigravityInfo } from "kolu-antigravity/schemas";
 export type { ClaudeCodeInfo } from "kolu-claude-code/schemas";
 export type { CodexInfo } from "kolu-codex/schemas";
 export type { GrokInfo } from "kolu-grok/schemas";

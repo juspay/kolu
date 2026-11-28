@@ -8,6 +8,7 @@
 
 import type { AgentPlugin } from "anyagent";
 import type { Fetcher } from "kolu-transcript-core";
+import { antigravityPlugin } from "kolu-antigravity";
 import { claudeCodePlugin } from "kolu-claude-code";
 import { codexPlugin } from "kolu-codex";
 import { grokPlugin } from "kolu-grok";
@@ -32,6 +33,7 @@ export const AGENT_PLUGINS: {
   pi: piPlugin,
   omp: ompPlugin,
   xyne: xynePlugin,
+  antigravity: antigravityPlugin,
 };
 
 /** Every agent-detection dir/db override env key, flattened from the plugins.

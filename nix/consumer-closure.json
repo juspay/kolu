@@ -701,6 +701,7 @@
         "@kolu/acp",
         "@kolu/acp-claude",
         "anyagent",
+        "kolu-antigravity",
         "kolu-claude-code",
         "kolu-codex",
         "kolu-grok",
@@ -709,6 +710,19 @@
         "kolu-pi",
         "kolu-transcript-core",
         "kolu-xyne"
+      ],
+      "external": {
+        "effect": "4.1.5"
+      }
+    },
+    "kolu-antigravity": {
+      "dir": "packages/integrations/antigravity",
+      "vendored": true,
+      "workspace": [
+        "anyagent",
+        "kolu-io",
+        "kolu-shared",
+        "kolu-transcript-core"
       ],
       "external": {
         "effect": "4.1.5"
