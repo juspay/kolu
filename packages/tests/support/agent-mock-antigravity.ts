@@ -18,11 +18,12 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { shellQuoteArg as q } from "@kolu/shell-quote";
 import type { AgentLifecycleState } from "./agent-lifecycle.ts";
 
 /** Two invented conversations: the one a scenario runs, and the one a switch
  *  moves to. */
-export const CONVERSATION_IDS = {
+const CONVERSATION_IDS = {
   first: "00000000-0000-4000-8000-0000000000a9",
   second: "00000000-0000-4000-8000-0000000000b9",
 } as const;
@@ -153,4 +154,46 @@ export function updateAntigravityTranscript(
   state: AgentLifecycleState,
 ): void {
   append(fixture.transcriptPath, linesInto(state));
+}
+
+/** A file the fake replaces in `agy`'s top directory. Invented name. */
+function topFilePath(dir: string): string {
+  return path.join(dir, "fake-summaries.bin");
+}
+
+/** Shell lines for the fake `agy` program, each doing one thing real `agy`
+ *  was seen to do, against the fixture tree under `dir`. */
+export const fakeAgy = {
+  /** Wait until the scenario writes `file`. */
+  waitFor: (file: string): string =>
+    `while [ ! -e ${q(file)} ]; do sleep 0.1; done`,
+  /** Create the lock and hold it open on fd 3 — a NEW conversation. */
+  createAndHold: (lockPath: string): string => `exec 3>>${q(lockPath)}`,
+  /** Hold an EXISTING lock on fd 3, creating and touching nothing. */
+  openExisting: (lockPath: string): string => `exec 3<${q(lockPath)}`,
+  /** Let go of whatever fd 3 holds. */
+  release: "exec 3<&-",
+  /** Name this folder's conversation in the directory cache: temp file, then
+   *  rename, keyed by the physical working directory. */
+  replaceCache: (cachePath: string, id: string): string[] => [
+    `printf '{"%s":"%s"}\\n' "$(pwd -P)" ${q(id)} > ${q(`${cachePath}.tmp`)}`,
+    `mv ${q(`${cachePath}.tmp`)} ${q(cachePath)}`,
+  ],
+  /** Replace a file in the top directory: temp file, then rename. */
+  replaceTopFile: (dir: string): string[] => [
+    `printf x > ${q(`${topFilePath(dir)}.tmp`)}`,
+    `mv ${q(`${topFilePath(dir)}.tmp`)} ${q(topFilePath(dir))}`,
+  ],
+};
+
+/** Remove every file a scenario made under `dir` but keep the directories:
+ *  kolu watches `presence/`, `cache/` and the top directory once per process,
+ *  and a deleted directory's watch stays dead. */
+export function clearAntigravityFixture(dir: string): void {
+  for (const slot of ["first", "second"] as const) {
+    fs.rmSync(antigravityFixturePaths(dir, slot).lockPath, { force: true });
+  }
+  fs.rmSync(antigravityFixturePaths(dir).cachePath, { force: true });
+  fs.rmSync(topFilePath(dir), { force: true });
+  fs.rmSync(path.join(dir, "brain"), { recursive: true, force: true });
 }

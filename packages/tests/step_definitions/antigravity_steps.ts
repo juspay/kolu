@@ -26,11 +26,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
+import { shellQuoteArg as q } from "@kolu/shell-quote";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import {
   type AntigravityFixture,
   antigravityFixturePaths,
-  CONVERSATION_IDS,
+  clearAntigravityFixture,
+  fakeAgy,
   updateAntigravityTranscript,
   writeAntigravityTranscript,
 } from "../support/agent-mock-antigravity.ts";
@@ -54,23 +56,12 @@ function antigravityDir(): string {
 let scratch: string | null = null;
 let fixture: AntigravityFixture | null = null;
 
-/** The file the fake replaces in `agy`'s top directory. Invented name. */
-const topFile = (): string => path.join(antigravityDir(), "fake-summaries.bin");
-
-/** Remove the scenario's files but keep `presence/`, `cache/` and the top
- *  directory themselves: kolu watches those once per process, and a deleted
- *  directory's watch stays dead. */
+/** Remove the scenario's scratch folder and its files under `agy`'s tree. */
 function cleanup(): void {
   if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
   scratch = null;
   fixture = null;
-  const dir = antigravityDir();
-  for (const slot of ["first", "second"] as const) {
-    fs.rmSync(antigravityFixturePaths(dir, slot).lockPath, { force: true });
-  }
-  fs.rmSync(antigravityFixturePaths(dir).cachePath, { force: true });
-  fs.rmSync(topFile(), { force: true });
-  fs.rmSync(path.join(dir, "brain"), { recursive: true, force: true });
+  clearAntigravityFixture(antigravityDir());
 }
 
 After({ tags: "@antigravity-mock" }, () => {
@@ -83,33 +74,6 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
   await world.page.keyboard.press("Enter");
   await waitForBufferContains(world.page, marker);
 }
-
-const quote = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
-
-/** Program lines for the fake, each doing one thing real `agy` was seen to
- *  do. Paths are the fixture's. */
-const fake = {
-  /** Wait until the scenario writes `file`. */
-  waitFor: (file: string): string =>
-    `while [ ! -e ${quote(file)} ]; do sleep 0.1; done`,
-  /** Create the lock and hold it open on fd 3 — a NEW conversation. */
-  createAndHold: (lockPath: string): string => `exec 3>>${quote(lockPath)}`,
-  /** Hold an EXISTING lock on fd 3, creating and touching nothing. */
-  openExisting: (lockPath: string): string => `exec 3<${quote(lockPath)}`,
-  /** Let go of whatever fd 3 holds. */
-  release: "exec 3<&-",
-  /** Name this folder's conversation in the directory cache: temp file, then
-   *  rename, keyed by the physical working directory. */
-  replaceCache: (cachePath: string, id: string): string[] => [
-    `printf '{"%s":"%s"}\\n' "$(pwd -P)" ${quote(id)} > ${quote(`${cachePath}.tmp`)}`,
-    `mv ${quote(`${cachePath}.tmp`)} ${quote(cachePath)}`,
-  ],
-  /** Replace a file in the top directory: temp file, then rename. */
-  replaceTopFile: (): string[] => [
-    `printf x > ${quote(`${topFile()}.tmp`)}`,
-    `mv ${quote(`${topFile()}.tmp`)} ${quote(topFile())}`,
-  ],
-};
 
 /** Start the fake `agy` in a fresh scratch directory running `body`. It
  *  prints its up marker first; one OSC 2 makes a title event reconcile after
@@ -126,7 +90,7 @@ async function startFakeAgy(world: KoluWorld, body: string[]): Promise<void> {
   fs.writeFileSync(
     program,
     [
-      `echo ${quote(UP_MARKER)}`,
+      `echo ${q(UP_MARKER)}`,
       "printf '\\033]0;agy\\007'",
       ...body,
       "sleep 99999 ; :",
@@ -147,17 +111,26 @@ async function startFakeAgy(world: KoluWorld, body: string[]): Promise<void> {
   });
 }
 
-function newScratch(): string {
+function newScratch(): void {
   cleanup();
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), `kolu-agy-${process.pid}-`));
-  return scratch;
+}
+
+/** The file whose appearance lets the fake go on to its next part. */
+function goFile(): string {
+  if (!scratch) throw new Error("Start the process first");
+  return path.join(scratch, "go");
+}
+
+function signalGo(): void {
+  fs.writeFileSync(goFile(), "");
 }
 
 /** A new conversation, created and held at once, as at a first prompt. */
-function startNew(lockPath: string, cachePath: string): string[] {
+function startNew(f: AntigravityFixture): string[] {
   return [
-    fake.createAndHold(lockPath),
-    ...fake.replaceCache(cachePath, CONVERSATION_IDS.first),
+    fakeAgy.createAndHold(f.lockPath),
+    ...fakeAgy.replaceCache(f.cachePath, f.conversationId),
   ];
 }
 
@@ -169,7 +142,7 @@ When(
       antigravityDir(),
       state as AgentLifecycleState,
     );
-    await startFakeAgy(this, startNew(fixture.lockPath, fixture.cachePath));
+    await startFakeAgy(this, startNew(fixture));
   },
 );
 
@@ -180,11 +153,10 @@ When(
 When(
   "an Antigravity process is running with no conversation yet",
   async function (this: KoluWorld) {
-    const dir = newScratch();
-    const { lockPath, cachePath } = antigravityFixturePaths(antigravityDir());
+    newScratch();
     await startFakeAgy(this, [
-      fake.waitFor(path.join(dir, "go")),
-      ...startNew(lockPath, cachePath),
+      fakeAgy.waitFor(goFile()),
+      ...startNew(antigravityFixturePaths(antigravityDir())),
     ]);
   },
 );
@@ -192,12 +164,11 @@ When(
 When(
   "a conversation starts in the running Antigravity process with state {string}",
   function (this: KoluWorld, state: string) {
-    if (!scratch) throw new Error("Start the process first");
     fixture = writeAntigravityTranscript(
       antigravityDir(),
       state as AgentLifecycleState,
     );
-    fs.writeFileSync(path.join(scratch, "go"), "");
+    signalGo();
   },
 );
 
@@ -207,19 +178,19 @@ When(
 When(
   "an Antigravity process is running that will open an existing conversation with state {string}",
   async function (this: KoluWorld, state: string) {
-    const dir = newScratch();
+    newScratch();
     fixture = writeAntigravityTranscript(
       antigravityDir(),
       state as AgentLifecycleState,
       { existingLock: true },
     );
     await startFakeAgy(this, [
-      fake.waitFor(path.join(dir, "go")),
-      ...fake.replaceCache(fixture.cachePath, fixture.conversationId),
+      fakeAgy.waitFor(goFile()),
+      ...fakeAgy.replaceCache(fixture.cachePath, fixture.conversationId),
       "sleep 1",
-      fake.openExisting(fixture.lockPath),
+      fakeAgy.openExisting(fixture.lockPath),
       "sleep 1",
-      ...fake.replaceTopFile(),
+      ...fakeAgy.replaceTopFile(antigravityDir()),
     ]);
   },
 );
@@ -227,8 +198,7 @@ When(
 When(
   "the running Antigravity process opens the existing conversation",
   function (this: KoluWorld) {
-    if (!scratch) throw new Error("Start the process first");
-    fs.writeFileSync(path.join(scratch, "go"), "");
+    signalGo();
   },
 );
 
@@ -238,7 +208,7 @@ When(
 When(
   "an Antigravity process holds a conversation with state {string} and another exists with state {string}",
   async function (this: KoluWorld, stateA: string, stateB: string) {
-    const dir = newScratch();
+    newScratch();
     fixture = writeAntigravityTranscript(
       antigravityDir(),
       stateA as AgentLifecycleState,
@@ -249,14 +219,14 @@ When(
       { slot: "second", existingLock: true },
     );
     await startFakeAgy(this, [
-      ...startNew(fixture.lockPath, fixture.cachePath),
-      fake.waitFor(path.join(dir, "go")),
-      ...fake.replaceCache(other.cachePath, other.conversationId),
+      ...startNew(fixture),
+      fakeAgy.waitFor(goFile()),
+      ...fakeAgy.replaceCache(other.cachePath, other.conversationId),
       "sleep 1",
-      fake.release,
-      fake.openExisting(other.lockPath),
+      fakeAgy.release,
+      fakeAgy.openExisting(other.lockPath),
       "sleep 1",
-      ...fake.replaceTopFile(),
+      ...fakeAgy.replaceTopFile(antigravityDir()),
     ]);
   },
 );
@@ -264,8 +234,7 @@ When(
 When(
   "the running Antigravity process switches to the other conversation",
   function (this: KoluWorld) {
-    if (!scratch) throw new Error("Start the process first");
-    fs.writeFileSync(path.join(scratch, "go"), "");
+    signalGo();
   },
 );
 
