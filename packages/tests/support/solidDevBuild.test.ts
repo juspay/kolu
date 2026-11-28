@@ -258,7 +258,7 @@ test("an info finding is printed as advisory and fails nothing", () => {
   assert.equal(
     verdict?.words,
     [
-      "Solid also graded 1 finding(s) info — advisory, failing nothing:",
+      "Solid raised 1 advisory finding(s) — reported, failing nothing:",
       '  [info] EFFECT_RELAY_TEAR at src/layout/RightPanelDrawer.tsx:81:5: an effect wrote a value another effect reads [first in "the drawer opens" at step "I open the right panel"]',
     ].join("\n"),
   );
@@ -328,7 +328,7 @@ test("a relay tear with no data prints without the pair", () => {
   assert.equal(
     verdict?.words,
     [
-      "Solid also graded 1 finding(s) info — advisory, failing nothing:",
+      "Solid raised 1 advisory finding(s) — reported, failing nothing:",
       "  [info] EFFECT_RELAY_TEAR at a.tsx:1:1",
     ].join("\n"),
   );
@@ -349,7 +349,7 @@ test("a warn finding fails, and carries its info neighbours along", () => {
     [
       "Solid dev diagnostics (1):",
       "  [warn] EFFECT_RELAY_TEAR at b.tsx:2:2",
-      "Solid also graded 1 finding(s) info — advisory, failing nothing:",
+      "Solid raised 1 advisory finding(s) — reported, failing nothing:",
       "  [info] EFFECT_RELAY_TEAR at a.tsx:1:1",
     ].join("\n"),
   );
@@ -631,4 +631,81 @@ test("dev-smoke reports an info finding and fails on a warn one", () => {
       advisories: ["solid diagnostic: [info] EFFECT_RELAY_TEAR at a.tsx:1:1"],
     },
   );
+});
+
+// SOLID-SONNER'S TOASTER LIST MEMOS ARE ALLOWED, and nothing else about that
+// code is. The released 1.0.0 derives its toast lists with no `equals` gate,
+// so every toast republishes an equal-but-new array; the fix is
+// wobsoriano/solid-sonner#56, and these three tests are what has to stay true
+// while kolu waits for a release that carries it.
+const TOASTER_OWNERS = [
+  "<SurfaceAppProvider>",
+  "<App>",
+  "<Toaster>",
+  "computed",
+];
+
+test("solid-sonner's toaster memo is allowed and fails nothing", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "UNSTABLE_MEMO_OUTPUT",
+        severity: "warn",
+        loc: "src/App.tsx:408:7",
+        ownerPath: TOASTER_OWNERS,
+        nodeName: "computed",
+        message: 'memo "computed" produced a new-but-equivalent array',
+      },
+      {
+        code: "UNSTABLE_MEMO_OUTPUT",
+        severity: "warn",
+        loc: "solid-sonner/dist/index.jsx:833:7",
+        ownerPath: ["<App>", "<Toaster>", "<For>", "computed"],
+        nodeName: "computed",
+        message: 'memo "computed" produced a new-but-equivalent array',
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, false);
+});
+
+// NOT A BLANKET ON THE CODE: the same diagnostic from one of kolu's own memos
+// is the finding this lane exists to catch.
+test("an UNSTABLE_MEMO_OUTPUT from another memo still fails", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "UNSTABLE_MEMO_OUTPUT",
+        severity: "warn",
+        loc: "src/CommandPalette.tsx:793:20",
+        ownerPath: ["<App>", "<CommandPalette>", "filtered"],
+        nodeName: "filtered",
+        message: 'memo "filtered" produced a new-but-equivalent array',
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, true);
+});
+
+// NOR A BLANKET ON THE COMPONENT: any other code raised under the toaster is
+// a finding about the toaster kolu has not dispositioned.
+test("another code from the toaster still fails", () => {
+  const verdict = solidDiagnosticVerdict({
+    events: [
+      {
+        code: "EFFECT_WRITES_OWN_SOURCE",
+        severity: "warn",
+        ownerPath: TOASTER_OWNERS,
+        nodeName: "computed",
+        message: "effects relay writes in a cycle",
+      },
+    ],
+    lines: [],
+    pageErrors: [],
+  });
+  assert.equal(verdict?.fails, true);
 });

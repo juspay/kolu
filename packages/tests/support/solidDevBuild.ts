@@ -276,6 +276,49 @@ export function isAdvisoryDiagnostic(event: PageDiagnostic): boolean {
   return event.severity === "info" && event.code === "EFFECT_RELAY_TEAR";
 }
 
+/** THE TOASTER'S OWN MEMOS, the one finding kolu allows a library to keep
+ *  raising. `solid-sonner` 1.0.0 derives the toaster's lists — the visible
+ *  toasts, and the per-position slices a `<For>` renders — with no `equals`
+ *  option, so every toast republishes an equal-but-new array and Solid's dev
+ *  build raises `UNSTABLE_MEMO_OUTPUT` on it. The repair is four `equals`
+ *  options in the library's own source: wobsoriano/solid-sonner#56. THIS
+ *  ALLOWANCE GOES the moment a `solid-sonner` release carries that fix —
+ *  bump the dependency and delete this, with its tests.
+ *
+ *  The owner chain is what identifies them, not the code and not the file:
+ *  the library's `dist/index.jsx` is where one of the two is attributed, but
+ *  the other is attributed to kolu's own JSX call site (`App.tsx`, or
+ *  `conductor/reader/ReaderWindow.tsx`, whichever rendered this window's
+ *  `<Toaster>`). Both are a memo named `computed` owned directly by
+ *  `<Toaster>`, or by a `<For>` directly under it — so the tail of the chain
+ *  is the identity, and a memo of kolu's own under the same code, or another
+ *  code under the same toaster, is untouched by this. */
+const TOASTER_MEMO_OWNER_TAILS: readonly (readonly string[])[] = [
+  ["<Toaster>", "computed"],
+  ["<Toaster>", "<For>", "computed"],
+];
+
+export function isSonnerToasterListMemo(event: PageDiagnostic): boolean {
+  if (event.code !== "UNSTABLE_MEMO_OUTPUT") return false;
+  if (event.nodeName !== "computed") return false;
+  const path = event.ownerPath;
+  if (!Array.isArray(path)) return false;
+  return TOASTER_MEMO_OWNER_TAILS.some(
+    (tail) =>
+      path.length >= tail.length &&
+      tail.every((owner, i) => path[path.length - tail.length + i] === owner),
+  );
+}
+
+/** DOES THIS FINDING FAIL NOTHING? Either Solid itself graded it advisory
+ *  ({@link isAdvisoryDiagnostic}) or it is the toaster's library memo kolu
+ *  allows ({@link isSonnerToasterListMemo}). Both judges — the scenario
+ *  verdict and the dev-server boot — ask this one question, so neither can
+ *  pass what the other fails. */
+export function isAllowedDiagnostic(event: PageDiagnostic): boolean {
+  return isAdvisoryDiagnostic(event) || isSonnerToasterListMemo(event);
+}
+
 /** One diagnostic with the scenario and step that were running when it
  *  arrived — the e2e suite's `BeforeStep` hook records them on the world, and
  *  the binding stamps each event with them. A scenario's own name is not
@@ -363,11 +406,11 @@ function foldedWords(folded: FoldedDiagnostic): string {
  * for. The page's thrown errors ride along, because a diagnostic that threw
  * is also the throw the page reports.
  *
- * SOLID'S GRADE AND CODE DECIDE WHETHER IT FAILS, through
- * {@link isAdvisoryDiagnostic}: only an `info`-graded `EFFECT_RELAY_TEAR` is
- * advisory, printed under its own heading and failing nothing. Every other
- * finding — and any event with no grade — makes `fails` true. A console line
- * is a Solid warning the console itself printed, so it fails.
+ * WHETHER IT FAILS IS {@link isAllowedDiagnostic}'s answer: an `info`-graded
+ * `EFFECT_RELAY_TEAR`, and solid-sonner's toaster list memos, are printed
+ * under their own heading and fail nothing. Every other finding — and any
+ * event with no grade — makes `fails` true. A console line is a Solid warning
+ * the console itself printed, so it fails.
  *
  * THE HEADLINE COUNTS EACH FINDING ONCE. An error-severity diagnostic reaches
  * the console as a footer line AND the channel as an event, so footers are
@@ -387,8 +430,8 @@ export function solidDiagnosticVerdict(found: {
 }): SolidDiagnosticVerdict | undefined {
   const total = found.events.length + found.lines.length;
   if (total === 0) return undefined;
-  const advisory = found.events.filter(isAdvisoryDiagnostic);
-  const failing = found.events.filter((e) => !isAdvisoryDiagnostic(e));
+  const advisory = found.events.filter(isAllowedDiagnostic);
+  const failing = found.events.filter((e) => !isAllowedDiagnostic(e));
   const fails = failing.length + found.lines.length > 0;
   const parts: string[] = [];
   if (fails) {
@@ -412,7 +455,7 @@ export function solidDiagnosticVerdict(found: {
   }
   if (advisory.length > 0) {
     parts.push(
-      `Solid also graded ${advisory.length} finding(s) info — advisory, failing nothing:`,
+      `Solid raised ${advisory.length} advisory finding(s) — reported, failing nothing:`,
     );
     for (const folded of foldDiagnostics(advisory))
       parts.push(`  ${foldedWords(folded)}`);
@@ -432,9 +475,10 @@ export function solidDiagnosticVerdict(found: {
  *  the console alone. Page errors ride along: a diagnostic that throws reaches
  *  the page as a throw.
  *
- *  Solid's grade AND code decide which list a diagnostic lands in, exactly as
- *  they do for the e2e lane's verdict ({@link isAdvisoryDiagnostic}): an
- *  `info`-graded `EFFECT_RELAY_TEAR` is advisory, everything else fails. */
+ *  Which list a diagnostic lands in is decided exactly as the e2e lane's
+ *  verdict decides it ({@link isAllowedDiagnostic}): an `info`-graded
+ *  `EFFECT_RELAY_TEAR` and the toaster's library memos are advisory,
+ *  everything else fails. */
 export function devSmokeFailures(saw: {
   consoleErrors: readonly string[];
   pageErrors: readonly string[];
@@ -448,11 +492,11 @@ export function devSmokeFailures(saw: {
       (folded) => `solid diagnostic: ${foldedWords(folded)}`,
     );
   failures.push(
-    ...folds(saw.diagnostics.filter((e) => !isAdvisoryDiagnostic(e))),
+    ...folds(saw.diagnostics.filter((e) => !isAllowedDiagnostic(e))),
   );
   return {
     failures,
-    advisories: folds(saw.diagnostics.filter(isAdvisoryDiagnostic)),
+    advisories: folds(saw.diagnostics.filter(isAllowedDiagnostic)),
   };
 }
 
