@@ -4,20 +4,30 @@
  *    presence/<id>.lock — held OPEN by the `agy` process that has the
  *      conversation (the identity kolu reads from `/proc/<pid>/fd` on Linux)
  *    cache/last_conversations.json — folder → its last conversation, written
- *      when a conversation starts (what kolu reads where open files cannot be)
+ *      when a conversation starts or is opened (what kolu reads where open
+ *      files cannot be)
  *    brain/<id>/.system_generated/logs/transcript.jsonl — appended, one JSON
  *      object a line, the last line naming the state
- *  These helpers synthesize the transcript; the fake `agy` process itself
- *  creates and holds the lock and writes the cache, as the real one does.
- *  Transitions are honest APPENDS — the append-robust watcher is the channel
- *  under test. Content is invented, in the shapes `agy` 1.5.19 writes.
+ *  These helpers synthesize the transcript, and for a conversation that
+ *  already exists its (empty) lock file; the fake `agy` process itself holds
+ *  the lock, writes the cache and replaces a file in the top directory, as the
+ *  real one does. Transitions are honest APPENDS — the append-robust watcher
+ *  is the channel under test. Content is invented, in the shapes `agy` 1.5.19
+ *  writes.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentLifecycleState } from "./agent-lifecycle.ts";
 
-const CONVERSATION_ID = "00000000-0000-4000-8000-0000000000a9";
+/** Two invented conversations: the one a scenario runs, and the one a switch
+ *  moves to. */
+export const CONVERSATION_IDS = {
+  first: "00000000-0000-4000-8000-0000000000a9",
+  second: "00000000-0000-4000-8000-0000000000b9",
+} as const;
+
+export type ConversationSlot = keyof typeof CONVERSATION_IDS;
 
 export interface AntigravityFixture {
   conversationId: string;
@@ -29,15 +39,19 @@ export interface AntigravityFixture {
 /** The on-disk layout, DUPLICATED from kolu-antigravity's `config.ts` on
  *  purpose: the fixture pins the real wire format — importing the producer
  *  would let a wrong path pass on both sides silently. */
-export function antigravityFixturePaths(dir: string): AntigravityFixture {
+export function antigravityFixturePaths(
+  dir: string,
+  slot: ConversationSlot = "first",
+): AntigravityFixture {
+  const id = CONVERSATION_IDS[slot];
   return {
-    conversationId: CONVERSATION_ID,
-    lockPath: path.join(dir, "presence", `${CONVERSATION_ID}.lock`),
+    conversationId: id,
+    lockPath: path.join(dir, "presence", `${id}.lock`),
     cachePath: path.join(dir, "cache", "last_conversations.json"),
     transcriptPath: path.join(
       dir,
       "brain",
-      CONVERSATION_ID,
+      id,
       ".system_generated",
       "logs",
       "transcript.jsonl",
@@ -110,15 +124,18 @@ function append(file: string, lines: object[]): void {
 }
 
 /** Write a fresh transcript already in `state`. The lock is the fake process's
- *  to create. */
+ *  to create, or `existingLock` creates it now, empty, as a conversation that
+ *  already exists has one. */
 export function writeAntigravityTranscript(
   dir: string,
   state: AgentLifecycleState,
+  opts: { slot?: ConversationSlot; existingLock?: boolean } = {},
 ): AntigravityFixture {
-  const fixture = antigravityFixturePaths(dir);
+  const fixture = antigravityFixturePaths(dir, opts.slot);
   fs.mkdirSync(path.dirname(fixture.transcriptPath), { recursive: true });
   fs.mkdirSync(path.dirname(fixture.lockPath), { recursive: true });
   fs.writeFileSync(fixture.transcriptPath, "");
+  if (opts.existingLock) fs.writeFileSync(fixture.lockPath, "");
   step = 0;
   const lines =
     state === "thinking"

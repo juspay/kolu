@@ -13618,6 +13618,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "94250a6e4c406bb7c3bd0d42f195b22515897937"
+    },
+    {
+      "revisionId": "revision-aaa12e77ef61f943995a",
+      "scenarioKey": "scenario-38d61011d72577e8a0f3",
+      "feature": "features/antigravity.feature",
+      "scenario": "Tile chrome follows an existing conversation opened after the reconcile ladder",
+      "kind": "scenario",
+      "tags": ["@antigravity-mock"],
+      "bodyHash": "c2f96ed45712321f5beb4d4af7f6d4c581ca1e85fc9b2f1f492560462d3b52ef",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f90761f89bbc7e0583f063471a71d276bd3299e1"
+    },
+    {
+      "revisionId": "revision-5139613b62122c0bf05d",
+      "scenarioKey": "scenario-de9ff8d61d03d31bdfd6",
+      "feature": "features/antigravity.feature",
+      "scenario": "Tile chrome moves when a running Antigravity process switches conversations",
+      "kind": "scenario",
+      "tags": ["@antigravity-mock"],
+      "bodyHash": "3af1cd02435b174a6474b0f0a1a27b3b04a9a4df3c45a37bbc0fbab30b24f424",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f90761f89bbc7e0583f063471a71d276bd3299e1"
     }
   ]
 }
