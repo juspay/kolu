@@ -337,6 +337,17 @@ describe("start time", () => {
   it("is null before the transcript exists", () => {
     expect(readStartedAt(sessionOf(ID_B))).toBeNull();
   });
+
+  it("is read again once the transcript lands, not kept as missing", () => {
+    // A conversation `/clear` opened has a lock but no transcript until its
+    // first prompt: the arbiter and the watcher ask before and after.
+    const fresh = sessionOf("0a1b2c3d-0000-4000-8000-00000000000c");
+    expect(readStartedAt(fresh)).toBeNull();
+    writeFile(fresh.transcriptPath, "");
+    expect(readStartedAt(fresh)).toBeNull(); // no complete first line yet
+    writeFile(fresh.transcriptPath, `${user("hi")}\n`);
+    expect(readStartedAt(fresh)).toBe(Date.parse(T0));
+  });
 });
 
 // --- The directory wake (externalChanges) ---
