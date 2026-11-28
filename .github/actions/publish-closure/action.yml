@@ -119,7 +119,7 @@ runs:
     # (2.17 ≤ line < 2.35) is the consumer half of the same fact. `install_url`
     # is what pins it: this action version ignores an unknown `nix_version`
     # input with a warning and installs the newest.
-    - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+    - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
       with:
         github_access_token: ${{ github.token }}
         install_url: https://releases.nixos.org/nix/nix-2.34.8/install
