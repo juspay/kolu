@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeAntigravityToolInput,
   parseAntigravityTranscript,
+  userRequestText,
 } from "./transcript.ts";
 
 // Invented lines in the shapes `agy` 1.5.19 writes.
@@ -118,6 +119,22 @@ describe("parseAntigravityTranscript", () => {
       text: "Two files.",
       model: "some-model-slug",
     });
+  });
+});
+
+describe("userRequestText", () => {
+  it("keeps a prompt that quotes the closing tag whole", () => {
+    const words = "why does the line end with </USER_REQUEST> twice?";
+    expect(
+      userRequestText(
+        `<USER_REQUEST>\n${words}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nlocal time\n</ADDITIONAL_METADATA>`,
+      ),
+    ).toBe(words);
+  });
+
+  it("is null without a closing tag after the opening one", () => {
+    expect(userRequestText("<USER_REQUEST>\nunfinished")).toBeNull();
+    expect(userRequestText("</USER_REQUEST> then <USER_REQUEST>x")).toBeNull();
   });
 });
 

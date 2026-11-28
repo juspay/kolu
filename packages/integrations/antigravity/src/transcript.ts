@@ -28,14 +28,16 @@ const OPEN_TAG = "<USER_REQUEST>";
 const CLOSE_TAG = "</USER_REQUEST>";
 
 /** The user's own words in a `USER_INPUT` line, or null when it carries no
- *  `USER_REQUEST` block. The newline `agy` puts inside each tag is dropped.
- *  Plain index scans, linear in the line's length whatever it holds. */
+ *  `USER_REQUEST` block. The words run to the LAST closing tag: a prompt can
+ *  quote the tag itself, and the blocks `agy` adds after the request never
+ *  carry it. The newline `agy` puts inside each tag is dropped. Plain index
+ *  scans, linear in the line's length whatever it holds. */
 export function userRequestText(content: string): string | null {
   const open = content.indexOf(OPEN_TAG);
   if (open === -1) return null;
   let from = open + OPEN_TAG.length;
-  let to = content.indexOf(CLOSE_TAG, from);
-  if (to === -1) return null;
+  let to = content.lastIndexOf(CLOSE_TAG);
+  if (to < from) return null;
   if (content[from] === "\n") from++;
   if (to > from && content[to - 1] === "\n") to--;
   return content.slice(from, to);
