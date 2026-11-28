@@ -9,7 +9,7 @@
 import type { MemoryNeed } from "kolu-common/conductorMemory";
 import type { TerminalId } from "kolu-common/surface";
 import type { NeedsYou } from "kolu-work";
-import { firstSentence } from "../conductor/quietChat";
+import { firstSentence } from "../conductor/firstSentence";
 import type { TypedReply } from "../conductor/typedReply";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import type { AttentionItem } from "./attend";

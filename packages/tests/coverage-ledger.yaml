@@ -5434,3 +5434,16 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A draft's work goes round review twice and into the checks, and the map counts the loops"
       test: Same journey and every assertion it had, plus one wait; the hand-off back to the planner now comes after the timeline shows both agents stopped, as a real Conductor hands over only on that news.
+  - id: revise-wake-reply-shown
+    revisionId: revision-79d8551012867bfe7e3c
+    action: revised
+    status: landed
+    promise: A reply to a wake is one folded line until you open it, the newest reply stays open, and a heading counts the updates since your last message
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-7298a13ccc532a2d493c]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-needs-you.feature
+      symbol: "Scenario: A reply to a wake stays on screen once something newer is said"
+      test: The same journey — answer a work's question on its card, read the wake's reply, send a message, see that reply still — with the promise reversed on purpose, because the folded line is gone. The scenario now asserts the reply is drawn whole and stays on screen after something newer is said; the step that opened the folded line went with the fold.
