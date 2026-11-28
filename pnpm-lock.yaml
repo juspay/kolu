@@ -682,6 +682,9 @@ importers:
       effect:
         specifier: 4.1.5
         version: 4.1.5
+      kolu-antigravity:
+        specifier: workspace:*
+        version: link:../antigravity
       kolu-claude-code:
         specifier: workspace:*
         version: link:../claude-code
@@ -706,6 +709,34 @@ importers:
       kolu-xyne:
         specifier: workspace:*
         version: link:../xyne
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.1.1(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.8(@types/node@22.19.15)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
+
+  packages/integrations/antigravity:
+    dependencies:
+      anyagent:
+        specifier: workspace:*
+        version: link:../anyagent
+      effect:
+        specifier: 4.1.5
+        version: 4.1.5
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
+      kolu-transcript-core:
+        specifier: workspace:*
+        version: link:../../transcript-core
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

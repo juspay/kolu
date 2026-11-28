@@ -58,3 +58,5 @@ export {
 } from "./process-snapshot.ts";
 
 export { type StampedCache, stampedCache } from "./stamped-read.ts";
+
+export { readOpenFileNames } from "./open-files.ts";

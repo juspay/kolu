@@ -21,6 +21,7 @@
     "@kolu/acp-claude": "workspace:*",
     "anyagent": "workspace:*",
     "effect": "4.1.5",
+    "kolu-antigravity": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-grok": "workspace:*",

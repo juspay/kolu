@@ -89,8 +89,9 @@ Wake respawns the terminal in the same directory and resumes the agent on the
 exact conversation it was running, never "the most recent conversation in this
 folder". Each agent is resumed by its own exact-conversation form:
 `claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
-`xyne --session <id>`, the Grok equivalent, and for pi and Oh My Pi the
-transcript's absolute path, which those two accept verbatim.
+`xyne --session <id>` and `agy --conversation=<id>`. Grok has its equivalent,
+and pi and Oh My Pi take the transcript's absolute path, which those two accept
+verbatim.
 
 The line wake types is built from facts kolu owns. kolu's own entry for that
 agent supplies the binary and how it spells resume, the session file supplies
@@ -99,13 +100,39 @@ the conversation id, and the live agent process's own arguments supply the flags
 Flags are filtered through that agent's allowlist, so only recognized
 launch-shape flags come back (a `--model`, a `--dangerously-skip-permissions`,
 an `--no-alt-screen`). A stray path or prompt is dropped.
-[What a resume may carry](/agent-detection#what-a-resume-may-carry) lists the
-allowlist per agent.
+[What a resume may carry](#what-a-resume-may-carry) lists the allowlist per
+agent.
 
 Wake restores the family the same way: every dormant member respawns on its own
 id, parents first, with each agent resumed on its own conversation. Clicking
 **Wake** on a split wakes its parent and siblings too, because a split cannot
 run under a tile that is still asleep.
+
+## What a resume may carry
+
+A resume is built from three facts kolu holds, never from a command line a
+shell printed:
+
+| Fact | Where it comes from |
+| --- | --- |
+| which agent | the detection adapter that matched this terminal's foreground process |
+| which conversation | the agent's own session file, plus its process or its breadcrumb |
+| which flags | the live agent process's arguments, filtered through the agent's allowlist |
+
+The filter is an allowlist. Anyone whose text you display can print the escape
+sequence a shell marks commands with, so a captured line never becomes a command
+kolu types. Only flags the agent's own package declares as launch shape come
+back. A flag such as `--model` carries its value:
+
+| The live process runs | Wake replays |
+| --- | --- |
+| `claude --plugin-dir P --resume <id> --dangerously-skip-permissions` | `claude --resume <id> --dangerously-skip-permissions` |
+| `omp -e P --resume <path> --model fable` | `omp --resume <path> --model fable` |
+| `ld-linux… …/opencode --standalone --session <id> --model sonnet` | `opencode --session <id> --model sonnet` |
+
+The `AI_PROFILE` that kolu's own agents feature sets does come back, unlike a
+prefix you type in the shell (below). A terminal kolu cannot build a resume for
+wakes to a bare shell, and padi's log says so.
 
 ## What wake cannot bring back
 

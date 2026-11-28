@@ -73,7 +73,7 @@ every one of them was **established by running the agent or from its own docs**
 caller cannot see. `delivery` is `"submitted"` (it was idle, the words start a
 turn), `"steer"` (the words join the running turn at its next step — codex,
 omp, pi, xyne) or `"queue"` (they wait for the current turn to end — claude-code,
-opencode, grok). `took` is whether the words LANDED: for an agent that was
+opencode, grok, antigravity). `took` is whether the words LANDED: for an agent that was
 idle, kolu then watches its state for a hard-capped few seconds
 (`SAY_TAKE_CAP_MS`) and answers `began-working`, `submit-landed` or `did-not-begin` — the keys
 were sent either way, so a say that did not take is an ANSWER naming the screen

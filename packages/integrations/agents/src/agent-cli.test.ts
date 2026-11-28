@@ -22,6 +22,7 @@ const CLAUDE_ID = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
 const CODEX_ID = "0192f3a1-4c5b-7d8e-9f02-23456789abcd";
 const GROK_ID = "0192f3a1-4c5b-7d8e-9f03-23456789abcd";
 const XYNE_ID = "0192f3a1-4c5b-7d8e-9f04-23456789abcd";
+const ANTIGRAVITY_ID = "0192f3a1-4c5b-7d8e-9f05-23456789abcd";
 const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
 const PI_PATH = "/home/u/.pi/sessions/a.jsonl";
 const OMP_PATH = "/home/u/.omp/sessions/a.jsonl";
@@ -121,6 +122,19 @@ describe("stableFlagTokens — the live process's argv, filtered by the allowlis
       ["/home/u/.local/bin/xyne", "--port", "3000", "--debug"],
       ["--port", "3000", "--debug"],
     ],
+    [
+      "antigravity",
+      [
+        "/opt/agy/libexec/agy",
+        "--mode",
+        "accept-edits",
+        "--model",
+        "fast-model",
+        "--log-file",
+        "/tmp/agy.log",
+      ],
+      ["--mode", "accept-edits", "--model", "fast-model"],
+    ],
   ])("%s keeps only its allowlisted flags", (kind, argv, expected) => {
     expect(stableFlagTokens(agentCliGrammar(kind), argv)).toEqual(expected);
   });
@@ -187,6 +201,11 @@ describe("resumeFormFor — a shell line rendered from structured facts", () => 
       "xyne",
       target("xyne", XYNE_ID, ["--debug"]),
       `xyne --session ${XYNE_ID} --debug`,
+    ],
+    [
+      "antigravity",
+      target("antigravity", ANTIGRAVITY_ID, ["--mode", "accept-edits"]),
+      `agy --conversation=${ANTIGRAVITY_ID} --mode accept-edits`,
     ],
   ])("renders the %s resume form", (_kind, t, expected) => {
     expect(resumeFormFor(t)).toBe(expected);

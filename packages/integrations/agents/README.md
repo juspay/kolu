@@ -47,7 +47,8 @@ between the paste and the Enter, which `agent_say` performs).
 
 Each recipe carries `verified` — how it is known to be true. Measured by
 **running the agent in a kolu terminal**, except grok, which is not installed
-here and is taken from xAI's own keyboard reference.
+here and is taken from xAI's own keyboard reference, and antigravity, which
+was run in a plain terminal.
 
 | Agent | Idle | Working | What working delivery does | Verified |
 | --- | --- | --- | --- | --- |
@@ -58,6 +59,7 @@ here and is taken from xAI's own keyboard reference.
 | pi | `Enter` | `Enter` | **steer** — the line enters pi's "Steering:" pane and is held until the running step (any tool) ENDS, then handed over on its own; a second Enter does nothing | ran `pi` 1.5.2 on a stand-in model, 2026-11-15 |
 | omp | `Enter` | `Enter` | **steer** — "Steering · 1"; taken at once during `bash` (omp backgrounds it), held until an eval cell ends otherwise; a second Enter interrupts the running tool | ran `omp` 18.20.2, 2026-11-15 |
 | xyne | `Enter` | `Enter` | **steer** — the pi-derived "Steering:" pane | ran `xyne-cli` 0.4.8-dev |
+| antigravity | `Enter` | `Enter` | **queue** — the message is held and sent as its own turn when the running one ends | ran `agy` 1.5.19, 2026-11-28 |
 
 `working: null` is the honest answer for an agent whose TUI drops input
 mid-turn; `say: null` for one kolu cannot talk to at all. Both are REFUSALS at

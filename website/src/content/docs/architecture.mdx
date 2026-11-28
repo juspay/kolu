@@ -513,7 +513,7 @@ out. The map:
 | `acp-client` | One agent process speaking that protocol: handshake, sessions, turns, sign-in, typed events out. | `acp`, `child` |
 | `acp-harness` | One conversation on that client: turns, the rows you read, the state a panel draws. | `acp`, `acp-client` |
 | `acp-claude` | The Claude Code leg, its model table, and the pinned adapter. | `acp` |
-| agent and forge leaves | One package per agent (`claude-code`, `codex`, `grok`, `opencode`, `pi`, `xyne`, `omp`), each with its vocabulary and detection adapter. `github` sits behind `anyforge`; `git` covers git itself. | `anyagent`, the agent-agnostic kernel; `kolu-agents` lists them |
+| agent and forge leaves | One package per agent (`claude-code`, `codex`, `grok`, `opencode`, `pi`, `xyne`, `omp`, `antigravity`), each with its vocabulary and detection adapter. `github` sits behind `anyforge`; `git` covers git. | `anyagent`, the agent-agnostic kernel; `kolu-agents` lists them |
 | `agent-distro` | kolu's contract with [agent-distro](https://github.com/juspay/agent-distro): the Nix half builds each host's agent floor, the TypeScript half reads the bakes, receipts and manifests. | nothing in kolu |
 | shared UI leaves | `theme`, `solid-statepip`, `solid-dockrow` (the whole Dock row), `solid-logtail`, `solid-pierre`, `solid-markdown`, `solid-fileview`, `solid-browser`, `serve-dir`, `artifact-sdk`. | `padi-client`, `theme`; several are shared with drishti and olai |
 | contracts and utilities | `common`, `terminal-vocab`, `terminal-protocol`, `transcript-core`, `transcript-html`, and the zero-dependency leaves `log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units`. | nothing |
