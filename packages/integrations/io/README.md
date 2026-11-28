@@ -1,6 +1,6 @@
 # kolu-io
 
-Filesystem and process primitives the watchers across kolu share: directory watching that survives temp+rename, file subscriptions with a poll floor under the edge, a coalescing scheduler, a stat-stamped read cache, a process argv/env snapshot, and a meter of every child process the process starts.
+Filesystem and process primitives the watchers across kolu share: directory watching that survives temp+rename, file subscriptions with a poll floor under the edge, a coalescing scheduler, a stat-stamped read cache, a process argv/env snapshot, a process's open-file names, and a meter of every child process the process starts.
 
 No `kolu-*` dependency except `@kolu/log` and the baked `osfacts-client`, so any package can adopt a primitive without taking a feature dependency.
 
@@ -8,7 +8,7 @@ No `kolu-*` dependency except `@kolu/log` and the baked `osfacts-client`, so any
 
 | Entry | Holds |
 | --- | --- |
-| `.` | `createDirFilenameWatcher` and `listDirWatcherRows`, `subscribeFileAppends`, `createCoalesceSchedule`, `watchDirWhenReady`, `readProcessSnapshot`, `stampedCache`, the child meter (`installChildMeter`, `runInChildScope`, `meterSyncChild`, `readChildren`, `childKind`), the `Measured` / `TimingSummary` shapes, and their constants. |
+| `.` | `createDirFilenameWatcher` and `listDirWatcherRows`, `subscribeFileAppends`, `createCoalesceSchedule`, `watchDirWhenReady`, `readProcessSnapshot`, `readOpenFileNames`, `stampedCache`, the child meter (`installChildMeter`, `runInChildScope`, `meterSyncChild`, `readChildren`, `childKind`), the `Measured` / `TimingSummary` shapes, and their constants. |
 | `./types` | `ProcessSnapshot` alone, free of `node:` imports, so a consumer that only names the shape takes no node-typed graph. `anyagent` imports this. |
 | `./suppress-fs-watch.testlib` | `suppressFsWatchEdges`, a test helper that makes `fs.watch` deliver nothing so the poll floor is exercised alone. |
 
@@ -20,6 +20,7 @@ No `kolu-*` dependency except `@kolu/log` and the baked `osfacts-client`, so any
 - **`createCoalesceSchedule`** debounces on the trailing edge with a hard `maxWaitMs` cap, so a hot source still publishes. `COALESCE_MAX_WAIT_MS` must stay at or below `DEFAULT_APPEND_POLL_MS`.
 - **`watchDirWhenReady`** attaches to the nearest existing ancestor and descends as levels appear, then fires once on attach. A non-ENOENT attach failure is logged once and final; there is deliberately no retry.
 - **`readProcessSnapshot`** reads `/proc/<pid>` on Linux and the baked `osfacts` binary on darwin for exact argv tokens. Darwin env comes back `null`, meaning unreadable, which is a different fact from an empty map. An unbaked `KOLU_OSFACTS_BIN` throws at module load so the daemon dies at boot.
+- **`readOpenFileNames`** lists the link target of each descriptor in `/proc/<pid>/fd` on Linux: names only, never contents. Every other platform, and a failed read, answers `null`, meaning unknown, which is a different fact from a process holding nothing.
 - **`stampedCache`** keys a read on `(mtimeMs, size)`. Absence is never cached: the reader is still called with no stat, so it decides what a missing file means.
 
 ## Do not break
@@ -30,6 +31,6 @@ A watch's asker is required, with no default: a watcher row that cannot name who
 
 ## Dependencies
 
-Depends on `@kolu/log` and `osfacts-client`. Depended on by `anyagent`, `kolu-shared`, `padi`, `kolu-git`, and the `claude-code`, `grok`, `omp`, `pi` and `xyne` integrations.
+Depends on `@kolu/log` and `osfacts-client`. Depended on by `anyagent`, `kolu-shared`, `padi`, `kolu-git`, and the `antigravity`, `claude-code`, `grok`, `omp`, `pi` and `xyne` integrations.
 
 Tests run under the daemon gate (`test:daemon`), one file per primitive.
