@@ -16,6 +16,10 @@
  *   - **Command permission** — the question line `Run this command?`, and
  *     directly under it the menu's first item, `1. Yes, run command`, drawn
  *     with the selection mark `> ` or its two-space blank.
+ *   - **File-creation permission** — the question line `Allow creation of this
+ *     file?`, and directly under it `1. Yes, allow creation`, drawn the same
+ *     way. Seen when the model writes a file whole; the prompt for an
+ *     in-place edit of an existing file was not seen and is not read.
  *
  *  And for every marker, the LAST painted line of the screen must be the
  *  menu's footer, `esc to cancel` (the model and mode follow on the same row).
@@ -36,6 +40,7 @@ export const TAIL_REGION_LINES = 40;
  *  from every line. */
 const MENU_MARKERS: readonly RegExp[] = [
   /^Run this command\?\n(?:> | {2})1\. Yes, run command$/m,
+  /^Allow creation of this file\?\n(?:> | {2})1\. Yes, allow creation$/m,
 ];
 
 /** The footer `agy` draws under a menu (and under a running tool — so it is a
