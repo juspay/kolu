@@ -20,9 +20,9 @@ import {
   type AntigravitySession,
   readAntigravityFold,
   readStartedAt,
-  readTitle,
 } from "./core.ts";
 import { type AntigravityInfo, AntigravityInfoSchema } from "./schemas.ts";
+import { readTitle } from "./title.ts";
 
 /** Equality over every field of `AntigravityInfo`, derived from its schema. */
 const sameInfo = Schema.toEquivalence(AntigravityInfoSchema);
@@ -39,8 +39,6 @@ export function createAntigravityWatcher(
 ): AntigravityWatcher {
   let destroyed = false;
   let lastInfo: AntigravityInfo | null = null;
-  // The first line never changes once written, so it is read until known.
-  let startedAt: number | null = null;
 
   function emitIfChanged(): void {
     if (destroyed) return;
@@ -48,7 +46,6 @@ export function createAntigravityWatcher(
     // No transcript yet (a conversation `/clear` opened, before its first
     // prompt), or a line this fold does not know: publish nothing.
     if (fold === null) return;
-    startedAt ??= readStartedAt(session, log);
     const info: AntigravityInfo = {
       kind: "antigravity",
       state: fold.state,
@@ -57,7 +54,7 @@ export function createAntigravityWatcher(
       summary: readTitle(session, log),
       taskProgress: null,
       contextTokens: fold.contextTokens,
-      startedAt,
+      startedAt: readStartedAt(session, log),
     };
     if (lastInfo !== null && sameInfo(info, lastInfo)) return;
     lastInfo = info;

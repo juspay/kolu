@@ -29,13 +29,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { UUID_RE } from "anyagent";
-import {
-  COALESCE_DEBOUNCE_MS,
-  COALESCE_MAX_WAIT_MS,
-  createCoalesceSchedule,
-  readOpenFileNames,
-  watchDirWhenReady,
-} from "kolu-io";
+import { readOpenFileNames } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { readTailLines } from "kolu-shared";
 import {
@@ -143,7 +137,15 @@ export function conversationForDirectory(
  *  answer: none for a fresh `agy` (`[]`), one otherwise. Where they cannot
  *  (`readOpenFileNames` answers unknown), the directory cache stands in.
  *  `null` when neither can be read — the orchestrator then leaves the terminal
- *  as it was. */
+ *  as it was.
+ *
+ *  "Cannot be read" covers two different facts on purpose: a platform or a
+ *  hidden `/proc` that will never show the files, and a process that exited
+ *  between the foreground sample and this read. The reader cannot tell them
+ *  apart — both are a failed `/proc/<pid>/fd` listing — and the second is
+ *  short-lived: the process is gone, so the next foreground sample stops
+ *  matching `agy` and the answer is dropped. Until then the cache names the
+ *  folder's last conversation, usually the one that process had. */
 export function resolveAntigravitySessions(
   pid: number | undefined,
   cwd: string,
@@ -331,12 +333,20 @@ function readFirstLine(file: string): string | null {
   }
 }
 
+/** A conversation's first line never changes once written, so a known start
+ *  time is kept, by conversation id, for every caller — the arbiter asks on
+ *  every reconcile and the watcher on every emit. */
+const startedAtById = new Map<string, number>();
+
 /** Epoch-ms of the transcript's first line, or null — no transcript yet, or a
- *  first line without a readable `created_at`. */
+ *  first line without a readable `created_at`. A null is read again next
+ *  time; a time is read once. */
 export function readStartedAt(
   session: AntigravitySession,
   log?: Logger,
 ): number | null {
+  const known = startedAtById.get(session.id);
+  if (known !== undefined) return known;
   let first: string | null;
   try {
     first = readFirstLine(session.transcriptPath);
@@ -360,144 +370,7 @@ export function readStartedAt(
     return null;
   const createdAt = line.created_at;
   const ms = typeof createdAt === "string" ? Date.parse(createdAt) : NaN;
-  return Number.isFinite(ms) ? ms : null;
-}
-
-/** Single-character escapes of protobuf text format, as bytes. */
-const SIMPLE_ESCAPES: Record<string, number> = {
-  n: 0x0a,
-  r: 0x0d,
-  t: 0x09,
-  a: 0x07,
-  b: 0x08,
-  f: 0x0c,
-  v: 0x0b,
-  "\\": 0x5c,
-  "'": 0x27,
-  '"': 0x22,
-  "?": 0x3f,
-};
-
-/** Decode the body of a protobuf text-format string literal: the escapes the
- *  format defines (simple, octal, `\x` hex), bytes then read as UTF-8. Null
- *  for an escape the format does not define, or bytes that are not UTF-8. */
-export function decodeProtoTextString(body: string): string | null {
-  const bytes: number[] = [];
-  const encoder = new TextEncoder();
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i] as string;
-    if (ch !== "\\") {
-      const code = body.codePointAt(i) as number;
-      const char = String.fromCodePoint(code);
-      bytes.push(...encoder.encode(char));
-      i += char.length - 1;
-      continue;
-    }
-    const next = body[i + 1];
-    if (next === undefined) return null;
-    const simple = SIMPLE_ESCAPES[next];
-    if (simple !== undefined) {
-      bytes.push(simple);
-      i += 1;
-      continue;
-    }
-    const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1, i + 4));
-    if (octal) {
-      const value = Number.parseInt(octal[0], 8);
-      if (value > 0xff) return null;
-      bytes.push(value);
-      i += octal[0].length;
-      continue;
-    }
-    const hex = /^x([0-9a-fA-F]{1,2})/.exec(body.slice(i + 1, i + 4));
-    if (hex?.[1]) {
-      bytes.push(Number.parseInt(hex[1], 16));
-      i += hex[0].length;
-      continue;
-    }
-    return null;
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(
-      new Uint8Array(bytes),
-    );
-  } catch {
-    return null;
-  }
-}
-
-/** The whole file, one `title:"…"` line and nothing else. */
-const TITLE_RE = /^title:\s*"((?:[^"\\\n]|\\.)*)"$/;
-
-/** The conversation's own title, or null — the file is absent, unreadable
- *  (logged), or anything but the one `title:"…"` line. kolu makes none up. */
-export function readTitle(
-  session: AntigravitySession,
-  log?: Logger,
-): string | null {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(session.annotationsPath, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error(
-        { err, path: session.annotationsPath, session: session.id },
-        "antigravity: title unreadable",
-      );
-    }
-    return null;
-  }
-  const m = TITLE_RE.exec(raw.trimEnd());
-  if (!m || m[1] === undefined) return null;
-  const title = decodeProtoTextString(m[1]);
-  return title !== null && title.trim() !== "" ? title : null;
-}
-
-// --- Wake-ups (externalChanges) ---
-
-/** Watch the three directories where a terminal's conversation can change,
- *  through one coalesced wake:
- *
- *  - `presence/` — a lock file appears whenever a conversation is created
- *    (first prompt, `/clear`, `/fork`).
- *  - `cache/` — the directory cache the fallback reads.
- *  - `agy`'s top directory — opening a conversation that already exists
- *    (`agy --conversation=<id>`, the `/resume` picker) creates nothing in
- *    `presence/`. `agy` writes here after it holds the lock (a summaries file
- *    within about a second, seen at three opens of three) and at every submit
- *    (`history.jsonl`), so the next re-resolve finds the lock held.
- *
- *  A directory watch says only that something there changed: no file in these
- *  directories is opened for it. The top directory reports bursts (about thirty
- *  events a turn) and each wake re-resolves every terminal, so all three feed
- *  kolu-io's shared coalesce schedule — for cost, not timing. Each watch waits
- *  for its directory to appear, so a machine that never ran `agy` pays one
- *  ancestor watch per directory and nothing else. */
-export function subscribeAntigravityDirs(
-  onChange: () => void,
-  onError: (err: unknown) => void,
-  log?: Logger,
-): () => void {
-  const coalesce = createCoalesceSchedule({
-    debounceMs: COALESCE_DEBOUNCE_MS,
-    maxWaitMs: COALESCE_MAX_WAIT_MS,
-    onFire: () => {
-      try {
-        onChange();
-      } catch (err) {
-        onError(err);
-      }
-    },
-  });
-  const schedule = (): void => coalesce.schedule();
-  const stops = [
-    watchDirWhenReady(PRESENCE_DIR, schedule, log),
-    watchDirWhenReady(path.dirname(LAST_CONVERSATIONS_FILE), schedule, log),
-    watchDirWhenReady(ANTIGRAVITY_DIR, schedule, log),
-  ];
-  log?.info({ dir: ANTIGRAVITY_DIR }, "antigravity: directory watch installed");
-  return () => {
-    for (const stop of stops) stop();
-    coalesce.destroy();
-  };
+  if (!Number.isFinite(ms)) return null;
+  startedAtById.set(session.id, ms);
+  return ms;
 }

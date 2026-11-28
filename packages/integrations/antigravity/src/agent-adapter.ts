@@ -21,8 +21,8 @@ import {
   antigravityHomePresent,
   readStartedAt,
   resolveAntigravitySessions,
-  subscribeAntigravityDirs,
 } from "./core.ts";
+import { subscribeAntigravityDirs } from "./dir-watch.ts";
 import { type AntigravityInfo, antigravityVocab } from "./schemas.ts";
 import {
   isAntigravityScreenPollable,
@@ -30,10 +30,6 @@ import {
   TAIL_REGION_LINES,
 } from "./screen.ts";
 import { createAntigravityWatcher } from "./session-watcher.ts";
-
-/** A conversation's first line never changes once written; the arbiter asks
- *  for it on every reconcile, so a known answer is kept. */
-const startedAtById = new Map<string, number>();
 
 export const antigravityAdapter: AgentAdapter<
   AntigravitySession,
@@ -51,11 +47,7 @@ export const antigravityAdapter: AgentAdapter<
   },
 
   sessionStartedAt(session) {
-    const known = startedAtById.get(session.id);
-    if (known !== undefined) return known;
-    const read = readStartedAt(session);
-    if (read !== null) startedAtById.set(session.id, read);
-    return read;
+    return readStartedAt(session);
   },
 
   createWatcher(session, onChange, log) {

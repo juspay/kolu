@@ -22,13 +22,12 @@ process.env.KOLU_ANTIGRAVITY_DIR = ROOT;
 const {
   conversationForDirectory,
   conversationsHeld,
-  decodeProtoTextString,
   deriveAntigravityState,
   readStartedAt,
-  readTitle,
   resolveAntigravitySessions,
-  subscribeAntigravityDirs,
 } = await import("./core.ts");
+const { decodeProtoTextString, readTitle } = await import("./title.ts");
+const { subscribeAntigravityDirs } = await import("./dir-watch.ts");
 
 const ID_A = "0a1b2c3d-0000-4000-8000-00000000000a";
 const ID_B = "0a1b2c3d-0000-4000-8000-00000000000b";

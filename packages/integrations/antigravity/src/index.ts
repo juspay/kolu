@@ -2,8 +2,10 @@
  * Antigravity CLI integration — public barrel.
  *
  * Module layout:
- *   - `core.ts`            — which conversation; the transcript fold; title,
- *                            start time; the conversation-start watch
+ *   - `core.ts`            — which conversation; the transcript fold; the
+ *                            start time
+ *   - `title.ts`           — the title file's protobuf text format
+ *   - `dir-watch.ts`       — the process-wide wake on `agy`'s directories
  *   - `session-watcher.ts` — per-conversation watch → AntigravityInfo stream
  *   - `screen.ts`          — the permission-menu detector (promote only)
  *   - `agent-adapter.ts`   — `AgentAdapter` the sensors consume
@@ -20,10 +22,8 @@ export {
   type AntigravitySession,
   conversationForDirectory,
   conversationsHeld,
-  decodeProtoTextString,
   deriveAntigravityState,
   readStartedAt,
-  readTitle,
   resolveAntigravitySessions,
 } from "./core.ts";
 export {
@@ -38,6 +38,7 @@ export {
   promoteAntigravityFromScreen,
   screenHasAntigravityMenu,
 } from "./screen.ts";
+export { decodeProtoTextString, readTitle } from "./title.ts";
 export {
   loadAntigravityTranscript,
   normalizeAntigravityToolInput,
