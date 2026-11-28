@@ -132,6 +132,11 @@ describe("deriveAntigravityState — the last line decides", () => {
       "thinking",
     ],
     [
+      "an ERROR result (a refused file write) — not read as the turn's end",
+      [user("write it"), toolCall(), generic("ERROR")],
+      "thinking",
+    ],
+    [
       "a system line after a tool's result",
       [toolCall(), generic("DONE"), system],
       "thinking",
@@ -156,9 +161,13 @@ describe("deriveAntigravityState — the last line decides", () => {
     ).toBe("tool_use");
   });
 
-  it("publishes nothing for a line kind it does not know", () => {
+  it("publishes nothing for a line kind it does not know, and names it", () => {
     const unknown = JSON.stringify({ type: "SOMETHING_NEW", status: "DONE" });
-    expect(deriveAntigravityState([answer(), unknown])).toBeNull();
+    const heard: unknown[] = [];
+    expect(
+      deriveAntigravityState([answer(), unknown], (type) => heard.push(type)),
+    ).toBeNull();
+    expect(heard).toEqual(["SOMETHING_NEW"]);
   });
 
   it("publishes nothing for no lines", () => {
@@ -218,6 +227,15 @@ describe("which conversation a terminal's agy has", () => {
 
   it("is none for a fresh agy holding no lock", () => {
     expect(conversationsHeld(["/dev/pts/3", "pipe:[1]"])).toEqual([]);
+  });
+
+  it("ignores a presence file that is not a conversation id's lock", () => {
+    expect(
+      conversationsHeld([
+        path.join(ROOT, "presence", "not-an-id.lock"),
+        path.join(ROOT, "presence", ID_A),
+      ]),
+    ).toEqual([]);
   });
 
   it("ignores a lock-shaped file outside the presence directory", () => {

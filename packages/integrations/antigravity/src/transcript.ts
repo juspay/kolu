@@ -24,13 +24,21 @@ import {
 import { transcriptPathFor } from "./config.ts";
 import { antigravityVocab } from "./schemas.ts";
 
-const USER_REQUEST_RE = /<USER_REQUEST>\n?([\s\S]*?)\n?<\/USER_REQUEST>/;
+const OPEN_TAG = "<USER_REQUEST>";
+const CLOSE_TAG = "</USER_REQUEST>";
 
 /** The user's own words in a `USER_INPUT` line, or null when it carries no
- *  `USER_REQUEST` block. */
+ *  `USER_REQUEST` block. The newline `agy` puts inside each tag is dropped.
+ *  Plain index scans, linear in the line's length whatever it holds. */
 export function userRequestText(content: string): string | null {
-  const m = USER_REQUEST_RE.exec(content);
-  return m?.[1] !== undefined ? m[1] : null;
+  const open = content.indexOf(OPEN_TAG);
+  if (open === -1) return null;
+  let from = open + OPEN_TAG.length;
+  let to = content.indexOf(CLOSE_TAG, from);
+  if (to === -1) return null;
+  if (content[from] === "\n") from++;
+  if (to > from && content[to - 1] === "\n") to--;
+  return content.slice(from, to);
 }
 
 /** Each argument value decoded from the JSON literal `agy` stores it as. A

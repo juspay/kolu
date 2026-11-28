@@ -6,9 +6,10 @@
  *
  *  - `presence/<id>.lock` — one per conversation. The `agy` process that has a
  *    conversation keeps that lock OPEN for as long as it has it: none before
- *    its first prompt, the new one at once after `/clear`, and each of two
- *    `agy` in one folder holds only its own. So the names of a process's open
- *    files say exactly which conversation it runs (Linux: `/proc/<pid>/fd`).
+ *    its first prompt, the new one at once after `/clear`, and of two `agy` in
+ *    one folder, the one with a conversation holds its lock while the fresh one
+ *    holds none. So the names of a process's open files say which conversation
+ *    it runs (Linux: `/proc/<pid>/fd`).
  *  - `cache/last_conversations.json` — directory → the conversation last active
  *    there. One id per directory, rewritten only at some events, entries kept
  *    after exit. Read only where open files cannot be (macOS, a hidden
@@ -57,9 +58,6 @@ function sessionFor(id: string): AntigravitySession {
   };
 }
 
-const LOCK_RE =
-  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.lock$/;
-
 /** The presence directory as the kernel spells it. `/proc/<pid>/fd` links are
  *  resolved paths, so a home reached through a symlink must be compared in its
  *  resolved form too. */
@@ -77,9 +75,9 @@ export function conversationsHeld(openFiles: readonly string[]): string[] {
   const dirs = presenceDirSpellings();
   const ids = new Set<string>();
   for (const name of openFiles) {
-    if (!dirs.includes(path.dirname(name))) continue;
-    const m = LOCK_RE.exec(path.basename(name));
-    if (m?.[1]) ids.add(m[1]);
+    if (!name.endsWith(".lock") || !dirs.includes(path.dirname(name))) continue;
+    const id = path.basename(name, ".lock");
+    if (UUID_RE.test(id)) ids.add(id);
   }
   return [...ids];
 }
@@ -177,7 +175,9 @@ interface TranscriptLine {
 }
 
 /** The state each kind of last line means. `GENERIC` is a tool's result, of
- *  any status; a system line can sit inside a turn. */
+ *  any status: an `ERROR` result (a refused file write leaves one) is not read
+ *  as the end of a turn, because the model is told to carry on after one. A
+ *  system line can sit inside a turn. */
 function stateOf(line: TranscriptLine): AntigravityInfo["state"] | null {
   switch (line.type) {
     case "USER_INPUT":
@@ -202,10 +202,11 @@ export interface AntigravityFold {
 /** Fold a transcript's tail (oldest first) into state, model and context
  *  size. State is the newest line's; model and context size are the newest
  *  model answer's that carries them. `null` when the newest line is of a kind
- *  this fold does not know — kolu does not guess a state for it — or there is
- *  no line at all. Pure. */
+ *  this fold does not know — kolu does not guess a state for it, and
+ *  `onUnknownKind` hears its `type` — or there is no line at all. Pure. */
 export function deriveAntigravityState(
   lines: readonly string[],
+  onUnknownKind?: (type: unknown) => void,
 ): AntigravityFold | null {
   let state: AntigravityInfo["state"] | null | undefined;
   let model: string | null = null;
@@ -223,7 +224,10 @@ export function deriveAntigravityState(
     const line: TranscriptLine = parsed;
     if (state === undefined) {
       state = stateOf(line);
-      if (state === null) return null;
+      if (state === null) {
+        onUnknownKind?.(line.type);
+        return null;
+      }
     }
     if (line.type === "PLANNER_RESPONSE") {
       if (model === null && typeof line.model === "string") model = line.model;
@@ -276,8 +280,22 @@ export function readAntigravityFold(
         "antigravity: transcript read failed",
       ),
   });
-  return lines === null ? null : deriveAntigravityState(lines);
+  return lines === null
+    ? null
+    : deriveAntigravityState(lines, (type) => {
+        const kind = String(type);
+        if (unknownKindsLogged.has(kind)) return;
+        unknownKindsLogged.add(kind);
+        log?.debug(
+          { type: kind, session: session.id },
+          "antigravity: transcript line of a kind kolu does not read",
+        );
+      });
 }
+
+/** Each unknown line kind is logged once per process: a new `agy` release
+ *  leaves one trace, not one per reconcile. */
+const unknownKindsLogged = new Set<string>();
 
 /** How far the first-line read goes before it gives up: a first line is the
  *  first prompt, which can be a long paste. */
