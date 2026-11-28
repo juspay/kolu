@@ -393,7 +393,8 @@ freshest assistant row.
 A running `agy` holds its conversation's lock file,
 `~/.gemini/antigravity-cli/presence/<id>.lock`, open. kolu reads which files
 the process holds, so the tile follows that conversation, also after `/clear`.
-State comes from the last line of the conversation's transcript:
+A conversation opened by resume or `/resume` shows within about a second, at
+your next prompt at the latest. State comes from the transcript's last line:
 
 | State | Last line |
 | --- | --- |
@@ -402,7 +403,7 @@ State comes from the last line of the conversation's transcript:
 | Waiting | a model answer with no tool call |
 | Awaiting you | read off the screen: the command or file-creation permission menu |
 
-Resume uses `agy --conversation=<id>` with the launch flags passed again. After
+Resume runs `agy --conversation=<id>` and replays the launch flags. After
 <kbd>Esc</kbd>, a refused permission, or <kbd>Esc</kbd> on a permission menu,
 the tile keeps showing thinking or tool use until your next prompt. Other
 prompts, including an in-place file edit's, are not read. On macOS kolu cannot
