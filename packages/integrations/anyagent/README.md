@@ -28,6 +28,6 @@ The agent kernel: the contracts every `kolu-<agent>` integration implements, and
 
 Depends on `@kolu/log`, `@kolu/shell-quote`, `kolu-io` (the `ProcessSnapshot` type only), `nonempty`, `effect` and `string-argv`.
 
-Depended on by every agent integration (`claude-code`, `codex`, `opencode`, `grok`, `omp`, `pi`, `xyne`), by `kolu-agents`, and by `kolu-common`, `kolu-server`, `padi`, `padi-client` and `terminal-vocab`.
+Depended on by every agent integration (`claude-code`, `codex`, `opencode`, `grok`, `omp`, `pi`, `xyne`, `antigravity`), by `kolu-agents`, and by `kolu-common`, `kolu-server`, `padi`, `padi-client` and `terminal-vocab`.
 
 Tests: `src/agent-adapter.test.ts`, `src/schemas.test.ts`.

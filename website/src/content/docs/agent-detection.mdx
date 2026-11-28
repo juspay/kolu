@@ -392,20 +392,23 @@ freshest assistant row.
 
 A running `agy` holds its conversation's lock file,
 `~/.gemini/antigravity-cli/presence/<id>.lock`, open. kolu reads which files
-the process holds, so the tile follows that conversation, also after `/clear`
-or `/fork`. State comes from the last line of the conversation's transcript:
+the process holds, so the tile follows that conversation, also after `/clear`.
+State comes from the last line of the conversation's transcript:
 
 | State | Last line |
 | --- | --- |
 | Thinking | your prompt, a system note or a tool's result |
 | Tool use | a model answer that calls a tool |
 | Waiting | a model answer with no tool call |
-| Awaiting you | read off the screen: the command permission menu |
+| Awaiting you | read off the screen: the command or file-creation permission menu |
 
 Resume uses `agy --conversation=<id>` with the launch flags passed again. After
-<kbd>Esc</kbd>, `agy` writes nothing, so the tile shows thinking or tool use
-until your next prompt. On macOS kolu cannot list open files, so it reads
-`cache/last_conversations.json`, which names one conversation per directory.
+<kbd>Esc</kbd>, a refused permission, or <kbd>Esc</kbd> on a permission menu,
+the tile keeps showing thinking or tool use until your next prompt. Other
+prompts, including an in-place file edit's, are not read. On macOS kolu cannot
+list open files, so it reads `cache/last_conversations.json`, which names one
+conversation per directory: a fresh `agy` shows the folder's last conversation
+until your first prompt.
 
 ## Which agents appear in the palette
 
