@@ -395,7 +395,11 @@ describe("subscribeAntigravityDirs", () => {
     }
   });
 
-  it("fires once for a burst of replacements", {
+  // Thirty replacements are about a hundred directory events. The schedule
+  // promises one fire per quiet window, not one per burst: darwin can deliver
+  // a batch late, after the first fire. What this pins is "not one wake per
+  // event" — a handful of fires, never dozens.
+  it("fires a handful of times, not once per event, for a burst", {
     timeout: 20_000,
   }, async () => {
     const sub = await settledSubscription();
@@ -404,9 +408,11 @@ describe("subscribeAntigravityDirs", () => {
       for (let i = 0; i < 30; i++) replaceTopFile();
       const deadline = Date.now() + 5_000;
       while (sub.fired() === before && Date.now() < deadline) await sleep(50);
-      // Past the debounce and the max wait: a second fire would have landed.
+      // Past the debounce and the max wait: any later fire would have landed.
       await sleep(1_000);
-      expect(sub.fired() - before).toBe(1);
+      const fires = sub.fired() - before;
+      expect(fires).toBeGreaterThanOrEqual(1);
+      expect(fires).toBeLessThanOrEqual(3);
     } finally {
       sub.stop();
     }
