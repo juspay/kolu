@@ -17,6 +17,7 @@ export const AGENT_DIR_VARS = [
   "KOLU_PI_DIR",
   "KOLU_OMP_DIR",
   "KOLU_XYNE_DIR",
+  "KOLU_ANTIGRAVITY_DIR",
 ] as const;
 
 /** Every fake binary the harness stages (copies of `bash`, renamed). `node` is
@@ -30,4 +31,5 @@ export const FAKE_BIN_NAMES = [
   "pi",
   "omp",
   "xyne",
+  "agy",
 ] as const;

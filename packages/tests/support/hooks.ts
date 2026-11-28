@@ -199,6 +199,7 @@ const grokDir = RECORDING ? undefined : mkSubDir("grok");
 const piDir = RECORDING ? undefined : mkSubDir("pi");
 const ompDir = RECORDING ? undefined : mkSubDir("omp");
 const xyneDir = RECORDING ? undefined : mkSubDir("xyne");
+const antigravityDir = RECORDING ? undefined : mkSubDir("antigravity");
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
@@ -211,6 +212,7 @@ const serverModeEnv: Record<
       KOLU_PI_DIR: undefined,
       KOLU_OMP_DIR: undefined,
       KOLU_XYNE_DIR: undefined,
+      KOLU_ANTIGRAVITY_DIR: undefined,
     }
   : {
       KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
@@ -220,6 +222,7 @@ const serverModeEnv: Record<
       KOLU_PI_DIR: piDir,
       KOLU_OMP_DIR: ompDir,
       KOLU_XYNE_DIR: xyneDir,
+      KOLU_ANTIGRAVITY_DIR: antigravityDir,
       HOME: fixtureHome,
       XDG_STATE_HOME: stateHomeDir,
     };
@@ -260,6 +263,7 @@ process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
 process.env.KOLU_FAKE_PI_BIN = fakeBins.pi;
 process.env.KOLU_FAKE_OMP_BIN = fakeBins.omp;
 process.env.KOLU_FAKE_XYNE_BIN = fakeBins.xyne;
+process.env.KOLU_FAKE_AGY_BIN = fakeBins.agy;
 // The `claude` and `node` stubs are ROOT processes for the command-rooted spawn
 // repro (`spawn_detection_steps.ts`), run as the PTY's argv[0] with no shell,
 // exactly as `kaval-tui create -- <agent> …` does. `claude` (comm="claude")

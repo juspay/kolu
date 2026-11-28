@@ -13594,6 +13594,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c86b9a1d3fa3159eb1eef44adbbbee300f947201"
+    },
+    {
+      "revisionId": "revision-1dd803aec50cd665638b",
+      "scenarioKey": "scenario-c8afc7953d8859c33f07",
+      "feature": "features/antigravity.feature",
+      "scenario": "Tile chrome lights up for an Antigravity conversation and follows a live state transition",
+      "kind": "scenario",
+      "tags": ["@antigravity-mock"],
+      "bodyHash": "d8db8969a2102784588c9850687cc77e08bcfc3e22562c5793ada8b89db6eb45",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "94250a6e4c406bb7c3bd0d42f195b22515897937"
+    },
+    {
+      "revisionId": "revision-735ec01d5ed8e83f1f9c",
+      "scenarioKey": "scenario-e23e49ff29f8576e3c3d",
+      "feature": "features/antigravity.feature",
+      "scenario": "Tile chrome lights up when the conversation starts after the reconcile ladder",
+      "kind": "scenario",
+      "tags": ["@antigravity-mock"],
+      "bodyHash": "330a3ee89894248a091b852dad3067d8370cbbe72f5aa6e9931a10b9b590dc2e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "94250a6e4c406bb7c3bd0d42f195b22515897937"
     }
   ]
 }
