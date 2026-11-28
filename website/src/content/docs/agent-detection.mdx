@@ -158,31 +158,10 @@ else's, so the tile stays on the previous one until you exit the agent.
 
 ### What a resume may carry
 
-Resuming a conversation after a [sleep or restart](/sessions) is built from
-three facts kolu holds, never from a command line a shell printed:
-
-| Fact | Where it comes from |
-| --- | --- |
-| which agent | the detection adapter that matched this terminal's foreground process |
-| which conversation | the agent's own session file, plus its process or its breadcrumb |
-| which flags | the live agent process's arguments, filtered through the agent's allowlist |
-
-The filter is an allowlist. Anyone whose text you display can print the escape
-sequence a shell marks commands with, so a captured line never becomes a command
-kolu types. Only flags the agent's own package declares as launch shape come
-back. A flag such as `--model` carries its value:
-
-| The live process runs | Wake replays |
-| --- | --- |
-| `claude --plugin-dir P --resume <id> --dangerously-skip-permissions` | `claude --resume <id> --dangerously-skip-permissions` |
-| `omp -e P --resume <path> --model fable` | `omp --resume <path> --model fable` |
-| `ld-linux… …/opencode --standalone --session <id> --model sonnet` | `opencode --session <id> --model sonnet` |
-
-An environment prefix you type in the shell (`FOO=1 claude`) is not replayed,
-because it lives in the typed line rather than the process's arguments. Put the
-variable in your shell profile or in an [agents profile](/agents). The
-`AI_PROFILE` that kolu's own agents feature sets does come back. A terminal
-kolu cannot build a resume for wakes to a bare shell, and padi's log says so.
+A resume after a sleep or restart is built from the agent kolu detected, the
+conversation it matched and the live process's allowlisted flags, never from a
+command line a shell printed. [Sessions](/sessions#what-a-resume-may-carry)
+lists what comes back.
 
 ## Claude Code
 
