@@ -1,4 +1,4 @@
-Feature: The works that need you come first, and you can point the chat at one
+Feature: The works that need you come first, and the chat goes quiet
   A piece of work is somewhere you can go and something you can talk about.
   `@` in the Conductor's box offers works before terminals, and a message
   that names one carries its chip. Picking a work points the chat at it: the

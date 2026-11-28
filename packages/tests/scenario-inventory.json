@@ -13594,6 +13594,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c86b9a1d3fa3159eb1eef44adbbbee300f947201"
+    },
+    {
+      "revisionId": "revision-7298a13ccc532a2d493c",
+      "scenarioKey": "scenario-c50c88e9b476c6609a27",
+      "feature": "features/conductor-needs-you.feature",
+      "scenario": "A reply to a wake stays on screen once something newer is said",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5fd09add25bddce9b0a559aaf635a78d2d6842414fc0618cacc8bee5b1bd5579",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "19237c68845c9454bcc31c4adc0ac839330ea0a3"
     }
   ]
 }
