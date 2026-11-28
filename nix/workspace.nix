@@ -83,32 +83,21 @@ let
     "@corvu-next/focus-trap" = "corvu-next";
     "@corvu-next/prevent-scroll" = "corvu-next";
     "@corvu-next/transition-size" = "corvu-next";
-    # solid-sonner, the toast component the client mounts once per document —
-    # `App.tsx` or `conductor/reader/ReaderWindow.tsx`, whichever `index.tsx`
-    # renders for this window. Grafted from the pin's BUILD too, and for the
-    # same reason; the pin is a commit that gates the toaster's four derived
-    # lists on equality, which no registry release carries yet. See
-    # nix/packages/solid-sonner.nix.
-    "solid-sonner" = "solid-sonner";
   };
   pinnedNames = builtins.attrNames pinnedPins;
 
   # The pins whose members' BYTES are grafted from a BUILD of the pin rather
   # than from its source tree: pin name → the derivation whose output holds
-  # them, laid out like the source (`$out/packages/<dir>`, or the package
-  # itself for a single-package pin), so a member's `subdir` names the same
-  # place in both.
+  # them, laid out like the source (`$out/packages/<dir>`), so a member's
+  # `subdir` names the same place in both.
   #
-  # Both are libraries consumed through `dist/`: corvu-next's packages point
-  # their `exports` there and import through a per-package `@src/*` alias
-  # nothing outside the package can resolve, and solid-sonner's source imports
-  # `./styles.css?inline`, which only a bundler resolves. See
-  # nix/packages/corvu-next.nix and nix/packages/solid-sonner.nix. Exported, so
-  # `just install` grafts the SAME builds this file does rather than second
-  # ones of its own.
+  # corvu-next's packages are consumed through `dist/`: they point their
+  # `exports` there and import through a per-package `@src/*` alias nothing
+  # outside the package can resolve. See nix/packages/corvu-next.nix. Exported,
+  # so `just install` grafts the SAME build this file does rather than a second
+  # one of its own.
   builtPins = {
     corvu-next = pkgs.corvu-next;
-    solid-sonner = pkgs.solid-sonner;
   };
 
   # A MEMBER'S DIRECTORY IS READ AT EVAL TIME, SO IT IS ALWAYS THE PIN'S
@@ -253,10 +242,6 @@ let
     "@corvu-next/focus-trap" = pinSource "corvu-next" + "/packages/solid-focus-trap";
     "@corvu-next/prevent-scroll" = pinSource "corvu-next" + "/packages/solid-prevent-scroll";
     "@corvu-next/transition-size" = pinSource "corvu-next" + "/packages/solid-transition-size";
-    # And from the `solid-sonner` pin, whose ROOT is the package: a
-    # single-package repository, so the member's subdirectory is `.` — in the
-    # pin's source here, and in the build the graft swaps in.
-    "solid-sonner" = pinSource "solid-sonner" + "/.";
     "kolu-server" = ../packages/server;
     "kolu-client" = ../packages/client;
     "kolu-transcript-core" = ../packages/transcript-core;
@@ -440,7 +425,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-DCJPzoUMPJkrs63xJXGyHq0fgbbvKkWmuMrLq3C9GyA=";
+    hash = "sha256-rJ/9qpnYesk4+mgG1mFaFfHEjI5GaRLLblobJGFcuho=";
     fetcherVersion = 3;
   };
 in

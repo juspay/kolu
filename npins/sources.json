@@ -104,20 +104,6 @@
       "revision": "2f1fcd73f43b909d1d5e96123516e599b9aaaa88",
       "url": "https://github.com/rhaiscript/lsp/archive/2f1fcd73f43b909d1d5e96123516e599b9aaaa88.tar.gz",
       "hash": "sha256-cgcOjlCYMMGNnI2uUBubX6xbntTKj5F+C1Yi/GVtSQ4="
-    },
-    "solid-sonner": {
-      "type": "Git",
-      "repository": {
-        "type": "GitHub",
-        "owner": "srid",
-        "repo": "solid-sonner"
-      },
-      "branch": "fix/stable-toast-lists",
-      "submodules": false,
-      "revision": "304d7a8e50608c84883dd559b2ba7ab522b94311",
-      "url": "https://github.com/srid/solid-sonner/archive/304d7a8e50608c84883dd559b2ba7ab522b94311.tar.gz",
-      "hash": "sha256-zsHl0gljIFoUUhljnTdsE9FZidjMuNpAMVDDSSkSjgg=",
-      "frozen": true
     }
   },
   "version": 7

@@ -25,14 +25,10 @@ final: _prev:
   # store path. `callPackage` injects the `agent-distro` above as the CLI it
   # drives. See ./packages/acp-adapter.nix.
   kolu-acp-adapter = final.callPackage ./packages/acp-adapter.nix { };
-  # corvu-next's ten packages and solid-sonner, BUILT from their npins pins —
-  # the two grafts consumed as build output rather than source. See
-  # ./packages/corvu-next.nix and ./packages/solid-sonner.nix; nix/workspace.nix
-  # grafts their package directories as workspace members.
+  # corvu-next's ten packages, BUILT from its npins pin — the graft consumed as
+  # build output rather than source. See ./packages/corvu-next.nix;
+  # nix/workspace.nix grafts its package directories as workspace members.
   corvu-next = final.callPackage ./packages/corvu-next.nix {
     src = (import ../npins).corvu-next;
-  };
-  solid-sonner = final.callPackage ./packages/solid-sonner.nix {
-    src = (import ../npins).solid-sonner;
   };
 }

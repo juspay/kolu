@@ -978,7 +978,6 @@
         "kolu-agents",
         "memorable-names",
         "nonempty",
-        "solid-sonner",
         "terminal-snapshot"
       ],
       "external": {
@@ -1003,6 +1002,7 @@
         "fix-webm-duration": "^1.0.6",
         "neverthrow": "^8.2.0",
         "solid-js": "^2.0.4",
+        "solid-sonner": "^1.0.0",
         "ts-pattern": "^5.9.0",
         "yaml": "^2.8.3"
       }
@@ -1326,20 +1326,6 @@
         "@effect/platform-node": "catalog:",
         "cleye": "^2.3.0",
         "effect": "catalog:"
-      }
-    },
-    "solid-sonner": {
-      "dir": "solid-sonner",
-      "pin": {
-        "built": true,
-        "name": "solid-sonner",
-        "revision": "304d7a8e50608c84883dd559b2ba7ab522b94311",
-        "subdir": "."
-      },
-      "workspace": [],
-      "external": {
-        "@solidjs/web": "^2.0.0",
-        "solid-js": "^2.0.0"
       }
     },
     "terminal-snapshot": {

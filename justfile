@@ -17,13 +17,12 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 # their source. `osfacts-client` lives in juspay/osfacts; the `@odu/*` trio in
 # juspay/odu (odu pins KOLU, so kolu consuming odu's libraries can only be a
 # graft — see nix/workspace.nix); `@corvu-next/*` is a build of a pinned
-# corvu-next commit, and `solid-sonner` a build of a pinned solid-sonner
-# commit. Every `pnpm -r` here must skip them: their tests and
+# corvu-next commit. Every `pnpm -r` here must skip them: their tests and
 # typecheck are their own repos' CI's job, and their fixtures resolve against
 # their own repo roots, not kolu's. The root package.json's `typecheck` and
 # `test:unit` scripts carry the same filters for callers that enter through
 # pnpm instead of just (the Nix typecheck derivation).
-pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/* --filter=!@corvu-next/* --filter=!solid-sonner'
+pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/* --filter=!@corvu-next/*'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
