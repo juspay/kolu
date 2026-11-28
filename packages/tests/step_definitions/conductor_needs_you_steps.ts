@@ -1,5 +1,5 @@
 /** STEPS FOR WORKS AS PLACES AND SUBJECTS — `@` naming a work, the chat
- *  pointed at one work, a wake's reply folded to one line. The work itself is
+ *  pointed at one work, a wake's reply drawn whole. The work itself is
  *  opened by `conductor_steps.ts`'s "I ask the conductor to open the work …",
  *  which leaves its id on the world (`workId`), so every step here is about
  *  the card the scenario opened. */
@@ -18,7 +18,6 @@ const SCOPE_CHIP = '[data-testid="conductor-scope-chip"]';
 const SCOPE_BAR = '[data-testid="chat-scope-bar"]';
 const TRANSCRIPT = '[data-testid="conductor-transcript"]';
 const USER_ROW = `${TRANSCRIPT} [data-testid="conductor-row"][data-row-kind="user"]`;
-const FOLD_LINE = `${TRANSCRIPT} [data-testid="conductor-fold-line"]`;
 
 const workId = (world: KoluWorld): string => {
   const id = world.workId;
@@ -167,27 +166,13 @@ Then(
   },
 );
 
-/** THE NEWEST WAKE'S TURN, read as a person sees it: its line open or
- *  folded, and the reply that says `words` — on screen when the turn is open,
- *  off it when the turn is folded, where the line says the reply's first
- *  sentence instead. */
-async function newestWakeTurn(
-  world: KoluWorld,
-  open: boolean,
-  words: string,
-): Promise<void> {
+/** THE REPLY TO THE NEWEST WAKE, read as a person sees it: the agent row that
+ *  says `words`, on screen. A wake's reply is drawn whole and stays whole, so
+ *  nothing is pressed to read it and nothing hides it when the chat moves on. */
+async function wakeReplyShown(world: KoluWorld, words: string): Promise<void> {
   await pollFor({
-    observe: async () => {
-      const line = await world.page.locator(FOLD_LINE).evaluateAll((lines) => {
-        const last = lines.at(-1);
-        return last === undefined
-          ? null
-          : {
-              open: last.hasAttribute("data-open"),
-              says: last.textContent ?? "",
-            };
-      });
-      const reply = await world.page
+    observe: async () =>
+      world.page
         .locator(
           `${TRANSCRIPT} [data-testid="conductor-row"][data-row-kind="agent"]`,
         )
@@ -198,38 +183,19 @@ async function newestWakeTurn(
               .at(-1)
               ?.checkVisibility() ?? null,
           words,
-        );
-      return { line, replyShown: reply };
-    },
-    isDone: ({ line, replyShown }) =>
-      line !== null &&
-      line.open === open &&
-      replyShown === open &&
-      // Folded, the line is the reply's first sentence; open, the reply is
-      // drawn under it and the line does not say it again.
-      line.says.includes(words) === !open,
+        ),
+    isDone: (visible) => visible === true,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (seen, ms) =>
       new Error(
-        `after ${ms}ms the newest wake's turn was ${JSON.stringify(seen)}, not ${open ? "open with its reply on screen" : `folded to a line saying ${JSON.stringify(words)}`}`,
+        `after ${ms}ms the newest wake's reply saying ${JSON.stringify(words)} was not on screen (last match visible: ${String(seen)})`,
       ),
   });
 }
 
 Then(
-  "the newest wake's turn should be open, its reply saying {string} on screen",
+  "the reply to the newest wake should be on screen, saying {string}",
   async function (this: KoluWorld, words: string) {
-    await newestWakeTurn(this, true, words);
+    await wakeReplyShown(this, words);
   },
 );
-
-Then(
-  "the newest wake's turn should be one folded line saying {string}, its reply off screen",
-  async function (this: KoluWorld, words: string) {
-    await newestWakeTurn(this, false, words);
-  },
-);
-
-When("I open the newest wake's line", async function (this: KoluWorld) {
-  await this.page.locator(FOLD_LINE).last().click();
-});

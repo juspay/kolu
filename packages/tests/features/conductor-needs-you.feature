@@ -1,9 +1,8 @@
-Feature: The works that need you come first, and the chat goes quiet
+Feature: The works that need you come first, and you can point the chat at one
   A piece of work is somewhere you can go and something you can talk about.
   `@` in the Conductor's box offers works before terminals, and a message
   that names one carries its chip. Picking a work points the chat at it: the
-  turns about anything else step aside, and what you send is about it. A reply
-  to something kolu woke the Conductor with is one line until you open it. And
+  turns about anything else step aside, and what you send is about it. And
   the command palette lists the works, each row landing on its card through
   the same route a `#/work/…` link takes.
 
@@ -37,16 +36,14 @@ Feature: The works that need you come first, and the chat goes quiet
     Then my message "say hello" should be in sight
     And there should be no page errors
 
-  Scenario: A reply to a wake is one line once something newer is said
+  Scenario: A reply to a wake stays on screen once something newer is said
     Given a repo for the work
-    When I ask the conductor to open the work "fold the news"
+    When I ask the conductor to open the work "the news"
     And I answer the work's question with "hand-over" on the card
-    Then the newest wake's turn should be open, its reply saying "answered" on screen
+    Then the reply to the newest wake should be on screen, saying "answered"
     When I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "agent" saying "hello back"
-    And the newest wake's turn should be one folded line saying "answered", its reply off screen
-    When I open the newest wake's line
-    Then the newest wake's turn should be open, its reply saying "answered" on screen
+    And the reply to the newest wake should be on screen, saying "answered"
     And there should be no page errors
 
   Scenario: A question about a work chimes wherever you are

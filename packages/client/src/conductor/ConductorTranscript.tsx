@@ -74,13 +74,11 @@ import {
 } from "./transcriptScroll";
 import { type FileHolders, fileHolders } from "./namedFiles";
 import { chatScope } from "./chatScope";
-import { agentNotes, quietChat, type QuietTurn } from "./quietChat";
 import type { Turn } from "./turnWorks";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
 import { useWorkMap } from "./useWorks";
 import WorkChip from "./WorkChip";
-import WorkChipFace from "./WorkChipFace";
 import WorkQuestion from "./WorkQuestion";
 
 const NO_WORKS: ReadonlyArray<WorkId> = [];
@@ -155,113 +153,6 @@ const TurnHead: Component<{ rows: ReadonlyArray<ConductorRow> }> = (props) => {
   );
 };
 
-/** WHICH FOLDED LINES SOMEBODY HAS PRESSED, by the id of the row that starts
- *  the turn — an OVERRIDE of the default (`quietChat`'s `open`), not a copy
- *  of it, so a turn nobody has touched keeps following the rule as newer
- *  replies arrive and the newest one moves on without a press.
- *
- *  Module-level, like the composer's draft: the conversation is re-created on
- *  every visit to the entry, and a line a person opened must still be open
- *  when they come back from a host tab. It is DRAWING and nothing else —
- *  never persisted, never sent. */
-const [pressed, setPressed] = createSignal<Readonly<Record<string, boolean>>>(
-  {},
-);
-
-/** THE ONE LINE A FOLDED TURN IS — when it rang, which works it is about, and
- *  the first sentence of what kolu said about them.
- *
- *  A `<button>` rather than a `<details>`: the chips inside it are the work's
- *  own face (no button of their own) and the line must stay one tab stop,
- *  while the rows it opens are the transcript's own — they stay where they
- *  are in the column and are only HIDDEN, so opening a line is never a
- *  subtree being built again.
- *
- *  ON A PHONE it is two lines — the chips over the sentence — because a work's
- *  title and a sentence cannot share 390px without one of them becoming three
- *  words and an ellipsis. */
-const FoldLine: Component<{
-  turn: QuietTurn;
-  works: ReadonlyArray<WorkId>;
-  open: boolean;
-}> = (props) => {
-  const map = useWorkMap();
-  const when = createMemo(() => wakeWhen(props.turn.since));
-  const toggle = () =>
-    setPressed((was) => ({ ...was, [props.turn.head]: !props.open }));
-  return (
-    <button
-      type="button"
-      data-testid="conductor-fold-line"
-      data-turn={props.turn.head}
-      data-open={props.open ? "" : undefined}
-      data-quiet={props.turn.says.kind === "prose" ? undefined : ""}
-      aria-expanded={props.open}
-      onClick={toggle}
-      // A RUN OF FOLDED LINES IS A LIST, packed at the column's own gap; an
-      // open turn keeps the clear gap between turns.
-      class="flex w-full min-w-0 cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-sm text-left"
-      classList={{ "mt-4": props.open }}
-    >
-      {/* WHEN, AND WHICH WORKS — on a line of its own when there are several,
-          so the sentence is never squeezed to nothing beside them. Open, the
-          chips are the wake row's own (pressable, under it), so the line
-          keeps only its clock. */}
-      <span
-        class="flex min-w-0 max-w-full items-center gap-1.5"
-        classList={{ "basis-full": !props.open && props.works.length > 1 }}
-      >
-        <span aria-hidden="true" class="w-2 shrink-0 text-fg-3">
-          {props.open ? "▾" : "▸"}
-        </span>
-        <Show when={when()}>
-          {(clock) => (
-            <span class="shrink-0 font-mono text-[0.68rem] text-fg-3 tabular-nums">
-              {clock()}
-            </span>
-          )}
-        </Show>
-        <Show when={!props.open}>
-          <For each={props.works}>
-            {(id) => (
-              <Show when={map().get(id)}>
-                {(work) => (
-                  <span class="inline-flex min-w-0 max-w-[15ch] shrink">
-                    <WorkChipFace work={work()} />
-                  </span>
-                )}
-              </Show>
-            )}
-          </For>
-        </Show>
-      </span>
-      {/* THE NEWS ITSELF, one line that gives way with an ellipsis — and
-          wraps under the chips, never shrinks to nothing beside them. Open,
-          a reply's sentence is the first line of the reply drawn under it,
-          so it is not said twice; a note or a silence is still said here. */}
-      <Show when={!(props.open && props.turn.says.kind === "prose")}>
-        <span
-          data-testid="conductor-fold-says"
-          class="min-w-[16rem] flex-1 basis-0 truncate text-[0.8rem]"
-          classList={{
-            "text-fg-2": props.turn.says.kind === "prose",
-            "text-fg-3": props.turn.says.kind !== "prose",
-          }}
-        >
-          <Show when={props.turn.says.kind === "noted"}>
-            <span class="font-mono text-[0.68rem]">noted · </span>
-          </Show>
-          {props.turn.says.kind === "prose"
-            ? props.turn.says.headline
-            : props.turn.says.kind === "noted"
-              ? props.turn.says.text
-              : "no reply"}
-        </span>
-      </Show>
-    </button>
-  );
-};
-
 /** A QUESTION KOLU ASKED ABOUT A PIECE OF WORK, where it was asked.
  *
  *  The row is the conversation's log that the question went out; the WORK is
@@ -325,15 +216,6 @@ const ConductorTranscript: Component<{
     holders,
   };
 
-  /** THE FOLD: which turns are one line, what the line says, which one is
-   *  open before anybody presses, and how many replies have landed since the
-   *  last thing a person typed. The notes are read once per change of the
-   *  works, never per streamed chunk of the chat. */
-  const notes = createMemo(() => agentNotes(workMap()));
-  const quiet = createMemo(() => quietChat(props.rows, notes()));
-  /** Is this turn open — what somebody pressed, or the rule. */
-  const opened = (turn: QuietTurn): boolean =>
-    pressed()[turn.head] ?? turn.open;
   /** Does this row belong to the work the chat is pointed at? The SAME
    *  `turnWorks` reading the chips are drawn from, so a turn whose chip says
    *  a work and a turn the scope keeps are the same turns by construction. */
@@ -375,8 +257,8 @@ const ConductorTranscript: Component<{
    *  re-pin is idempotent). Its own dep of the follow effect below, and
    *  deliberately NOT part of `signature`: the pill's "something new down
    *  there" ring compares `signature`, and a diagram replacing its own source
-   *  is not new. Opening a folded list writes no HTML and never bumps it, so a
-   *  press does not start re-pinning the view. */
+   *  is not new. Opening a **Details** writes no HTML and never bumps it, so
+   *  a press does not start re-pinning the view. */
   const [redraws, setRedraws] = createSignal(0);
   const noteRedrawn = () => setRedraws((n) => n + 1);
 
@@ -518,76 +400,18 @@ const ConductorTranscript: Component<{
         <TurnsContext.Provider value={turnsContext}>
           <Key each={items()} by={(item) => item.key}>
             {(item) => {
-              /** The row this item starts at — which turn it belongs to, and
-               *  whether it is that turn's head, where the one line goes. */
+              /** The row this item starts at — which turn it belongs to. */
               const first = createMemo(() => rowsOf(item())[0] as ConductorRow);
-              const turn = createMemo(() => {
-                const one = quiet().of.get(first().id);
-                if (one === undefined)
-                  throw new Error(`transcript row ${first().id} has no turn`);
-                return one;
-              });
-              const works = createMemo(
-                () => turns().get(first().id)?.works ?? NO_WORKS,
-                NO_WORKS,
-                { equals: sameWorks },
-              );
-              /** A QUESTION IS NEVER FOLDED AWAY: it is the one thing in the
-               *  conversation that waits on a person. Nor is a proposal to
-               *  remember, nor a compaction. */
-              const kept = createMemo(
-                () =>
-                  turn().asks.has(first().id) ||
-                  first().kind === "compaction" ||
-                  first().kind === "memory-proposal",
-              );
-              const drawn = createMemo(
-                () =>
-                  inScope(first().id) &&
-                  (!turn().folds || opened(turn()) || kept()),
-              );
+              /** A chat pointed at one work draws only the turns about it. */
+              const drawn = createMemo(() => inScope(first().id));
               return (
                 <>
-                  {/* THE HEADING OVER THE RUN OF UNASKED REPLIES — only in
-                      the whole conversation: a chat pointed at one work is
-                      not a run of anything. */}
-                  <Show
-                    when={
-                      chatScope() === null &&
-                      quiet().since?.from === first().id &&
-                      quiet().since
-                    }
-                  >
-                    {(run) => (
-                      <p
-                        data-testid="conductor-since-heading"
-                        data-count={run().count}
-                        class="mt-5 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-fg-3"
-                      >
-                        Since your last message · {run().count}{" "}
-                        {run().count === 1 ? "update" : "updates"}
-                      </p>
-                    )}
-                  </Show>
-                  <Show
-                    when={
-                      turn().folds &&
-                      turn().head === first().id &&
-                      inScope(first().id)
-                    }
-                  >
-                    <FoldLine
-                      turn={turn()}
-                      works={works()}
-                      open={opened(turn())}
-                    />
-                  </Show>
                   {/* HIDDEN, NEVER UNMOUNTED. `display: contents` leaves the
                       item exactly where it was in the column — its own flex
-                      child, with the column's gaps — so a line that opens and
-                      closes is a class changing, not a `Markdown` subtree,
-                      an open `<details>` and a half-filled ask being built
-                      again. */}
+                      child, with the column's gaps — so pointing the chat at
+                      another work is a class changing, not a `Markdown`
+                      subtree, an open `<details>` and a half-filled ask being
+                      built again when the turns come back. */}
                   <div classList={{ contents: drawn(), hidden: !drawn() }}>
                     <TurnHead rows={rowsOf(item())} />
                     <Switch>
@@ -728,17 +552,16 @@ function TranscriptRow(props: {
         // released — without it the row passes its card's content width straight
         // up and the `min-w-0` above has nothing to do.
         //
-        // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: a
-        // person's message is the top of a new exchange. Everything else in a
-        // turn keeps the column's smaller `gap-2`, so the page reads as a few
-        // blocks rather than one evenly-spaced list — which is how a reply and
-        // the message it answers came to look equally far apart from
-        // everything around them. A TURN KOLU WOKE carries that gap on its
-        // fold line instead (`FoldLine`), which is above the wake row and is
-        // there whether the turn is open or closed.
+        // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: your
+        // message, or the wake-up kolu started a turn with. Everything else
+        // in a turn keeps the column's smaller `gap-2`, so the page reads as
+        // a few blocks rather than one evenly-spaced list — which is how a
+        // reply and the message it answers came to look equally far apart
+        // from everything around them.
         class="min-w-0"
         classList={{
-          "self-end max-w-[86%] mt-4": props.row.kind === "user",
+          "self-end max-w-[86%]": props.row.kind === "user",
+          "mt-4": props.row.kind === "user" || props.row.kind === "wake",
         }}
       >
         <Switch>
