@@ -400,10 +400,11 @@ const ConductorTranscript: Component<{
         <TurnsContext.Provider value={turnsContext}>
           <Key each={items()} by={(item) => item.key}>
             {(item) => {
-              /** The row this item starts at — which turn it belongs to. */
-              const first = createMemo(() => rowsOf(item())[0] as ConductorRow);
-              /** A chat pointed at one work draws only the turns about it. */
-              const drawn = createMemo(() => inScope(first().id));
+              /** A chat pointed at one work draws only the turns about it — the
+               *  turn of the row this item starts at. */
+              const drawn = createMemo(() =>
+                inScope((rowsOf(item())[0] as ConductorRow).id),
+              );
               return (
                 <>
                   {/* HIDDEN, NEVER UNMOUNTED. `display: contents` leaves the
